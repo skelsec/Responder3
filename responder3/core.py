@@ -97,7 +97,7 @@ class LogProcessor(multiprocessing.Process):
 		self.logsettings = logsettings
 
 		self.logger = None
-		self.extensionsQueue = multiprocessing.Queue()
+		self.extensionsQueues = []
 		self.resultHistory = {}
 
 
@@ -121,8 +121,10 @@ class LogProcessor(multiprocessing.Process):
 				continue
 
 			try:
+				tqueue = multiprocessing.Queue()
+				self.extensionsQueues.append(tqueue)
 				self.log(logging.DEBUG,'Lunching extention handler: %s' % (handlerclassname,))
-				hdl = handlerclass(self.extensionsQueue, self.resultQ, self.logsettings[self.logsettings['handlers'][handler]])
+				hdl = handlerclass(tqueue, self.resultQ, self.logsettings[self.logsettings['handlers'][handler]])
 				hdl.start()
 			except Exception as e:
 				self.log(logging.ERROR,'Error creating class %s Reason: %s' % (handlerclassname, e) )
@@ -150,7 +152,8 @@ class LogProcessor(multiprocessing.Process):
 		t = {}
 		t['type'] = 'Connection'
 		t['data'] = con.toDict()
-		self.extensionsQueue.put(t)
+		for tqueue in self.extensionsQueues:
+			tqueue.put(t)
 
 	def handleResult(self, result):
 		logging.log(logging.INFO, str(result.toDict()))
@@ -159,7 +162,8 @@ class LogProcessor(multiprocessing.Process):
 			t = {}
 			t['type'] = 'Result'
 			t['data'] = result.toDict()
-			self.extensionsQueue.put(t)
+			for tqueue in self.extensionsQueues:
+				tqueue.put(t)
 		else:
 			self.log(logging.INFO,'Duplicate result found! Filtered.')
 
