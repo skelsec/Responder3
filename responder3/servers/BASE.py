@@ -85,7 +85,9 @@ class Result():
 		if self.cleartext is not None:
 			m.update(self.cleartext.encode())
 		self.fullhash  = data.get('fullhash')
-		if self.fullhash is not None:
+		##some types needs to be excluded because they relay on some form of randomness in the auth protocol, 
+		##yielding different fullhash data for the same password
+		if self.fullhash is not None and self.type not in ['NTLMv1','NTLMv2']:
 			m.update(self.fullhash.encode())
 
 		self.fingerprint = m.hexdigest()
