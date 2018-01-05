@@ -7,6 +7,7 @@ class SMTPProtocol(ResponderProtocolTCP):
 	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
+		self.protocol = SMTPProtocol
 		self._buffer_maxsize = 1*1024
 
 	def _connection_made(self, transport):
@@ -39,16 +40,6 @@ class SMTP(ResponderServer):
 
 	def modulename(self):
 		return 'SMTP'
-
-	def run(self):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: SMTPProtocol(self),
-							host="",
-							port=self.port
-		)
-
-		return self.loop.run_until_complete(coro)
 
 	def handle(self, smtpcommand, transport):
 		try:

@@ -151,16 +151,8 @@ class HTTPReq():
 class HTTP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		self.protocol = HTTPProtocol
 		self.challenge = None
-
-	def run(self):
-		coro = self.loop.create_server(
-							protocol_factory=lambda: HTTPProtocol(self),
-							host="",
-							port=self.port
-		)
-
-		return self.loop.run_until_complete(coro)
 
 	def modulename(self):
 		return 'HTTP'
@@ -367,12 +359,3 @@ class HTTPS(HTTP):
 	def modulename(self):
 		return 'HTTPS'
 
-	def run(self, ssl_context):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: HTTPProtocol(self),
-							host="",
-							port=self.port,
-							ssl=ssl_context
-		)
-		return self.loop.run_until_complete(coro)

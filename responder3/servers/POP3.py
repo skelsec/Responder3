@@ -6,6 +6,7 @@ from responder3.packets import POPOKPacket
 class POP3(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		self.protocol = POP3Protocol
 		self.curstate = 0
 		self.User = None
 		self.Pass = None
@@ -13,16 +14,6 @@ class POP3(ResponderServer):
 
 	def modulename(self):
 		return 'POP3'
-
-	def run(self):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: POP3Protocol(self),
-							host="",
-							port=self.port
-		)
-
-		return self.loop.run_until_complete(coro)
 
 	def handle(self, data, transport):
 		try:
@@ -96,13 +87,3 @@ class POP3Protocol(ResponderProtocolTCP):
 class POP3S(POP3):
 	def modulename(self):
 		return 'POP3S'
-
-	def run(self, ssl_context):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: POP3Protocol(self),
-							host="",
-							port=self.port,
-							ssl=ssl_context
-		)
-		return self.loop.run_until_complete(coro)

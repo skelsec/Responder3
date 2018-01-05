@@ -9,6 +9,7 @@ import socket
 class ConnectionStatus(enum.Enum):
 	OPENED = 0
 	CLOSED = 1
+	STATELESS = 3
 
 class Connection():
 	def __init__(self, soc, status, rdnsd):
@@ -132,12 +133,39 @@ class ResponderServer(ABC):
 		self.rdnsd    = None
 
 	def setup(self, server, loop, logQ):
+		self.bind_addr = server.bind_addr
+		self.bind_port = server.bind_port
+		self.bind_family = server.bind_family
+		self.loop      = loop
+		self.logQ      = logQ
+		self.settings  = server.settings
+		self.rdnsd     = server.rdnsd
 
-		self.port     = server.bind_port
-		self.loop     = loop
-		self.logQ     = logQ
-		self.settings = server.settings
-		self.rdnsd    = server.rdnsd
+	def run(self, ssl_context = None):
+		print(ssl_context)
+		if ssl_context is None:
+			coro = self.loop.create_server(
+								protocol_factory=lambda: self.protocol(self),
+								host=str(self.bind_addr), 
+								port=self.bind_port,
+								family=self.bind_family,
+								reuse_address=True,
+								reuse_port=True
+			)
+
+		else:
+
+			coro = self.loop.create_server(
+								protocol_factory=lambda: self.protocol(self),
+								host=str(self.bind_addr), 
+								port=self.bind_port,
+								family=self.bind_family,
+								reuse_address=True,
+								reuse_port=True,
+								ssl=ssl_context
+			)
+
+		return self.loop.run_until_complete(coro)
 
 	def log(self, level, message):
 		if self.peername == None:
@@ -199,6 +227,39 @@ class ResponderProtocolTCP(asyncio.Protocol):
 	## Override this to access to connection lost function
 	def _connection_lost(self, exc):
 		return
+
+	## Override this to start handling the buffer, the data is in self._buffer as a string!
+	def _parsebuff():
+		return
+
+	## Override this to start handling the buffer
+	def _connection_made():
+		return
+
+class ResponderProtocolUDP(asyncio.DatagramProtocol):
+	
+	def __init__(self, server):
+		asyncio.DatagramProtocol.__init__(self)
+		self._transport = None
+		self._server = server
+		self._con = None
+		self._buffer_maxsize = 10*1024
+		self._request_data_size = self._buffer_maxsize
+		self._buffer = b''
+
+	def connection_made(self, transport):
+		self._transport = transport
+
+	def datagram_received(self, raw_data, addr):
+		#self._con = Connection(addr, ConnectionStatus.OPENED, self._server.rdnsd)
+		#self._server.logConnection(self._con)
+		#self._server.peername, self._server.peerport = self._con.getremoteaddr()
+		self._server.log(logging.INFO, 'New connection opened')
+
+		
+		self._buffer = raw_data
+		self._parsebuff(addr)
+		self._buffer = b''
 
 	## Override this to start handling the buffer, the data is in self._buffer as a string!
 	def _parsebuff():

@@ -1,11 +1,13 @@
 import logging
 import traceback
+import socket
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
 from responder3.packets import FTPPacket
 
 class FTP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		self.protocol = FTPProtocol
 		self.curstate = 0
 		self.User = None
 		self.Pass = None
@@ -13,16 +15,6 @@ class FTP(ResponderServer):
 
 	def modulename(self):
 		return 'FTP'
-
-	def run(self):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: FTPProtocol(self),
-							host="",
-							port=self.port
-		)
-
-		return self.loop.run_until_complete(coro)
 
 	def handle(self, data, transport):
 		try:

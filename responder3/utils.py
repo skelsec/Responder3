@@ -23,7 +23,22 @@ import time
 import datetime
 import json
 
-
 def HTTPCurrentDate():
 		Date = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT').encode()
 		return Date
+
+#values MUST be lists!
+defaultports = {
+	"HTTP" : [80],
+	"HTTPS": [443],
+	"FTP"  : [21],
+	"SMTP" : [25],
+	"POP3" : [110],
+	"POP3S": [995],
+	"IMAP" : [143],
+	"IMAPS": [993],
+	"SMB"  : [445],
+	"NBTNS": [137],
+	"LLMNR": [5355],
+	"MDNS" : [5353]
+}

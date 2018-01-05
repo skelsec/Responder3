@@ -6,6 +6,7 @@ from responder3.packets import IMAPGreeting, IMAPCapability, IMAPCapabilityEnd
 class IMAP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		self.protocol = IMAPProtocol
 		self.curstate = 0
 		self.User = None
 		self.Pass = None
@@ -13,16 +14,6 @@ class IMAP(ResponderServer):
 
 	def modulename(self):
 		return 'IMAP'
-
-	def run(self):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: IMAPProtocol(self),
-							host="",
-							port=self.port
-		)
-
-		return self.loop.run_until_complete(coro)
 
 	def handle(self, data, transport):
 		try:
@@ -100,13 +91,3 @@ class IMAPProtocol(ResponderProtocolTCP):
 class IMAPS(IMAP):
 	def modulename(self):
 		return 'IMAPS'
-
-	def run(self, ssl_context):
-
-		coro = self.loop.create_server(
-							protocol_factory=lambda: IMAPProtocol(self),
-							host="",
-							port=self.port,
-							ssl=ssl_context
-		)
-		return self.loop.run_until_complete(coro)

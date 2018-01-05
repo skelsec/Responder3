@@ -1,4 +1,5 @@
 recursive-include responder3/poisoners *
+recursive-include responder3/newpackets *
 recursive-include responder3/servers *
 recursive-include responder3/tests *
 recursive-include responder3/tools *

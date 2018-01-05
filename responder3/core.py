@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection
+import copy
 import os
 import ssl
 import socket
@@ -14,8 +14,9 @@ import asyncio
 import requests
 import json
 import datetime
+import ipaddress
 
-
+from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection
 
 multiprocessing.freeze_support()
 
@@ -29,13 +30,41 @@ class ServerProtocol(enum.Enum):
 	SSL = 2
 
 class Server():
-	def __init__(self, ip, port, handler, rdnsd, proto = ServerProtocol.TCP, settings = None):
-		self.bind_addr = ip
+	def __init__(self, ip, port, handler, rdnsd, proto = ServerProtocol.TCP, settings = None, sslsettings = None):
+		self.bind_addr   = None
+		self.bind_port   = None
+		self.bind_family = None
+		self.handler     = None
+		self.settings    = None
+		self.rdnsd       = None
+
+		if ip in ['',None]:
+			self.bind_addr = ipaddress.ip_address('0.0.0.0')
+		else:
+			self.bind_addr = ipaddress.ip_address(ip)
+
 		self.bind_port = port
-		self.proto     = proto
+		self.bind_family = socket.AF_INET if self.bind_addr.version == 4 else socket.AF_INET6
 		self.handler   = handler
-		self.settings  = settings
 		self.rdnsd     = rdnsd
+
+		if settings is not None:
+			self.settings  = copy.deepcopy(settings)
+
+		if sslsettings is not None:
+			if settings is None:
+				self.settings = {}
+			
+			self.settings['SSL'] = copy.deepcopy(sslsettings)
+
+		if proto is None:
+			self.proto = ServerProtocol.TCP
+			if self.settings is not None and 'SSL' in self.settings:
+				self.proto = ServerProtocol.SSL
+		elif isinstance(proto, ServerProtocol):
+			self.proto = ServerProtocol.TCP
+		else:
+			self.proto = ServerProtocol(proto)
 
 	def getaddr(self):
 		return ((self.bind_addr, self.bind_port))
@@ -51,12 +80,13 @@ class AsyncSocketServer(multiprocessing.Process):
 	def __init__(self, server, resultQ):
 		multiprocessing.Process.__init__(self)
 		self.server    = server
+		self.modulename = '%s-%d' % (self.server.handler.__name__, self.server.bind_port)
 		self.resultQ   = resultQ
 		self.loop      = None
 
 
 	def log(self, level, message):
-		self.resultQ.put(LogEntry(level, self.name, message))
+		self.resultQ.put(LogEntry(level, self.modulename, message))
 
 	def setup(self):
 		self.loop = asyncio.get_event_loop()
@@ -69,6 +99,10 @@ class AsyncSocketServer(multiprocessing.Process):
 			s = self.server.handler()
 			s.setup(self.server, self.loop, self.resultQ)
 			s.run(context)
+		elif self.server.proto == ServerProtocol.UDP:
+			s = self.server.handler()
+			s.setup(self.server, self.loop, self.resultQ)
+			s.run()
 		else:
 			raise Exception('Protocol not implemented!')
 
@@ -82,9 +116,9 @@ class AsyncSocketServer(multiprocessing.Process):
 
 
 	def run(self):
-		self.log(logging.INFO,'Starting SocketServer')
+		self.log(logging.INFO,'Starting server!')
 		self.setup()
-		self.log(logging.INFO,'SocketServer setup complete!')
+		self.log(logging.INFO,'Server started on %s:%d!' % (self.server.bind_addr, self.server.bind_port))
 		self.loop.run_forever()
 
 
