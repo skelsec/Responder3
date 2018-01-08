@@ -75,6 +75,7 @@ FTPReplyCode = {
 	'502' : "Command not implemented.",
 	'503' : "Bad sequence of commands.", 
 	'504' : "Command not implemented for that parameter.",
+	'522' : "Protocol not implemented",
 	'530' : "Not logged in.",
 	'532' : "Need account for storing files.",
 	'550' : "Requested action not taken.",  #File unavailable (e.g., file not found, no access).
@@ -231,12 +232,14 @@ class FTPReply():
 		if self.isMultiLine:
 			self.replyMessage = ''
 			while True:
-				line = buff.readline().decode('ascii')
+				line = buff.readline().decode('ascii')[:-2]
+				if line == '':
+					raise Exception('Parsing error!')
 				
-				if line[4:] == str(self.replyCode) + ' ':
+				if line[:4] == str(self.replyCode) + ' ':
 					self.replyMessage += line[4:]
 					break
-				self.replyMessage += line
+				self.replyMessage += line + '\\r\\n'
 
 		else:
 			self.replyMessage = buff.readline().decode('ascii')
