@@ -22,14 +22,22 @@ import socket
 import time
 import datetime
 import json
+import enum
 
 def HTTPCurrentDate():
 		Date = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT').encode()
 		return Date
 
+
+class ServerProtocol(enum.Enum):
+	TCP = 0
+	UDP = 1
+	SSL = 2
+
 #values MUST be lists!
 defaultports = {
-	"HTTP" : [80],
+	"DNS"  : [53],
+ 	"HTTP" : [80],
 	"HTTPS": [443],
 	"FTP"  : [21],
 	"SMTP" : [25],

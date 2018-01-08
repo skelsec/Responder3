@@ -7,16 +7,16 @@ import enum
 import traceback
 import ipaddress
 
-from responder3.newpackets.LLMNR import * 
 from responder3.newpackets.DNS import * 
 from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP
 
-class LLMNR(ResponderServer):
+class MDNS(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		self.protocol = MDNSProtocol
 
 	def modulename(self):
-		return 'LLMNR'
+		return 'MDNS'
 
 	def run(self):
 		#need to do some wizardy with the socket setting here
@@ -28,7 +28,7 @@ class LLMNR(ResponderServer):
 		sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
 		coro = self.loop.create_datagram_endpoint(
-							protocol_factory=lambda: LLMNRProtocol(self),
+							protocol_factory=lambda: MDNSProtocol(self),
 							sock = sock
 		)
 
@@ -38,9 +38,9 @@ class LLMNR(ResponderServer):
 		try:
 			#self.log(logging.DEBUG,'Handle called with data: ' + data.hex())
 			print(repr(packet))
-			pp = self.poison(packet, ipaddress.ip_address('192.168.11.11'))
-			transport.sendto(pp.toBytes(), addr)
-			self.log(logging.DEBUG,'Sending response!')
+			#pp = self.poison(packet, ipaddress.ip_address('192.168.11.11'))
+			#transport.sendto(pp.toBytes(), addr)
+			#self.log(logging.DEBUG,'Sending response!')
 			
 
 		except Exception as e:
@@ -48,28 +48,28 @@ class LLMNR(ResponderServer):
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
 
-	
 	def poison(self, requestPacket, poisonAddr, poisonName = None):
 		self.log(logging.DEBUG,'Poisoning!')
 		res = DNSResource()
 		res.construct(requestPacket.Questions[0].QNAME.name, DNSType.A, poisonAddr)
-		pp = LLMNRPacket()
+		pp = DNSPacket()
 
 		pp.construct(TID = requestPacket.TransactionID, 
-					 response = LLMNRResponse.RESPONSE, 
-					 answers = [res],
+					 response  = DNSResponse.RESPONSE, 
+					 answers   = [res],
 					 questions = requestPacket.Questions)
 
 		return pp
-		
 
 
-class LLMNRProtocol(ResponderProtocolUDP):
+class MDNSProtocol(ResponderProtocolUDP):
 	
 	def __init__(self, server):
 		ResponderProtocolUDP.__init__(self, server)
 
 	def _parsebuff(self, addr):
-		print(self._buffer)
-		packet = LLMNRPacket(io.BytesIO(self._buffer))
+		#self._server.log(logging.INFO,'Buffer contents: %s' % (self._buffer.hex()))
+		data = io.BytesIO(self._buffer)
+		packet = DNSPacket(data)
+		#self._server.log(logging.INFO,'Remained data: ' + data.read().hex())
 		self._server.handle(packet, addr, self._transport)

@@ -5,6 +5,11 @@ import logging
 import datetime
 import enum
 import socket
+import os
+import traceback
+
+
+from responder3.utils import ServerProtocol
 
 class ConnectionStatus(enum.Enum):
 	OPENED = 0
@@ -60,7 +65,7 @@ class Connection():
 class Result():
 	def __init__(self,data = None):
 		self.module    = None
-		self.type  = None 
+		self.type      = None 
 		self.client    = None
 		self.user      = None
 		self.cleartext = None
@@ -124,37 +129,34 @@ class LogEntry():
 
 class ResponderServer(ABC):
 	def __init__(self):
-		self.port     = None
-		self.loop     = None
-		self.logQ     = None
-		self.settings = None
-		self.peername = None #this is set when a connection is made!
-		self.peerport = None
-		self.rdnsd    = None
+		self.port      = None
+		self.loop      = None
+		self.logQ      = None
+		self.settings  = None
+		self.peername  = None #this is set when a connection is made!
+		self.peerport  = None
+		self.rdnsd     = None
+		self.bind_addr = None
+		self.bind_port = None
+		self.bind_family = None
+		self.bind_proto  = None
 
-	def setup(self, server, loop, logQ):
+	def _setup(self, server, loop, logQ):
 		self.bind_addr = server.bind_addr
 		self.bind_port = server.bind_port
 		self.bind_family = server.bind_family
+		self.bind_proto  = server.proto
 		self.loop      = loop
 		self.logQ      = logQ
 		self.settings  = server.settings
 		self.rdnsd     = server.rdnsd
+		self.setup()
 
 	def run(self, ssl_context = None):
-		print(ssl_context)
-		if ssl_context is None:
-			coro = self.loop.create_server(
-								protocol_factory=lambda: self.protocol(self),
-								host=str(self.bind_addr), 
-								port=self.bind_port,
-								family=self.bind_family,
-								reuse_address=True,
-								reuse_port=True
-			)
-
-		else:
-
+		"""
+		TODO: SSL over UDP ?
+		"""
+		if self.bind_proto in [ServerProtocol.TCP, ServerProtocol.SSL]:
 			coro = self.loop.create_server(
 								protocol_factory=lambda: self.protocol(self),
 								host=str(self.bind_addr), 
@@ -163,6 +165,13 @@ class ResponderServer(ABC):
 								reuse_address=True,
 								reuse_port=True,
 								ssl=ssl_context
+			)
+
+		elif self.bind_proto == ServerProtocol.UDP:
+			coro = self.loop.create_datagram_endpoint(
+							protocol_factory=lambda: self.protocol(self),
+							local_addr=(str(self.bind_addr), self.bind_port),
+							family=self.bind_family
 			)
 
 		return self.loop.run_until_complete(coro)
@@ -180,6 +189,9 @@ class ResponderServer(ABC):
 	def logConnection(self, conn):
 		self.logQ.put(conn)
 
+	def setup(self):
+		pass
+
 	@abstractmethod
 	def modulename(self):
 		pass
@@ -194,11 +206,11 @@ class ResponderProtocolTCP(asyncio.Protocol):
 	def __init__(self, server):
 		asyncio.Protocol.__init__(self)
 		self._server = server
-		self._con = None
-		self._buffer_maxsize = 10*1024
-		self._request_data_size = self._buffer_maxsize
-		self._transport = None
-		self._buffer = ''
+		self._con            = None
+		self._buffer_maxsize = 10*1024 #if the buffer becomes bigger than this, an exception will be raised
+		self._parsed_length  = None    #most TCP based protocols contain a length of the data to be read, reaching this length will trigger a call to _parsebuff
+		self._transport      = None
+		self._buffer         = b''
 
 
 	def connection_made(self, transport):
@@ -211,12 +223,27 @@ class ResponderProtocolTCP(asyncio.Protocol):
 
 	def data_received(self, raw_data):
 		try:
-			data = raw_data.decode('utf-8')
-		except Exception as e:
-			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e))
-		else:
-			self._buffer += data
+			self._buffer += raw_data
+			if len(self._buffer) >= self._buffer_maxsize:
+				raise Exception('Input data too large!')
+		
+			if 'R3DEEPDEBUG' in os.environ:
+				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
+				self._server.log(logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()))
+
+			
 			self._parsebuff()
+
+			if 'R3DEEPDEBUG' in os.environ:
+				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
+				self._server.log(logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()))
+
+		
+		except Exception as e:
+			traceback.print_exc()
+			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e))
+			
+			
 
 	def connection_lost(self, exc):
 		self._con.status = ConnectionStatus.CLOSED
@@ -233,19 +260,18 @@ class ResponderProtocolTCP(asyncio.Protocol):
 		return
 
 	## Override this to start handling the buffer
-	def _connection_made():
+	def _connection_made(self, transport):
 		return
 
 class ResponderProtocolUDP(asyncio.DatagramProtocol):
 	
 	def __init__(self, server):
 		asyncio.DatagramProtocol.__init__(self)
-		self._transport = None
-		self._server = server
-		self._con = None
+		self._transport      = None
+		self._server         = server
+		self._con            = None
 		self._buffer_maxsize = 10*1024
-		self._request_data_size = self._buffer_maxsize
-		self._buffer = b''
+		self._buffer         = io.BytesIO()
 
 	def connection_made(self, transport):
 		self._transport = transport
@@ -255,9 +281,7 @@ class ResponderProtocolUDP(asyncio.DatagramProtocol):
 		#self._server.logConnection(self._con)
 		#self._server.peername, self._server.peerport = self._con.getremoteaddr()
 		self._server.log(logging.INFO, 'New connection opened')
-
-		
-		self._buffer = raw_data
+		self._buffer.write(raw_data)
 		self._parsebuff(addr)
 		self._buffer = b''
 

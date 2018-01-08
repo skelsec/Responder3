@@ -16,6 +16,7 @@ import json
 import datetime
 import ipaddress
 
+from responder3.utils import ServerProtocol
 from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection
 
 multiprocessing.freeze_support()
@@ -23,11 +24,6 @@ multiprocessing.freeze_support()
 class TaskCmd(enum.Enum):
 	STOP = 0
 	PROCESS = 1
-
-class ServerProtocol(enum.Enum):
-	TCP = 0
-	UDP = 1
-	SSL = 2
 
 class Server():
 	def __init__(self, ip, port, handler, rdnsd, proto = ServerProtocol.TCP, settings = None, sslsettings = None):
@@ -62,9 +58,9 @@ class Server():
 			if self.settings is not None and 'SSL' in self.settings:
 				self.proto = ServerProtocol.SSL
 		elif isinstance(proto, ServerProtocol):
-			self.proto = ServerProtocol.TCP
+			self.proto = proto
 		else:
-			self.proto = ServerProtocol(proto)
+			self.proto = ServerProtocol[proto]
 
 	def getaddr(self):
 		return ((self.bind_addr, self.bind_port))
@@ -92,16 +88,16 @@ class AsyncSocketServer(multiprocessing.Process):
 		self.loop = asyncio.get_event_loop()
 		if self.server.proto == ServerProtocol.TCP:
 			s = self.server.handler()
-			s.setup(self.server, self.loop, self.resultQ)
+			s._setup(self.server, self.loop, self.resultQ)
 			s.run()
 		elif self.server.proto == ServerProtocol.SSL:
 			context = self.create_ssl_context()
 			s = self.server.handler()
-			s.setup(self.server, self.loop, self.resultQ)
+			s._setup(self.server, self.loop, self.resultQ)
 			s.run(context)
 		elif self.server.proto == ServerProtocol.UDP:
 			s = self.server.handler()
-			s.setup(self.server, self.loop, self.resultQ)
+			s._setup(self.server, self.loop, self.resultQ)
 			s.run()
 		else:
 			raise Exception('Protocol not implemented!')

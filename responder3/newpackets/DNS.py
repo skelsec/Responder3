@@ -1,4 +1,8 @@
 import enum
+import io
+import ipaddress
+
+from responder3.utils import ServerProtocol
 
 class DNSResponseCode(enum.Enum):
 	NOERR = 0 #No error condition
@@ -19,24 +23,58 @@ class DNSResponseCode(enum.Enum):
 	RESERVED15 = 15
 
 class DNSType(enum.Enum):
-	A     = 1 #a host address (IPv4)
-	NS    = 2 #an authoritative name server
-	MD    = 3 #a mail destination (Obsolete - use MX)
-	MF    = 4 #a mail forwarder (Obsolete - use MX)
-	CNAME = 5 #the canonical name for an alias
-	SOA   = 6 #marks the start of a zone of authority
-	MB    = 7 #a mailbox domain name (EXPERIMENTAL)
-	MG    = 8 #a mail group member (EXPERIMENTAL)
-	MR    = 9 #a mail rename domain name (EXPERIMENTAL)
-	NULL  = 10 #a null RR (EXPERIMENTAL)
-	WKS   = 11 #a well known service description
-	PTR   = 12 #a domain name pointer
-	HINFO = 13 #host information
-	MINFO = 14 #mailbox or mail list information
-	MX    = 15 #mail exchange
-	TXT   = 16 #text strings
-	AAAA  = 28 #a host address (IPv4)
-	ANY   = 255 #EVERYTHING
+	A          = 1 #a host address (IPv4)
+	NS         = 2 #an authoritative name server
+	MD         = 3 #a mail destination (Obsolete - use MX)
+	MF         = 4 #a mail forwarder (Obsolete - use MX)
+	CNAME      = 5 #the canonical name for an alias
+	SOA        = 6 #marks the start of a zone of authority
+	MB         = 7 #a mailbox domain name (EXPERIMENTAL)
+	MG         = 8 #a mail group member (EXPERIMENTAL)
+	MR         = 9 #a mail rename domain name (EXPERIMENTAL)
+	NULL       = 10 #a null RR (EXPERIMENTAL)
+	WKS        = 11 #a well known service description
+	PTR        = 12 #a domain name pointer
+	HINFO      = 13 #host information
+	MINFO      = 14 #mailbox or mail list information
+	MX         = 15 #mail exchange
+	TXT        = 16 #text strings
+	RP         = 17 #RFC 1183 	Responsible Person 	Information about the responsible person(s) for the domain. Usually an email address with the @ replaced by a .
+	AFSDB      = 18 #RFC 1183 	AFS database record 	Location of database servers of an AFS cell. This record is commonly used by AFS clients to contact AFS cells outside their local domain. A subtype of this record is used by the obsolete DCE/DFS file system.
+	SIG        = 24 #RFC 2535 	Signature 	Signature record used in SIG(0) (RFC 2931) and TKEY (RFC 2930).[7] RFC 3755 designated RRSIG as the replacement for SIG for use within DNSSEC.[7]
+	KEY        = 25 #RFC 2535[3] and RFC 2930[4] 	Key record 	Used only for SIG(0) (RFC 2931) and TKEY (RFC 2930).[5] RFC 3445 eliminated their use for application keys and limited their use to DNSSEC.[6] RFC 3755 designates DNSKEY as the replacement within DNSSEC.[7] RFC 4025 designates IPSECKEY as the replacement for use with IPsec.[8]
+	AAAA       = 28 #RFC 3596[2] 	IPv6 address record 	Returns a 128-bit IPv6 address, most commonly used to map hostnames to an IP address of the host.
+	LOC        = 29 #RFC 1876 	Location record 	Specifies a geographical location associated with a domain name
+	SRV        = 33 #RFC 2782 	Service locator 	Generalized service location record, used for newer protocols instead of creating protocol-specific records such as MX.
+	NAPTR      = 35 #RFC 3403 	Naming Authority Pointer 	Allows regular-expression-based rewriting of domain names which can then be used as URIs, further domain names to lookups, etc.
+	KX         = 36 #RFC 2230 	Key Exchanger record 	Used with some cryptographic systems (not including DNSSEC) to identify a key management agent for the associated domain-name. Note that this has nothing to do with DNS Security. It is Informational status, rather than being on the IETF standards-track. It has always had limited deployment, but is still in use.
+	CERT       = 37 #RFC 4398 	Certificate record 	Stores PKIX, SPKI, PGP, etc.
+	DNAME      = 39 #RFC 6672 		Alias for a name and all its subnames, unlike CNAME, which is an alias for only the exact name. Like a CNAME record, the DNS lookup will continue by retrying the lookup with the new name.
+	OPT        = 41 #RFC 6891 	Option 	This is a "pseudo DNS record type" needed to support EDNS
+	APL        = 42 #RFC 3123 	Address Prefix List 	Specify lists of address ranges, e.g. in CIDR format, for various address families. Experimental.
+	DS         = 43 #RFC 4034 	Delegation signer 	The record used to identify the DNSSEC signing key of a delegated zone
+	SSHFP      = 44 #RFC 4255 	SSH Public Key Fingerprint 	Resource record for publishing SSH public host key fingerprints in the DNS System, in order to aid in verifying the authenticity of the host. RFC 6594 defines ECC SSH keys and SHA-256 hashes. See the IANA SSHFP RR parameters registry for details.
+	IPSECKEY   = 45 #RFC 4025 	IPsec Key 	Key record that can be used with IPsec
+	RRSIG      = 46 #RFC 4034 	DNSSEC signature 	Signature for a DNSSEC-secured record set. Uses the same format as the SIG record.
+	NSEC       = 47 #RFC 4034 	Next Secure record 	Part of DNSSEC—used to prove a name does not exist. Uses the same format as the (obsolete) NXT record.
+	DNSKEY     = 48 #RFC 4034 	DNS Key record 	The key record used in DNSSEC. Uses the same format as the KEY record.
+	DHCID      = 49 #RFC 4701 	DHCP identifier 	Used in conjunction with the FQDN option to DHCP
+	NSEC3      = 50 #RFC 5155 	Next Secure record version 3 	An extension to DNSSEC that allows proof of nonexistence for a name without permitting zonewalking
+	NSEC3PARAM = 51 #RFC 5155 	NSEC3 parameters 	Parameter record for use with NSEC3
+	TLSA       = 52 #RFC 6698 	TLSA certificate association 	A record for DANE. RFC 6698 defines "The TLSA DNS resource record is used to associate a TLS server certificate or public key with the domain name where the record is found, thus forming a 'TLSA certificate association'".
+	HIP        = 55 #RFC 8005 	Host Identity Protocol 	Method of separating the end-point identifier and locator roles of IP addresses.
+	CDS        = 59 #RFC 7344 	Child DS 	Child copy of DS record, for transfer to parent
+	CDNSKEY    = 60 #RFC 7344 	Child DNSKEY 	Child copy of DNSKEY record, for transfer to parent
+	OPENPGPKEY = 61 #RFC 7929 	OpenPGP public key record 	A DNS-based Authentication of Named Entities (DANE) method for publishing and locating OpenPGP public keys in DNS for a specific email address using an OPENPGPKEY DNS resource record.
+	TKEY       = 249 #RFC 2930 	Transaction Key record 	A method of providing keying material to be used with TSIG that is encrypted under the public key in an accompanying KEY RR.[10]
+	TSIG       = 250 #RFC 2845 	Transaction Signature 	Can be used to authenticate dynamic updates as coming from an approved client, or to authenticate responses as coming from an approved recursive name server[11] similar to DNSSEC.
+	IXFR 	   = 251 #RFC 1996 	Incremental Zone Transfer 	Requests a zone transfer of the given zone but only differences from a previous serial number. This request may be ignored and a full (AXFR) sent in response if the authoritative server is unable to fulfill the request due to configuration or lack of required deltas.
+	AXFR       = 252 #RFC 1035[1] 	Authoritative Zone Transfer 	Transfer entire zone file from the master name server to secondary name servers.
+	ANY        = 255 #EVERYTHING
+	URI        = 256 #RFC 7553 	Uniform Resource Identifier 	Can be used for publishing mappings from hostnames to URIs.
+	CAA        = 257 #RFC 6844 	Certification Authority Authorization 	DNS Certification Authority Authorization, constraining acceptable CAs for a host/domain
+	
+
 
 class DNSClass(enum.Enum):
 	IN = 1 #the Internet
@@ -45,66 +83,227 @@ class DNSClass(enum.Enum):
 	HS = 4 #Hesiod [Dyer 87]
 	ANY = 255
 
+class DNSOpcode(enum.Enum):
+	QUERY = 0 #a standard query ()
+	IQUERY = 1 #an inverse query ()
+	STATUS = 2 #a server status request ()
+	RESERVED3 = 3
+	RESERVED4 = 4
+	RESERVED5 = 5
+	RESERVED6 = 6
+	RESERVED7 = 7
+	RESERVED8 = 8
+	RESERVED9 = 9
+	RESERVED10 = 10
+	RESERVED11 = 11
+	RESERVED12 = 12
+	RESERVED13 = 13
+	RESERVED14 = 14
+	RESERVED15 = 15
+
+#the upper bit is always zero and must never be set
+class DNSFlags(enum.IntEnum):
+	AA         = 0x40 #Authoritative Answer
+	TC         = 0x20 #TrunCation
+	RD         = 0x10 #Recursion Desired
+	RA         = 0x8  #Recursion Available
+	RESERVED1  = 0x4
+	RESERVED2  = 0x2
+	RESERVED3  = 0x1
+	ZERO       = 0x0 # <<< this should not be here, something is missing???
+
+class DNSResponse(enum.Enum):
+	REQUEST = 0 #Query
+	RESPONSE = 1
+
+class DNSPacket():
+	def __init__(self, data = None, proto = ServerProtocol.UDP):
+		self.proto     = proto
+		self.PACKETLEN = None #this is for TCP
+		self.TransactionID = None
+		self.QR = None
+		self.Opcode = None
+		self.FLAGS = None
+		self.Rcode = None
+		self.QDCOUNT = None
+		self.ANCOUNT = None
+		self.NSCOUNT = None
+		self.ARCOUNT = None
+
+		self.Questions = []
+		self.Answers   = []
+		self.Authorities = []
+		self.Additionals = []
+
+
+
+		if data is not None:
+			self.parse(data)
+
+	def parse(self, data):
+		if self.proto == ServerProtocol.UDP:
+			self.PACKETLEN = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		self.TransactionID = data.read(2)
+		temp = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+
+		self.QR     = DNSResponse(temp >> 15)
+		self.Opcode = DNSOpcode((temp & 0x7800) >> 11) 
+		self.FLAGS  = DNSFlags((temp  >> 4) & 0x7F)
+		self.Rcode  = DNSResponseCode(temp & 0xF)
+
+		self.QDCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		self.ANCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		self.NSCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		self.ARCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+
+		t = '== DNS Packet ==\r\n'
+		t+= 'TransactionID:  %s\r\n' % self.TransactionID.hex()
+		t+= 'QR:  %s\r\n' % self.QR.name
+		t+= 'Opcode: %s\r\n' % self.Opcode.name
+		t+= 'FLAGS: %s\r\n' % repr(self.FLAGS)
+		t+= 'Rcode: %s\r\n' % self.Rcode.name
+		t+= 'QDCOUNT: %s\r\n' % self.QDCOUNT
+		t+= 'ANCOUNT: %s\r\n' % self.ANCOUNT
+		t+= 'NSCOUNT: %s\r\n' % self.NSCOUNT
+		t+= 'ARCOUNT: %s\r\n' % self.ARCOUNT
+		
+		for i in range(0, self.QDCOUNT):
+			dnsq = DNSQuestion(data)
+			self.Questions.append(dnsq)
+
+		
+		for i in range(0, self.ANCOUNT):
+			dnsr = DNSResource(data)
+			self.Answers.append(dnsr)
+
+		for i in range(0, self.NSCOUNT):
+			dnsr = DNSResource(data)
+			self.Answers.append(dnsr)
+
+		for i in range(0, self.ARCOUNT):
+			dnsr = DNSResource(data)
+			self.Answers.append(dnsr)
+		
+
+	def __repr__(self):
+		t = '== DNS Packet ==\r\n'
+		t+= 'TransactionID:  %s\r\n' % self.TransactionID.hex()
+		t+= 'QR:  %s\r\n' % self.QR.name
+		t+= 'Opcode: %s\r\n' % self.Opcode.name
+		t+= 'FLAGS: %s\r\n' % repr(self.FLAGS)
+		t+= 'Rcode: %s\r\n' % self.Rcode.name
+		t+= 'QDCOUNT: %s\r\n' % self.QDCOUNT
+		t+= 'ANCOUNT: %s\r\n' % self.ANCOUNT
+		t+= 'NSCOUNT: %s\r\n' % self.NSCOUNT
+		t+= 'ARCOUNT: %s\r\n' % self.ARCOUNT
+
+		for question in self.Questions:
+			t+= repr(question)
+
+		for answer in self.Answers:
+			t+= repr(answer)
+
+		return t
+
+	def toBytes(self):
+		if self.proto == ServerProtocol.TCP:
+			t = self.PACKETLEN.to_bytes(2, byteorder = 'big', signed=False)
+		else:
+			t = b''
+		t += self.TransactionID
+
+		a  = self.Rcode.value
+		a |= (self.FLAGS << 4 ) & 0x7F0
+		a |= (self.Opcode.value << 11) & 0x7800
+		a |= (self.QR.value << 15) & 0x8000
+		t += a.to_bytes(2, byteorder = 'big', signed = False)
+
+		t += self.QDCOUNT.to_bytes(2, byteorder = 'big', signed=False)
+		t += self.ANCOUNT.to_bytes(2, byteorder = 'big', signed=False)
+		t += self.NSCOUNT.to_bytes(2, byteorder = 'big', signed=False)
+		t += self.ARCOUNT.to_bytes(2, byteorder = 'big', signed=False)
+
+
+		for q in self.Questions:
+			t += q.toBytes()
+
+		for q in self.Answers:
+			t += q.toBytes()
+
+		for q in self.Authorities:
+			t += q.toBytes()
+
+		for q in self.Additionals:
+			t += q.toBytes()
+
+		return t
+
+	def construct(self, TID, response,  flags = 0, opcode = DNSOpcode.QUERY, rcode = DNSResponseCode.NOERR, 
+					questions= [], answers= [], authorities = [], additionals = []):
+		self.TransactionID = TID
+		self.QR      = response
+		self.Opcode  = opcode
+		self.FLAGS   = flags
+		self.Rcode   = rcode
+		self.QDCOUNT = len(questions)
+		self.ANCOUNT = len(answers)
+		self.NSCOUNT = len(authorities)
+		self.ARCOUNT = len(additionals)
+
+		self.Questions   = questions
+		self.Answers     = answers
+		self.Authorities = authorities
+		self.Additionals = additionals
 
 
 class DNSQuestion():
 	def __init__(self, data = None):
-		self.QNAME_LEN = None
-		self.QNAME = None
-		self.QTYPE = None
+		self.QNAME  = None
+		self.QTYPE  = None
 		self.QCLASS = None
+		self.QU     = None
 
 		if data is not None:
 			self.parse(data)
 
 	def parse(self, data):
 		#data is io.byteio!!!!!
-		self.QNAME_LEN = data.read(1)[0]
-		self.QNAME = ''
-		if self.QNAME_LEN == 32:
-			self.decode_NS(data.read(self.QNAME_LEN))
-			data.read(1)
-		else:
-			self.QNAME  = data.read(self.QNAME_LEN).decode()
-			data.read(1)
-		self.QTYPE  = DNSType(int.from_bytes(data.read(2), byteorder = 'big'))
-		self.QCLASS = DNSClass(int.from_bytes(data.read(2), byteorder = 'big'))
+		self.QNAME  = DNSName(data)
+		self.QTYPE  = DNSType(int.from_bytes(data.read(2), byteorder = 'big', signed = False))
+		temp = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
+		self.QCLASS = DNSClass(temp & 0x7fff)
+		self.QU     = bool((temp & 0x8000) >> 15)
 
 	def toBytes(self):
-		t  = self.QNAME_LEN.to_bytes(1, byteorder = 'big')
-		t += self.QNAME.encode() + b'\x00'
+		t  = self.QNAME.toBytes()
 		t += self.QTYPE.value.to_bytes(2, byteorder = 'big', signed = False)
-		t += self.QCLASS.value.to_bytes(2, byteorder = 'big', signed = False)
+		a  = self.QCLASS.value
+		a |= int(self.QU) << 15
+		t += a.to_bytes(2, byteorder = 'big', signed = False)
 
 		return t
 
-	def construct(self, qname, qtype, qclass):
-		self.QNAME_LEN = len(qname.encode()) + 1 #ending zero!
-		self.QNAME     = qname
+	def construct(self, qname, qtype, qclass, qu = False):
+		self.QNAME     = DNSName()
+		self.NAME.construct(qname)
 		self.QTYPE     = qtype
 		self.QCLASS    = qclass
-
-	def decode_NS(self, encoded_name):
-		#encoded http://www.ietf.org/rfc/rfc1001.txt
-		transform = [((i - 0x41)& 0x0F) for i in encoded_name]
-		i = 0
-		while i < len(transform):
-			self.QNAME += chr(transform[i] << 4 | transform[i+1] ) 
-			i+=2
+		self.QU        = qu
 
 	def __repr__(self):
 		t = '== DNSQuestion ==\r\n'
-		t+= 'QNAME:  %s\r\n' % self.QNAME
+		t+= 'QNAME:  %s\r\n' % self.QNAME.name
 		t+= 'QTYPE:  %s\r\n' % self.QTYPE.name
 		t+= 'QCLASS: %s\r\n' % self.QCLASS.name
+		t+= 'QU    : %s\r\n' % self.QU
 		return t
 
 class DNSResource():
 	def __init__(self, data = None):
-		self.NAME_LEN = None
 		self.NAME     = None
 		self.TYPE     = None
 		self.CLASS    = None
+		self.CFLUSH   = None
 		self.TTL      = None
 		self.RDLENGTH = None
 		self.RDATA    = None
@@ -114,38 +313,43 @@ class DNSResource():
 			self.parse(data)
 
 	def parse(self, data):
-		self.NAME_LEN = data.read(1)[0]
-		self.NAME     = data.read(self.NAME_LEN).decode()
+		self.NAME     = DNSName(data)
 		self.TYPE     = DNSType(int.from_bytes(data.read(2), byteorder = 'big'))
-		self.CLASS    = DNSClass(int.from_bytes(data.read(2), byteorder = 'big'))
+		temp = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
+		self.CLASS    = DNSClass(temp & 0x7fff)
+		self.CFLUSH   = bool((temp & 0x8000) >> 15)
 		self.TTL      = int.from_bytes(data.read(4), byteorder = 'big')
 		self.RDLENGTH = int.from_bytes(data.read(2), byteorder = 'big')
-		trdata        = data.read(self.RDLENGTH)
 
-		if self.TYPE in [DNSType.A, DNSType.ANY] and self.CLASS == DNSClass.IN:
-			self.RDATA = ipaddress.IPv4Address(trdata)
+		if self.TYPE == DNSType.A and self.CLASS == DNSClass.IN:
+			self.RDATA = ipaddress.IPv4Address(data.read(self.RDLENGTH))
+
+		elif self.TYPE == DNSType.PTR and self.CLASS == DNSClass.IN:
+			self.RDATA = DNSName(data)
 
 		#TODO for other types :)
 		else:
-			self.RDATA = trdata
+			self.RDATA = data.read(self.RDLENGTH)
 
 	
 	def toBytes(self):
-		t  = self.NAME_LEN.to_bytes(1, byteorder = 'big', signed = False)
-		t += self.NAME
+		t  = self.NAME.toBytes()
 		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
-		t += self.CLASS.value.to_bytes(2, byteorder = 'big', signed = False)
+		a  = self.CLASS.value
+		a |= int(self.CFLUSH) << 15
+		t += a.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.TTL.to_bytes(4, byteorder = 'big', signed = False)
 		t += self.RDLENGTH.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.RDATA
 
 		return t
 
-	def construct(self, rname, rtype, rdata, ttl = 3000, rclass = DNSClass.IN):
-		self.NAME     = rname.encode() + b'\x00'
-		self.NAME_LEN = len(self.NAME) - 1
+	def construct(self, rname, rtype, rdata, ttl = 3000, rclass = DNSClass.IN, cflush = False):
+		self.NAME     = DNSName()
+		self.NAME.construct(rname)
 		self.TYPE     = rtype
 		self.CLASS    = rclass
+		self.CFLUSH   = cflush
 		self.TTL      = ttl
 
 		if self.TYPE  == DNSType.A and self.CLASS == DNSClass.IN:
@@ -155,10 +359,80 @@ class DNSResource():
 	
 	def __repr__(self):
 		t = '== DNSResource ==\r\n'
-		t+= 'NAME:  %s\r\n' % self.NAME
+		t+= 'NAME:  %s\r\n' % self.NAME.name
 		t+= 'TYPE:  %s\r\n' % self.TYPE.name
-		t+= 'CLASS: %s\r\n' % self.CLASS.name
+		t+= 'CLASS : %s\r\n' % self.CLASS.name
+		t+= 'CFLUSH: %s\r\n' % self.CFLUSH
 		t+= 'TTL: %s\r\n' % self.TTL
 		t+= 'RDLENGTH: %s\r\n' % self.RDLENGTH
 		t+= 'RDATA: %s\r\n' % repr(self.RDATA)
 		return t
+
+
+class DNSName():
+	def __init__(self, data = None):
+		self.name            = ''
+		self.compressed      = False
+		self.compressed_pos  = None
+		self.compressed_done = False
+
+		if data is not None:
+			self.parse(data)
+			
+
+	def parse(self, data, rec = False):
+		#this code is ugly :(
+		if self.compressed_done:
+			return
+		temp = data.read(1)[0]
+		if not self.compressed:
+			self.compressed = (temp & 0xC0) >> 6 == 0x3
+			if self.compressed:
+				data.seek(-1, io.SEEK_CUR)
+				self.compressed_pos = data.tell()
+				temp = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
+				ptr = temp & 0x3fff
+				data.seek(ptr, io.SEEK_SET)
+				self.parse(data, rec)
+				data.seek(self.compressed_pos + 2, io.SEEK_SET)
+				self.compressed_done = True
+				return
+		
+		length = temp
+		if length == 0:			
+			return
+
+		if length < 63:
+			if rec:
+				self.name += '.' + data.read(length).decode()
+			else:
+				self.name += data.read(length).decode()
+			self.parse(data, True)
+
+	def construct(self, name):
+		self.name = name
+
+
+	def toBytes(self):
+		#not using compression here! implement yourself and do a PR please
+		#will give you chokolate
+		t = b''
+		for label in self.name.split('.'):
+			t += len(label).to_bytes(1, byteorder = 'big', signed = False)
+			t += label.encode()
+
+		t += b'\x00'
+		return t
+
+	def __repr__(self):
+		return self.name
+
+	"""
+	def decode_NS(self, encoded_name):
+		#encoded http://www.ietf.org/rfc/rfc1001.txt
+		transform = [((i - 0x41)& 0x0F) for i in encoded_name]
+		i = 0
+		while i < len(transform):
+			self.QNAME += chr(transform[i] << 4 | transform[i+1] ) 
+			i+=2
+	"""

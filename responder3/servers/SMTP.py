@@ -1,13 +1,13 @@
+import traceback
 import logging
+import io
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
 from base64 import b64decode
 from responder3.packets import SMTPGreeting, SMTPAUTH, SMTPAUTH1, SMTPAUTH2, SMTPauthfail
 
 class SMTPProtocol(ResponderProtocolTCP):
-	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
-		self.protocol = SMTPProtocol
 		self._buffer_maxsize = 1*1024
 
 	def _connection_made(self, transport):
@@ -21,14 +21,20 @@ class SMTPProtocol(ResponderProtocolTCP):
 		return
 
 	def _parsebuff(self):
-		if len(self._buffer) >= self._buffer_maxsize:
-			raise Exception('Input data too large!')
+		#SMTP commands are terminated by new line chars
+		#here we grabbing one command from the buffer, and parsing it
+		marker = self._buffer.find(b'\r\n')
+		if marker == -1:
+			return
+		
+		cmd = SMTPCommand(io.BytesIO(self._buffer[:marker]))
 
-		endpos = self._buffer.find('\r\n')
-		if endpos != -1:
-			cmd = SMTPCommand(self._buffer[:endpos])
-			self._server.handle(cmd,self._transport)
-			self._buffer = self._buffer[endpos+2:]
+		#after parsing it we send it for processing to the handle
+		self._server.handle(cmd, self._transport)
+
+		#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
+		self._buffer = self._buffer[marker + 2 :]
+
 
 class SMTP(ResponderServer):
 	def __init__(self):
@@ -36,6 +42,10 @@ class SMTP(ResponderServer):
 		self.curstate = 0
 		self.User = None
 		self.Pass = None
+
+	def setup(self):
+		self.protocol = SMTPProtocol
+		self._buffer_maxsize = 1*1024
 
 
 	def modulename(self):
@@ -109,17 +119,22 @@ class SMTP(ResponderServer):
 					return
 
 		except Exception as e:
+			traceback.print_exc()
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
 
 class SMTPCommand():
-	def __init__(self, data):
-		self.rawdata = data
-		self.cmd = ''
-		self.data = ''
-		self.parse()
+	def __init__(self, buff = None):
+		self.rawdata = ''
+		self.cmd     = ''
+		self.data    = ''
 
-	def parse(self):
+		if buff is not None:
+			self.parse(buff)
+
+	def parse(self, buff):
+		#buff is BytesIO
+		self.rawdata = buff.read().decode('ascii')
 		if self.rawdata.count(' ') > 0:
 			self.cmd = self.rawdata.split(' ')[0].upper()
 			self.data = self.rawdata.split(' ')[1:]

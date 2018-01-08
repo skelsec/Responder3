@@ -50,8 +50,8 @@ class LLMNRPacket():
 		temp = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
 
 		self.QR = LLMNRResponse(temp >> 15)
-		self.Opcode = LLMNROpcode((temp << 1) >> 12) 
-		self.FLAGS = LLMNRFlags((temp << 5) >> 9)
+		self.Opcode = LLMNROpcode((temp & 0x7800) >> 11) 
+		self.FLAGS = LLMNRFlags((temp & 0x7F0) >> 4)
 		self.Rcode = DNSResponseCode(temp & 0xF)
 
 		self.QDCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)

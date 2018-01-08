@@ -1,14 +1,15 @@
 import logging
 import traceback
 import socket
+import io
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
-from responder3.packets import FTPPacket
+from responder3.newpackets.FTP import * 
+#FTPPacket
 
 class FTP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
 		self.protocol = FTPProtocol
-		self.curstate = 0
 		self.User = None
 		self.Pass = None
 
@@ -16,31 +17,37 @@ class FTP(ResponderServer):
 	def modulename(self):
 		return 'FTP'
 
-	def handle(self, data, transport):
+	def sendWelcome(self, transport):
+		r = FTPReply()
+		r.construct(220, 'Honeypot FTP server')
+		transport.write(r.toBytes())
+
+	def handle(self, ftpcmd, transport):
 		try:
-			self.log(logging.DEBUG,'Handle called with data: ' + str(data))
-			if self.curstate == 0:
-				#send welcome msg
-				transport.write(FTPPacket().getdata())
-				self.curstate = 1
+			self.log(logging.DEBUG,'Handle called with data: ' + repr(ftpcmd))
+			if ftpcmd.command == FTPCommandCode.AUTH:
+				r = FTPReply()
+				r.construct(502)
+				transport.write(r.toBytes())
 				return
-			
-			elif self.curstate == 1:
-				#check if user is sent
-				if data[0:4] == "USER":
-					self.User = data[5:].strip()
 
-					Packet = FTPPacket(Code=b"331",Message=b"User name okay, need password.")
-					transport.write(Packet.getdata())
-					self.curstate = 2
+			if self.User is None:
+				if ftpcmd.command == FTPCommandCode.USER:
+					self.User = ftpcmd.params['username']
+					r = FTPReply()
+					r.construct(331, 'User name okay, need password.')
+					transport.write(r.toBytes())
 					return
-				else:
-					self.cmderr(transport)
 
-			elif self.curstate == 2:
-				#check if password is sent
-				if data[0:4] == "PASS":
-					self.Pass = data[5:].strip()
+				else:
+					r = FTPReply()
+					r.construct(502)
+					transport.write(r.toBytes())
+					return
+
+			if self.User is not None:
+				if ftpcmd.command == FTPCommandCode.PASS:
+					self.Pass = ftpcmd.params['password']
 
 					self.logResult({
 						'module': self.modulename(), 
@@ -51,25 +58,29 @@ class FTP(ResponderServer):
 						'fullhash': self.User + ':' + self.Pass
 					})
 
-					Packet = FTPPacket(Code=b"530",Message=b"User not logged in.")
-					transport.write(Packet.getdata())
-					self.curstate = 3
+					r = FTPReply()
+					r.construct(530)
+					transport.write(r.toBytes())
 
 				else:
-					self.cmderr(transport)
+					r = FTPReply()
+					r.construct(503)
+					transport.write(r.toBytes())
+					transport.close()
+					return
 				
 			else:
-				self.cmderr(transport)
+				r = FTPReply()
+				r.construct(502)
+				transport.write(r.toBytes())
+				return
 	
 
 		except Exception as e:
+			traceback.print_exc()
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
-
-	def cmderr(self, transport):
-		Packet = FTPPacket(Code=b"502",Message=b"Command not implemented.")
-		transport.write(Packet.getdata())
-		transport.close()
+		
 
 
 class FTPProtocol(ResponderProtocolTCP):
@@ -79,8 +90,7 @@ class FTPProtocol(ResponderProtocolTCP):
 		self._buffer_maxsize = 1*1024
 
 	def _connection_made(self, transport):
-		self._server.curstate = 0
-		self._server.handle(None, transport)
+		self._server.sendWelcome(transport)
 
 	def _data_received(self, raw_data):
 		return
@@ -89,10 +99,17 @@ class FTPProtocol(ResponderProtocolTCP):
 		return
 
 	def _parsebuff(self):
-		if len(self._buffer) >= self._buffer_maxsize:
-			raise Exception('Input data too large!')
+		#FTP commands are terminated by new line chars
+		#here we grabbing one command from the buffer, and parsing it
+		while True:
+			marker = self._buffer.find(b'\r\n')
+			if marker == -1:
+				return
+		
+			cmd = FTPCommand(io.BytesIO(self._buffer[:marker]))
 
-		endpos = self._buffer.find('\r\n')
-		if endpos != -1:
-			self._server.handle(self._buffer[:endpos],self._transport)
-			self._buffer = self._buffer[endpos+2:]
+			#after parsing it we send it for processing to the handle
+			self._server.handle(cmd, self._transport)
+
+			#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
+			self._buffer = self._buffer[marker + 2 :]

@@ -79,13 +79,19 @@ class IMAPProtocol(ResponderProtocolTCP):
 		return
 
 	def _parsebuff(self):
-		if len(self._buffer) >= self._buffer_maxsize:
-			raise Exception('Input data too large!')
+		#IMAP commands are terminated by new line chars
+		#here we grabbing one command from the buffer, and parsing it
+		marker = self._buffer.find(b'\r\n')
+		if marker == -1:
+			return
+	
+		cmd = self._buffer[:marker].decode('ascii')
 
-		endpos = self._buffer.find('\r\n')
-		if endpos != -1:
-			self._server.handle(self._buffer[:endpos],self._transport)
-			self._buffer = self._buffer[endpos+2:]
+		#after parsing it we send it for processing to the handle
+		self._server.handle(cmd, self._transport)
+
+		#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
+		self._buffer = self._buffer[marker + 2 :]
 
 
 class IMAPS(IMAP):
