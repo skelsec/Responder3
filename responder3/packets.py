@@ -37,15 +37,6 @@ class Packet():
 	def getdata(self):
 		return b"".join(self.fields.values())
 
-##### FTP Packets #####
-class FTPPacket(Packet):
-	fields = OrderedDict([
-		("Code",           b"220"),
-		("Separator",      b"\x20"),
-		("Message",        b"Welcome"),
-		("Terminator",     b"\x0d\x0a"),
-	])
-
 ##### HTTP Packets #####
 class NTLM_Challenge(Packet):
 	fields = OrderedDict([
@@ -236,81 +227,3 @@ class ServeHtmlFile(Packet):
 	def calculate(self):
 		self.fields["ActualLen"] = str(len(self.fields["Payload"])).encode()
 
-##### SMTP Packets #####
-class SMTPauthfail(Packet):
-	fields = OrderedDict([
-		("Code",       b"221"),
-		("Separator",  b"\x20"),
-		("Message",    b"smtp01.local ESMTP"),
-		("Separator",  b"\x20"),
-		("Message",    b"Service closing transmission channel"),
-		("Separator",  b"\x20"),
-		("Message",    b"Closing transmission"),
-		("Separator",  b"\x20"),
-		("Message",    b"Goodbye"),
-		("CRLF",       b"\x0d\x0a"),
-	])
-
-class SMTPGreeting(Packet):
-	fields = OrderedDict([
-		("Code",       b"220"),
-		("Separator",  b"\x20"),
-		("Message",    b"smtp01.local ESMTP"),
-		("CRLF",       b"\x0d\x0a"),
-	])
-
-class SMTPAUTH(Packet):
-	fields = OrderedDict([
-		("Code0",      b"250"),
-		("Separator0", b"\x2d"),
-		("Message0",   b"smtp01.local"),
-		("CRLF0",      b"\x0d\x0a"),
-		("Code",       b"250"),
-		("Separator",  b"\x20"),
-		("Message",    b"AUTH LOGIN PLAIN XYMCOOKIE"),
-		("CRLF",       b"\x0d\x0a"),
-	])
-
-class SMTPAUTH1(Packet):
-	fields = OrderedDict([
-		("Code",       b"334"),
-		("Separator",  b"\x20"),
-		("Message",    b"VXNlcm5hbWU6"),#Username
-		("CRLF",       b"\x0d\x0a"),
-
-	])
-
-class SMTPAUTH2(Packet):
-	fields = OrderedDict([
-		("Code",       b"334"),
-		("Separator",  b"\x20"),
-		("Message",    b"UGFzc3dvcmQ6"),#Password
-		("CRLF",       b"\x0d\x0a"),
-	])
-
-##### IMAP Packets #####
-class IMAPGreeting(Packet):
-	fields = OrderedDict([
-		("Code",     b"* OK IMAP4 service is ready."),
-		("CRLF",     b"\r\n"),
-	])
-
-class IMAPCapability(Packet):
-	fields = OrderedDict([
-		("Code",     b"* CAPABILITY IMAP4 IMAP4rev1 AUTH=PLAIN"),
-		("CRLF",     b"\r\n"),
-	])
-
-class IMAPCapabilityEnd(Packet):
-	fields = OrderedDict([
-		("Tag",     b""),
-		("Message", b" OK CAPABILITY completed."),
-		("CRLF",    b"\r\n"),
-	])
-
-##### POP3 Packets #####
-class POPOKPacket(Packet):
-	fields = OrderedDict([
-		("Code",  b"+OK"),
-		("CRLF",  b"\r\n"),
-	])

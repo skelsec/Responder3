@@ -17,7 +17,7 @@ import datetime
 import ipaddress
 
 from responder3.utils import ServerProtocol
-from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection
+from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection, EmailEntry
 
 multiprocessing.freeze_support()
 
@@ -171,6 +171,8 @@ class LogProcessor(multiprocessing.Process):
 				self.handleLog(resultObj)
 			elif isinstance(resultObj, Connection):
 				self.handleConnection(resultObj)
+			elif isinstance(resultObj, EmailEntry):
+				self.handleEmail(resultObj)
 			else:
 				raise Exception('Unknown object in queue! Got type: %s' % type(resultObj))
 
@@ -196,6 +198,9 @@ class LogProcessor(multiprocessing.Process):
 				tqueue.put(t)
 		else:
 			self.log(logging.INFO,'Duplicate result found! Filtered.')
+
+	def handleEmail(self, email):
+		pass
 
 class LoggerExtension(ABC, threading.Thread):
 	def __init__(self, resQ, logQ, config):

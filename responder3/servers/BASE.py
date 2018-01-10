@@ -17,20 +17,53 @@ class ConnectionStatus(enum.Enum):
 	STATELESS = 3
 
 class Connection():
-	def __init__(self, soc, status, rdnsd):
-		self.status      = status
-		self.rdns        = ''
-		self.remote_ip   = ''
-		self.remote_port = ''
-		self.local_ip    = ''
-		self.local_port  = ''
-		self.timestamp   = datetime.datetime.utcnow()
+	"""
+	Keeps all the connection related information that is used for logging and/or connection purposes
+	rdnsd: multiprocessing shared dictionary of the rds-ip pairs that have already been resolved
+	"""
+	def __init__(self, rdnsd):
+		self.status      = None
+		self.rdnsd       = rdnsd
+		self.rdns        = None
+		self.remote_ip   = None
+		self.remote_port = None
+		self.local_ip    = None
+		self.local_port  = None
+		self.timestamp   = None
 
+
+	def setupTCP(self, soc, status):
+		"""
+		Gets the connection info for a TCP session
+		soc : the current socket
+		status: ConnectionStatus
+
+		"""
+		self.timestamp = datetime.datetime.utcnow()
 		self.remote_ip, self.remote_port = soc.getpeername()
 		self.local_ip, self.local_port   = soc.getsockname()
+		self.lookupRDNS()
 
-		if self.remote_ip in rdnsd:
-			self.rdns = rdnsd[self.remote_ip]
+	def setupUDP(self, localAddr, remoteAddr):
+		"""
+		Gets the connection info for a UDP session
+		localAddr: socket,port tuple for the local server
+		localAddr: socket,port tuple for the remote client
+		"""
+		self.timestamp = datetime.datetime.utcnow()
+		self.remote_ip, self.remote_port = remoteAddr
+		self.local_ip, self.local_port   = localAddr
+
+		self.lookupRDNS()
+
+
+	def lookupRDNS(self):
+		"""
+		Reolves the remote host's IP address to a DNS address. 
+		First checks if the address has already been resolved by polling the shared rdns dictionary
+		"""
+		if self.remote_ip in self.rdnsd :
+			self.rdns = self.rdnsd [self.remote_ip]
 		
 		else:
 			try:
@@ -38,10 +71,9 @@ class Connection():
 			except Exception as e:
 				pass
 
-			rdnsd[self.remote_ip] = self.rdns
+			self.rdnsd [self.remote_ip] = self.rdns
 
-
-	def getremoteaddr(self):
+	def getRemoteAddress(self):
 		return (self.remote_ip, self.remote_port)
 
 	def toDict(self):
@@ -55,6 +87,9 @@ class Connection():
 		t['timestamp']   = self.timestamp
 		return t
 
+	def __repr__(self):
+		return str(self)
+
 	def __str__(self):
 		if self.rdns != '':
 			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.rdns, self.remote_port, self.local_ip,self.local_port )
@@ -63,7 +98,10 @@ class Connection():
 
 
 class Result():
-	def __init__(self,data = None):
+	"""
+	Communications object that is used to pass  authentication information to the LogProcessor
+	"""
+	def __init__(self, data = None):
 		self.module    = None
 		self.type      = None 
 		self.client    = None
@@ -117,9 +155,26 @@ class Result():
 	def __ne__(self, other):
 		return self.fingerprint != other.fingerprint
 
+class EmailEntry():
+	"""
+	If the SMTP server recieved an email it's sent to the log queue for processing
+	"""
+	def __init__(self):
+		self.fromAddress = None #string
+		self.toAddress   = None #list
+		self.email       = None #email object (from the email package)
+
 
 class LogEntry():
+	"""
+	Communications object that is used to pass log information to the LogProcessor
+	"""
 	def __init__(self, level, name, msg):
+		"""
+		level: the log level, needs to be a level specified by the built-in logging module (eg. logging.INFO)
+		name : name of the source module
+		msg  : message that is to be printed in the logs 
+		"""
 		self.level = level
 		self.name  = name
 		self.msg   = msg
@@ -128,28 +183,30 @@ class LogEntry():
 		return "[%s] %s" % (self.name, self.msg)
 
 class ResponderServer(ABC):
+	"""
+	Base class for TCP server. All server tamplates MUST inherit from this class
+	Provides basic functionality to the server templates like logging etc.
+	"""
 	def __init__(self):
-		self.port      = None
-		self.loop      = None
-		self.logQ      = None
-		self.settings  = None
-		self.peername  = None #this is set when a connection is made!
-		self.peerport  = None
-		self.rdnsd     = None
-		self.bind_addr = None
-		self.bind_port = None
+		self.port        = None
+		self.loop        = None
+		self.logQ        = None
+		self.settings    = None
+		self.rdnsd       = None
+		self.bind_addr   = None
+		self.bind_port   = None
 		self.bind_family = None
 		self.bind_proto  = None
 
 	def _setup(self, server, loop, logQ):
-		self.bind_addr = server.bind_addr
-		self.bind_port = server.bind_port
+		self.bind_addr   = server.bind_addr
+		self.bind_port   = server.bind_port
 		self.bind_family = server.bind_family
 		self.bind_proto  = server.proto
-		self.loop      = loop
-		self.logQ      = logQ
-		self.settings  = server.settings
-		self.rdnsd     = server.rdnsd
+		self.loop        = loop
+		self.logQ        = logQ
+		self.settings    = server.settings
+		self.rdnsd       = server.rdnsd
 		self.setup()
 
 	def run(self, ssl_context = None):
@@ -176,52 +233,103 @@ class ResponderServer(ABC):
 
 		return self.loop.run_until_complete(coro)
 
-	def log(self, level, message):
-		if self.peername == None:
+	def log(self, session, level, message):
+		"""
+		Create a log message and send it to the LogProcessor for procsesing
+		"""
+		if session.connection.remote_ip == None:
 			message = '[INIT] %s' %  message
 		else:	
-			message = '[%s:%d] %s' % (self.peername, self.peerport, message)
+			message = '[%s:%d] %s' % (session.connection.remote_ip, session.connection.remote_port, message)
 		self.logQ.put(LogEntry(level, self.modulename(), message))
 
-	def logResult(self, resultd):
+	def logResult(self, session, resultd):
+		"""
+		Create a Result message and send it to the LogProcessor for procsesing
+		"""
+		resultd['module'] = self.modulename()
+		resultd['peername'] = session.connection.remote_ip
 		self.logQ.put(Result(resultd))
 
-	def logConnection(self, conn):
-		self.logQ.put(conn)
+	def logConnection(self, session):
+		"""
+		Create a Connection message and send it to the LogProcessor for procsesing
+		connection: A connection object that holds the connection info for the client
+		"""
+		if session.connection.status == ConnectionStatus.OPENED or session.connection.status == ConnectionStatus.STATELESS:
+			self.log(session, logging.INFO, 'New connection opened')
+		elif session.connection.status == ConnectionStatus.CLOSED:
+			self.log(session, logging.INFO, 'Connection closed')
+		self.logQ.put(session.connection)
+
+	def logEmail(self, session, emailEntry):
+		self.log(session, logging.INFO, 'You got mail!')
+		self.logQ.put(emailEntry)
 
 	def setup(self):
+		"""
+		Override this method in the server template if additional setup setps are needed
+		"""
 		pass
 
 	@abstractmethod
 	def modulename(self):
+		"""
+		!!This method must be overridden by the server template to return a string that identifies your server 
+		"""
 		pass
 
 	@abstractmethod
 	def handle(self):
+		"""
+		The main method of the server template. This will be called each time a new packet is available
+		!!This method must be overridden by the server template!!
+		"""
 		pass
+
+class ProtocolSession():
+	"""
+	Holds all session-related information for the current connection,
+	use this object to store intermediate values like authentication info, intermediate buffers etc.
+	This object is the only one that will retrain the data what you are passing to the ResponderServer.handle() and above!
+	Inherit form this object in your server template if additional session info is desired
+	"""
+	def __init__(self, rdnsd):
+		self.connection = Connection(rdnsd)
+
 
 
 class ResponderProtocolTCP(asyncio.Protocol):
-	
+	"""
+	Base class for all TCP based server templates. This class handles the actual connections and maintains the session information.
+	The 
+	"""
 	def __init__(self, server):
 		asyncio.Protocol.__init__(self)
-		self._server = server
-		self._con            = None
+		self._server         = server
+		self._session        = None
 		self._buffer_maxsize = 10*1024 #if the buffer becomes bigger than this, an exception will be raised
 		self._parsed_length  = None    #most TCP based protocols contain a length of the data to be read, reaching this length will trigger a call to _parsebuff
 		self._transport      = None
 		self._buffer         = b''
+		
 
 
 	def connection_made(self, transport):
-		self._con = Connection(transport.get_extra_info('socket'), ConnectionStatus.OPENED, self._server.rdnsd)
-		self._server.logConnection(self._con)
-		self._server.peername, self._server.peerport = self._con.getremoteaddr()
-		self._server.log(logging.INFO, 'New connection opened')
+		"""
+		DO NOT OVERRIDE THIS FUNCTION
+		If additional functionality is needed (like sending server greeting) implement it by overriding the _connection_made function
+		"""
+		self._session.connection.setupTCP(transport.get_extra_info('socket'), ConnectionStatus.OPENED)
+		self._server.logConnection(self._session)
 		self._transport = transport
-		self._connection_made(transport)
+		self._connection_made()
 
 	def data_received(self, raw_data):
+		"""
+		DO NOT OVERRIDE THIS FUNCTION
+		Override the _parsebuff function that will be called when data is available
+		"""
 		try:
 			self._buffer += raw_data
 			if len(self._buffer) >= self._buffer_maxsize:
@@ -229,26 +337,25 @@ class ResponderProtocolTCP(asyncio.Protocol):
 		
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()))
+				self._server.log(self._session, logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()))
 
 			
 			self._parsebuff()
 
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()))
+				self._server.log(self._session, logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()))
 
 		
 		except Exception as e:
 			traceback.print_exc()
-			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e))
+			self._server.log(self._session, logging.INFO, 'Data reception failed! Reason: %s' % str(e))
 			
 			
 
 	def connection_lost(self, exc):
-		self._con.status = ConnectionStatus.CLOSED
-		self._server.logConnection(self._con)
-		self._server.log(logging.INFO, 'Connection closed')
+		self._session.connection.status = ConnectionStatus.CLOSED
+		self._server.logConnection(self._session)
 		self._connection_lost(exc)
 
 	## Override this to access to connection lost function
@@ -256,11 +363,11 @@ class ResponderProtocolTCP(asyncio.Protocol):
 		return
 
 	## Override this to start handling the buffer, the data is in self._buffer as a string!
-	def _parsebuff():
+	def _parsebuff(self):
 		return
 
 	## Override this to start handling the buffer
-	def _connection_made(self, transport):
+	def _connection_made(self):
 		return
 
 class ResponderProtocolUDP(asyncio.DatagramProtocol):
@@ -274,13 +381,11 @@ class ResponderProtocolUDP(asyncio.DatagramProtocol):
 		self._buffer         = io.BytesIO()
 
 	def connection_made(self, transport):
+		self._session.connection.setupTCP(transport.get_extra_info('socket'), ConnectionStatus.OPENED)
+		self._server.logConnection(self._session.connection)
 		self._transport = transport
 
 	def datagram_received(self, raw_data, addr):
-		#self._con = Connection(addr, ConnectionStatus.OPENED, self._server.rdnsd)
-		#self._server.logConnection(self._con)
-		#self._server.peername, self._server.peerport = self._con.getremoteaddr()
-		self._server.log(logging.INFO, 'New connection opened')
 		self._buffer.write(raw_data)
 		self._parsebuff(addr)
 		self._buffer = b''
