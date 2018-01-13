@@ -236,7 +236,6 @@ class SMTPReply():
 		"""
 		returns a list of bytes
 		"""
-		print(self.parameter)
 		if self.parameter is None:
 			raise Exception('Empty data for SMTP reply!')
 		if len(self.parameter) == 1:

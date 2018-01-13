@@ -1,22 +1,36 @@
 import traceback
 import logging
 import io
+import os
 import email.parser
+from responder3.utils import ServerFunctionality
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession, EmailEntry
 from responder3.newpackets.SMTP import SMTPServerState, SMTPCommandParser, SMTPReply, SMTPCommand
 from responder3.servers import AuthClasses
 
+"""
+NOPEs list:
+STARTSSL
+ENHANCEDSTATUSCODES
+STARTTLS
+DIGEST-MD5
+CRAM-MD5
+GSSAPI
+
+and a lot more probably
+"""
+
 class SMTPSession(ProtocolSession):
 	def __init__(self, server):
 		ProtocolSession.__init__(self, server)
-		self.encoding     = 'ascii' #THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
-		self.cmdParser    = SMTPCommandParser(self.encoding)
+		self.encoding     = 'utf8' #THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
+		self.cmdParser    = SMTPCommandParser(encoding = self.encoding)
 		self.emailParser  = email.parser.Parser()
 		self.currentState = SMTPServerState.START
 		self.authAPI      = None
 		self.emailData    = ''
 		self.emailFrom    = ''
-		self.emailTo      = ''
+		self.emailTo      = []
 
 
 class SMTPProtocol(ResponderProtocolTCP):
@@ -40,17 +54,26 @@ class SMTPProtocol(ResponderProtocolTCP):
 				marker = self._buffer.find(b'\n')
 				if marker == -1:
 					break
+
+				dataend = self._buffer.find(b'\r\n.\r\n')
+				if dataend == -1:
+					self._session.emailData += self._buffer[:marker + 1].decode(self._session.encoding)
+					self._buffer = self._buffer[marker + 1:]
+
 				
-				self._session.emailData += self._buffer[:marker+1].decode(self._session.encoding)
-				self._buffer = self._buffer[marker + 2 :]
-				
-				print(self._session.emailData[-5:])
-				if self._session.emailData[-5:] == '\r\n.\r\n':
+				else:
+					self._session.emailData += self._buffer[:dataend + 5].decode(self._session.encoding)
+					self._buffer = self._buffer[dataend + 5:]
 					self._session.currentState = SMTPServerState.DATAFINISHED
 					self._server.handle(None, self._transport, self._session)
-					return
+
+				if self._buffer != b'':
+					self._parsebuff()
+				else:
+					break
 
 		else:
+		
 			#SMTP commands are terminated by new line chars
 			#here we grabbing one command from the buffer, and parsing it
 			marker = self._buffer.find(b'\n')
@@ -63,7 +86,10 @@ class SMTPProtocol(ResponderProtocolTCP):
 			self._server.handle(cmd, self._transport, self._session)
 
 			#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
-		self._buffer = self._buffer[marker + 2 :]
+			self._buffer = self._buffer[marker + 1 :]
+			
+			if self._buffer != b'':
+				self._parsebuff()
 
 
 class SMTP(ResponderServer):
@@ -72,6 +98,29 @@ class SMTP(ResponderServer):
 
 	def setup(self):
 		self.protocol = SMTPProtocol
+
+		#### adjusting configuration
+		if self.settings is None:
+			self.log(logging.INFO, 'No settings defined, adjusting to Honeypot functionality!')
+			self.settings = { 
+							  'functionality'  : ServerFunctionality.HONEYPOT,
+							  'credentials'    : None,
+							  'authTypes'      : None, #['PLAIN'],
+							  'wecomeMsg'      : 'hello from Honeyport SMTP server',
+							  'heloMsg'        : 'Honypot SMTP at your service', 
+							  'ehloMsg'        : 'Honypot SMTP at your service', 
+							  'VRFYresponse'   : None,
+							  'startSSLConfig' : None,
+							}
+
+		self.capabilities = []
+		self.capabilities.append('SMTPUTF8')
+		if 'authTypes' in self.settings and self.settings['authTypes'] is not None:
+			self.capabilities.append('AUTH '+' '.join(self.settings['authTypes']))
+		if 'startSSLConfig' in self.settings and self.settings['startSSLConfig'] is not None:
+			self.capabilities.append('STARTTLS')
+
+
 
 	def modulename(self):
 		return 'SMTP'
@@ -88,17 +137,26 @@ class SMTP(ResponderServer):
 
 	def handle(self, smtpcommand, transport, session):
 		try:
-			print(smtpcommand)
+			if 'R3DEEPDEBUG' in os.environ:
+				self.log(logging.INFO,'Session state: %s Command: %s' % (session.currentState.name, smtpcommand.command.name if smtpcommand is not None else 'NONE'), session)
 			#should be checking which commands are allowed in this state...
-			if session.currentState== SMTPServerState.START:
-				if smtpcommand.command == SMTPCommand.HELO or smtpcommand.command == SMTPCommand.EHLO:
-					session.currentState = SMTPServerState.NOTAUTHETICATED
-					transport.write(SMTPReply(250, ['Honypot SMTP at your service','AUTH PLAIN']).toBytes())
+			if session.currentState == SMTPServerState.START:
+				if smtpcommand.command == SMTPCommand.EHLO or smtpcommand.command == SMTPCommand.HELO:
+					if 'authTypes' in self.settings and self.settings['authTypes'] is None:
+						session.currentState = SMTPServerState.AUTHENTICATED
+					else:
+						session.currentState = SMTPServerState.NOTAUTHETICATED
+			
+				if smtpcommand.command == SMTPCommand.HELO:
+					transport.write(SMTPReply(250, [self.settings['heloMsg']] + self.capabilities).toBytes())
+
+				elif smtpcommand.command == SMTPCommand.EHLO:
+					transport.write(SMTPReply(250, [self.settings['ehloMsg']] + self.capabilities).toBytes())
 
 
 			elif session.currentState == SMTPServerState.NOTAUTHETICATED:
 				if smtpcommand.command == SMTPCommand.VRFY:
-					self.log(session, logging.INFO,'VERIFY called with data: %s' % (smtpcommand.data))
+					self.log(logging.INFO,'VERIFY called with data: %s' % (smtpcommand.data), session)
 					transport.write(SMTPReply(250, ['test@test.com','donthackme@aaa.com']).toBytes())
 
 				elif smtpcommand.command == SMTPCommand.EXPN:
@@ -106,12 +164,10 @@ class SMTP(ResponderServer):
 
 				elif smtpcommand.command == SMTPCommand.AUTH:
 					session.currentState = SMTPServerState.AUTHSTARTED
-					print(repr(smtpcommand.mechanism))
-					print(repr(smtpcommand.initresp))
 					### NOTE: the protocol allows the authentication data to be sent immediately by the client
 					### if this happens, the initdata will be not none and needs to be evaluated.
 					if smtpcommand.mechanism == 'PLAIN':
-						session.authAPI = AuthClasses.PLAIN(None)
+						session.authAPI = AuthClasses.PLAIN(self.settings['credentials'])
 						if smtpcommand.initresp is not None:
 							session.authAPI.setAuthData(smtpcommand.initresp)
 
@@ -130,8 +186,9 @@ class SMTP(ResponderServer):
 							else:
 								transport.write(SMTPReply(535).toBytes())
 						else:
-							transport.write(SMTPReply(334).toBytes())
+							transport.write(SMTPReply(535).toBytes())
 					else:
+						transport.write(SMTPReply(535).toBytes())
 						raise Exception('Not supported auth mechanism')
 				else:
 					transport.write(SMTPReply(503).toBytes())
@@ -166,13 +223,11 @@ class SMTP(ResponderServer):
 			#should be checking which commands are allowed in this state...
 			elif session.currentState == SMTPServerState.AUTHENTICATED:
 				if smtpcommand.command == SMTPCommand.MAIL:
-					print(session.emailData)
-					print(smtpcommand.emailFrom)
-					session.emailData += smtpcommand.emailFrom + '\r\n'
+					session.emailFrom    = smtpcommand.emailFrom
 					transport.write(SMTPReply(250).toBytes())
 
 				elif  smtpcommand.command == SMTPCommand.RCPT:
-					session.emailData += '<' + ','.join(smtpcommand.emailTo) + '>\r\n'
+					session.emailTo.append(smtpcommand.emailTo)
 					transport.write(SMTPReply(250).toBytes())
 
 				elif smtpcommand.command == SMTPCommand.DATA:
@@ -199,5 +254,5 @@ class SMTP(ResponderServer):
 
 		except Exception as e:
 			traceback.print_exc()
-			self.log(session, logging.INFO,'Exception! %s' % (str(e),))
+			self.log(logging.INFO,'Exception! %s' % (str(e),), session)
 			pass

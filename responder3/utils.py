@@ -28,7 +28,11 @@ def HTTPCurrentDate():
 		Date = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT').encode()
 		return Date
 
-
+class ServerFunctionality(enum.Enum):
+	HONEYPOT = 0
+	SERVER   = 1
+	TARPIT   = 2
+	
 class ServerProtocol(enum.Enum):
 	TCP = 0
 	UDP = 1

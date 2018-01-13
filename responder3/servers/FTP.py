@@ -4,7 +4,6 @@ import socket
 import io
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
 from responder3.newpackets.FTP import * 
-#FTPPacket
 
 class FTP(ResponderServer):
 	def __init__(self):

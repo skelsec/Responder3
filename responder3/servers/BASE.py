@@ -233,11 +233,11 @@ class ResponderServer(ABC):
 
 		return self.loop.run_until_complete(coro)
 
-	def log(self, session, level, message):
+	def log(self, level, message, session = None):
 		"""
 		Create a log message and send it to the LogProcessor for procsesing
 		"""
-		if session.connection.remote_ip == None:
+		if session is None or session.connection.remote_ip == None:
 			message = '[INIT] %s' %  message
 		else:	
 			message = '[%s:%d] %s' % (session.connection.remote_ip, session.connection.remote_port, message)
@@ -257,13 +257,13 @@ class ResponderServer(ABC):
 		connection: A connection object that holds the connection info for the client
 		"""
 		if session.connection.status == ConnectionStatus.OPENED or session.connection.status == ConnectionStatus.STATELESS:
-			self.log(session, logging.INFO, 'New connection opened')
+			self.log(logging.INFO, 'New connection opened', session)
 		elif session.connection.status == ConnectionStatus.CLOSED:
-			self.log(session, logging.INFO, 'Connection closed')
+			self.log(logging.INFO, 'Connection closed', session)
 		self.logQ.put(session.connection)
 
 	def logEmail(self, session, emailEntry):
-		self.log(session, logging.INFO, 'You got mail!')
+		self.log(logging.INFO, 'You got mail!', session)
 		self.logQ.put(emailEntry)
 
 	def setup(self):
@@ -337,19 +337,19 @@ class ResponderProtocolTCP(asyncio.Protocol):
 		
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(self._session, logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()))
+				self._server.log(logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()), self._session)
 
 			
 			self._parsebuff()
 
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(self._session, logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()))
+				self._server.log(logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()), self._session)
 
 		
 		except Exception as e:
 			traceback.print_exc()
-			self._server.log(self._session, logging.INFO, 'Data reception failed! Reason: %s' % str(e))
+			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e), self._session)
 			
 			
 

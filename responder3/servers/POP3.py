@@ -1,79 +1,76 @@
+import os
 import logging
 import traceback
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
+from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.newpackets.POP3 import *
+
+
+class POP3Session(ProtocolSession):
+	def __init__(self, server):
+		ProtocolSession.__init__(self, server)
+		self.encoding     = 'ascii'
+		self.cmdParser    = POP3CommandParser(encoding = self.encoding)
+		self.currentState = POP3State.AUTHORIZATION
+		self.User = None
+		self.Pass = None
+
+def __init__(self, server):
+		ResponderProtocolTCP.__init__(self, server)
+		self._buffer_maxsize = 1*1024
+		
 
 class POP3(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
 		self.protocol = POP3Protocol
-		self.curstate = POP3State.AUTHORIZATION
-		self.User = None
-		self.Pass = None
-
-
+		
+		
 	def modulename(self):
 		return 'POP3'
 
 	def sendWelcome(self, transport):
-		r = POP3Response()
-		r.construct(POP3ResponseStatus.OK, 'hello from Honeyport POP3 server')
-		transport.write(r.toBytes())
+		transport.write(POP3Response(POP3ResponseStatus.OK, ['<1896.697170952@dbc.mtview.ca.us>']).toBytes())
 
-	def handle(self, packet, transport):
+	def handle(self, packet, transport, session):
 		try:
-			self.log(logging.DEBUG,'Handle called with data: ' + repr(packet))
-
-			if self.curstate == POP3State.AUTHORIZATION:
-				if packet.command == POP3Keyword.USER:
-					self.User = packet.args[0]
-					if self.Pass is not None:
+			if 'R3DEEPDEBUG' in os.environ:
+				self.log(logging.INFO,'Session state: %s Command: %s' % (session.currentState.name, packet.command.name if packet is not None else 'NONE'), session)
+			if session.currentState == POP3State.AUTHORIZATION:
+				if packet.command == POP3Command.USER:
+					session.User = packet.params[0]
+					if session.Pass is not None:
 						self.check_credentials(transport)
 					else:	
-						r = POP3Response()
-						r.construct(POP3ResponseStatus.OK, 'password required.')
-						transport.write(r.toBytes())
+						transport.write(POP3Response(POP3ResponseStatus.OK, ['password required.']).toBytes())
 					return
 
-				elif packet.command == POP3Keyword.PASS:
-					self.Pass = packet.args[0]
-					if self.User is not None:
-						self.check_credentials(transport)
+				elif packet.command == POP3Command.PASS:
+					session.Pass = packet.params[0]
+					if session.User is not None:
+						self.check_credentials(transport, session)
 					else:
-						r = POP3Response()
-						r.construct(POP3ResponseStatus.OK, 'password required.')
-						transport.write(r.toBytes())
+						transport.write(POP3Response(POP3ResponseStatus.OK, ['username required.']).toBytes())
 					return
 
-				elif packet.command == POP3Keyword.QUIT:
-					self.curstate = POP3State.UPDATE
-					r = POP3Response()
-					r.construct(POP3ResponseStatus.OK, 'Goodbye!')
-					transport.write(r.toBytes())
-					transport.close()
+				elif packet.command == POP3Command.QUIT:
+					transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
 					return
 
 				else:
-					r = POP3Response()
-					r.construct(POP3ResponseStatus.ERR, 'Auth req.')
-					transport.write(r.toBytes())
+					transport.write(POP3Response(POP3ResponseStatus.ERR, ['Auth req.']).toBytes())
 					return
 
-			elif self.curstate == POP3State.TRANSACTION:
-				r = POP3Response()
-				r.construct(POP3ResponseStatus.OK, 'Goodbye!')
-				transport.write(r.toBytes())
+			elif session.currentState == POP3State.TRANSACTION:
+				##this would be the place to send emails/statuses to the clinet but it's not implemented
+				##therefore we send an okay message and terminate the connection
+				##tottaly breaking RFC :P
+				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
 				transport.close()
 				raise Exception('Not implemented!')
-				
-				return
-				#ransport.write(POPOKPacket().getdata())
 
 			
 			else:
-				r = POP3Response()
-				r.construct(POP3ResponseStatus.OK, 'Goodbye!')
-				transport.write(r.toBytes())
+				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
 				transport.close()
 				return
 
@@ -82,39 +79,35 @@ class POP3(ResponderServer):
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
 
-	def check_credentials(self, transport):
-		self.log_credentials()
+	def check_credentials(self, transport, session):
+		self.logResult(session, {
+							'type'     : 'Cleartext', 
+							'client'   : session.connection.remote_ip, 
+							'user'     : session.User,
+							'cleartext': session.Pass, 
+							'fullhash' : session.User + ':' + session.Pass
+							})
 		
-		if self.User == 'aaaaaaaaaa' and self.Pass == 'bbbbbbb124234123':
+		if session.User == 'aaaaaaaaaa' and session.Pass == 'bbbbbbb124234123':
 			#login sucsess
-			self.curstate = POP3State.TRANSACTION
-			r = POP3Response()
-			r.construct(POP3ResponseStatus.OK, 'CreZ good!')
-			transport.write(r.toBytes())
+			session.currentState = POP3State.TRANSACTION
+			transport.write(POP3Response(POP3ResponseStatus.OK, ['CreZ good!']).toBytes())
 		else:
-			r = POP3Response()
-			r.construct(POP3ResponseStatus.ERR, 'wrong credZ!')
-			transport.write(r.toBytes())
+			transport.write(POP3Response(POP3ResponseStatus.ERR, ['invalid password']).toBytes())
 			transport.close()
 
-	def log_credentials(self):
-		self.logResult({
-						'module': self.modulename(), 
-						'type': 'Cleartext', 
-						'client': self.peername, 
-						'user': self.User, 
-						'cleartext': self.Pass, 
-						'fullhash': self.User + ':' + self.Pass
-					})
+
+		
 
 class POP3Protocol(ResponderProtocolTCP):
 	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
+		self._session = POP3Session(server.rdnsd)
 
-	def _connection_made(self, transport):
-		self._server.sendWelcome(transport)
+	def _connection_made(self):
+		self._server.sendWelcome(self._transport)
 
 	def _data_received(self, raw_data):
 		return
@@ -125,17 +118,20 @@ class POP3Protocol(ResponderProtocolTCP):
 	def _parsebuff(self):
 		#POP3 commands are terminated by new line chars
 		#here we grabbing one command from the buffer, and parsing it
-		marker = self._buffer.find(b'\r\n')
+		marker = self._buffer.find(b'\n')
 		if marker == -1:
 			return
-	
-		cmd = POP3Command(io.BytesIO(self._buffer[:marker]))
+
+		cmd = self._session.cmdParser.parse(io.BytesIO(self._buffer[:marker+1]))
 
 		#after parsing it we send it for processing to the handle
-		self._server.handle(cmd, self._transport)
+		self._server.handle(cmd, self._transport, self._session)
 
 		#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
-		self._buffer = self._buffer[marker + 2 :]
+		self._buffer = self._buffer[marker + 1 :]
+		
+		if self._buffer != b'':
+			self._parsebuff()
 
 class POP3S(POP3):
 	def modulename(self):

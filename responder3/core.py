@@ -15,6 +15,8 @@ import requests
 import json
 import datetime
 import ipaddress
+import uuid
+from pathlib import Path
 
 from responder3.utils import ServerProtocol
 from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection, EmailEntry
@@ -200,7 +202,14 @@ class LogProcessor(multiprocessing.Process):
 			self.log(logging.INFO,'Duplicate result found! Filtered.')
 
 	def handleEmail(self, email):
-		pass
+		if 'writePath' in self.logsettings['email']:
+			folder = Path(self.logsettings['email']['writePath'])
+			filename = 'email_%s.eml' % str(uuid.uuid4())
+
+			with open(str(folder.joinpath(filename).resolve()), 'wb') as f:
+				f.write(email.email.as_bytes())
+		
+		self.log(logging.INFO,'You got mail!')
 
 class LoggerExtension(ABC, threading.Thread):
 	def __init__(self, resQ, logQ, config):
