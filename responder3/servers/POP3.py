@@ -13,10 +13,6 @@ class POP3Session(ProtocolSession):
 		self.currentState = POP3State.AUTHORIZATION
 		self.User = None
 		self.Pass = None
-
-def __init__(self, server):
-		ResponderProtocolTCP.__init__(self, server)
-		self._buffer_maxsize = 1*1024
 		
 
 class POP3(ResponderServer):

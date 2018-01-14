@@ -24,6 +24,10 @@ import datetime
 import json
 import enum
 
+def timestamp2datetime(dt):
+	us = int.from_bytes(dt, byteorder='little')/ 10.
+	return datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=us)
+
 def HTTPCurrentDate():
 		Date = datetime.datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT').encode()
 		return Date

@@ -62,13 +62,13 @@ class POP3CommandParser():
 			elif command == POP3Command.RSET:
 				self.pop3command = POP3RSETCommand()
 			else:
-				self.smtpcommand = SMTPXXXXCommand()
+				self.smtpcommand = POP3XXXXCommand()
 				self.smtpcommand.raw_data = raw
 
 		except Exception as e:
 			print(str(e))
-			self.smtpcommand = SMTPXXXXCommand()
-			self.smtpcommand.raw_data = raw
+			self.pop3command = POP3XXXXCommand()
+			self.pop3command.raw_data = raw
 
 		return self.pop3command
 

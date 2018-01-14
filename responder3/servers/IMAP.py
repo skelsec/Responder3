@@ -1,43 +1,58 @@
+import os
 import logging
 import traceback
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
+from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.newpackets.IMAP import *
+
+class IMAPSession(ProtocolSession):
+	def __init__(self, server):
+		ProtocolSession.__init__(self, server)
+		self.encoding     = 'utf-7'
+		self.cmdParser    = IMAPCommandParser(encoding = self.encoding)
+		self.currentState = IMAPState.NOTAUTHENTICATED
+		self.User = None
+		self.Pass = None
+
 
 class IMAP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
 		self.protocol = IMAPProtocol
-		self.curstate = IMAPState.NOTAUTHENTICATED
-		self.User = None
-		self.Pass = None
-
 
 	def modulename(self):
 		return 'IMAP'
 
 	def sendWelcome(self, transport):
-		r = IMAPResponse()
-		r.construct('*', IMAPServerResponse.OK, 'hello from Honeyport IMAP server')
-		transport.write(r.toBytes())
+		transport.write(IMAPOKResp(msg ='hello from Honeyport IMAP server').toBytes())
 
-	def handle(self, packet, transport):
+	def handle(self, packet, transport, session):
 		try:
-			self.log(logging.DEBUG,'Handle called with data: ' + str(packet))
+			if 'R3DEEPDEBUG' in os.environ:
+				self.log(logging.INFO,'Session state: %s Command: %s' % (session.currentState.name, packet.command.name if packet is not None else 'NONE'), session)
+				print(repr(packet))
 
-			if self.curstate == IMAPState.NOTAUTHENTICATED:
-				if packet.command == IMAPClientCommand.LOGIN:
-					self.User = packet.args[0]
-					self.Pass = packet.args[1]
-					self.check_credentials(packet, transport)
+			if session.currentState == IMAPState.NOTAUTHENTICATED:
+				if packet.command == IMAPCommand.LOGIN:
+					session.User = packet.params[0]
+					session.Pass = packet.params[1]
+					if self.check_credentials(transport, session):
+						session.currentState = IMAPState.AUTHENTICATED
+						transport.write(IMAPOKResp(tag=packet.tag, msg='CreZ good!').toBytes())
+					else:
+						transport.write(IMAPNOResp(tag=packet.tag, msg='wrong credZ!').toBytes())
+						transport.close()
+
 					return
 
-				elif packet.command == IMAPClientCommand.CAPABILITY:
-					r = IMAPResponse()
-					r.construct('*', IMAPServerResponse.CAPABILITY, ['IMAP4','IMAP4rev1','AUTH=PLAIN'])
-					transport.write(r.toBytes())
-					r = IMAPResponse()
-					r.construct(packet.tag, IMAPServerResponse.OK, ['Completed'])
-					transport.write(r.toBytes())
+				elif packet.command == IMAPCommand.CAPABILITY:
+					authMethods = IMAPAuthMethods()
+					authMethods.methods.append('PLAIN')
+					capabilities = IMAPCapabilities(authMethods)
+					capabilities.capabilities.append('IMAP4')
+					capabilities.capabilities.append('IMAP4rev1')
+					print('ptag: %s' % packet.tag )
+					transport.write(IMAPCAPABILITYResp(capabilities=capabilities).toBytes())
+					transport.write(IMAPOKResp(tag=packet.tag,msg ='Completed').toBytes())
 					return
 
 			else:
@@ -51,39 +66,31 @@ class IMAP(ResponderServer):
 			transport.close()
 			pass
 
-	def check_credentials(self, packet, transport):
-		self.log_credentials()
-		
-		if self.User == 'aaaaaaaaaa' and self.Pass == 'bbbbbbb124234123':
-			#login sucsess
-			self.curstate = IMAPState.AUTHENTICATED
-			r = IMAPResponse()
-			r.construct(packet.tag, IMAPServerResponse.OK, 'CreZ good!')
-			transport.write(r.toBytes())
-		else:
-			r = IMAPResponse()
-			r.construct(packet.tag, IMAPServerResponse.NO, 'wrong credZ!')
-			transport.write(r.toBytes())
-			transport.close()
-
-	def log_credentials(self):
-		self.logResult({
-						'module': self.modulename(), 
+	def check_credentials(self, transport, session):
+		self.logResult(session,{
 						'type': 'Cleartext', 
-						'client': self.peername, 
-						'user': self.User, 
-						'cleartext': self.Pass, 
-						'fullhash': self.User + ':' + self.Pass
+						'client'   : session.connection.remote_ip, 
+						'user'     : session.User,
+						'cleartext': session.Pass, 
+						'fullhash' : session.User + ':' + session.Pass
 					})
+		
+		if session.User == 'aaaaaaaaaa' and session.Pass == 'bbbbbbb124234123':
+			#login sucsess
+			return True
+
+		return False
+		
 
 class IMAPProtocol(ResponderProtocolTCP):
 	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
+		self._session = IMAPSession(server.rdnsd)
 
-	def _connection_made(self, transport):
-		self._server.sendWelcome(transport)
+	def _connection_made(self):
+		self._server.sendWelcome(self._transport)
 
 	def _data_received(self, raw_data):
 		return
@@ -94,17 +101,20 @@ class IMAPProtocol(ResponderProtocolTCP):
 	def _parsebuff(self):
 		#IMAP commands are terminated by new line chars
 		#here we grabbing one command from the buffer, and parsing it
-		marker = self._buffer.find(b'\r\n')
+		marker = self._buffer.find(b'\n')
 		if marker == -1:
 			return
-	
-		cmd = IMAPCommand(io.BytesIO(self._buffer[:marker+2]))
+
+		cmd = self._session.cmdParser.parse(io.BytesIO(self._buffer[:marker+1]))
 
 		#after parsing it we send it for processing to the handle
-		self._server.handle(cmd, self._transport)
+		self._server.handle(cmd, self._transport, self._session)
 
 		#IMPORTANT STEP!!!! ALWAYS CLEAR THE BUFFER FROM DATA THAT IS DEALT WITH!
-		self._buffer = self._buffer[marker + 2 :]
+		self._buffer = self._buffer[marker + 1 :]
+		
+		if self._buffer != b'':
+			self._parsebuff()
 
 
 class IMAPS(IMAP):

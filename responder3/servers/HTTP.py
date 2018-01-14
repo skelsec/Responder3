@@ -2,21 +2,53 @@ import traceback
 import struct
 from base64 import b64decode
 import logging
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP
+from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 
 from responder3.utils import *
-from responder3.packets import NTLM_Challenge
+from responder3.newpackets.HTTP import *
 from responder3.packets import IIS_Auth_401_Ans, IIS_Auth_Granted, IIS_NTLM_Challenge_Ans, IIS_Basic_401_Ans,WEBDAV_Options_Answer
 from responder3.packets import WPADScript, ServeExeFile, ServeHtmlFile
 
+class HTTPSession(ProtocolSession):
+	def __init__(self, server):
+		ProtocolSession.__init__(self, server)
+		#for protocol-level
+		self._headersRecieved = False
+		self.encoding     = 'ascii'
+		self.cmdParser    = HTTPRequestParser(encoding = self.encoding)
+		#for
+		self.HTTPVersion          = HTTPVersion.HTTP11
+		self.HTTPContentEncoding  = HTTPContentEncoding.IDENTITY
+		self.HTTPConectentCharset = 'utf8'
+		#self.HTTPAtuhentication   = HTTPBasicAuth()
+		self.HTTPAtuhentication        = HTTPNTLMAuth()
+		self.HTTPAtuhenticationHandler = HTTPNTLMAuthHandler
+		self.HTTPCookie           = None
+		self.HTTPServerBanner     = None
+		self.currentState         = HTTPState.UNAUTHENTICATED
+
+	def __repr__(self):
+		t  = '== HTTPSession ==\r\n'
+		t += '_headersRecieved: %s\r\n' % repr(self._headersRecieved)
+		t += 'encoding:         %s\r\n' % repr(self.encoding)
+		t += 'cmdParser:        %s\r\n' % repr(self.cmdParser)
+		t += 'HTTPVersion:      %s\r\n' % repr(self.HTTPVersion)
+		t += 'HTTPContentEncoding: %s\r\n' % repr(self.HTTPContentEncoding)
+		t += 'HTTPConectentCharset: %s\r\n' % repr(self.HTTPConectentCharset)
+		t += 'HTTPAtuhentication: %s\r\n' % repr(self.HTTPAtuhentication)
+		t += 'HTTPCookie:       %s\r\n' % repr(self.HTTPCookie)
+		t += 'HTTPServerBanner: %s\r\n' % repr(self.HTTPServerBanner)
+		t += 'currentState:     %s\r\n' % repr(self.currentState)
+		return t
 
 class HTTPProtocol(ResponderProtocolTCP):
 	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
+		self._session = HTTPSession(server.rdnsd)
 
-	def _connection_made(self, transport):
-		self._server.challenge = self._server.RandomChallenge()
+	def _connection_made(self):
+		return
 
 	def _data_received(self, raw_data):
 		return
@@ -25,65 +57,84 @@ class HTTPProtocol(ResponderProtocolTCP):
 		return
 
 	def _parsebuff(self):
-		if len(self._buffer) >= self._buffer_maxsize:
-			raise Exception('Input data too large!')
+		if len(self._buffer) > self._buffer_maxsize:
+			raise Exception('Data in buffer too large!')
 
-		if self._request_data_size == len(self._buffer):
+		if not self._session._headersRecieved:
+			marker = self._buffer.find(b'\r\n\r\n') 
+			if marker == -1:
+				return
+			else:
+				#buffer contains header data
+				self._session._headersRecieved = True
+				self._ramainingData = self._session.cmdParser.parseHeader(self._buffer[:marker])
+				self._buffer = self._buffer[marker+4:]
+
+
+		if self._session._headersRecieved and len(self._buffer) >= self._ramainingData:
 			#we have recieved all data for the request, and the request contained body data
-			self._parsereq()
-		
-		if self._buffer.find('\r\n\r\n') == -1:
-			return
-		
-		#we did, now to check if there was anything else in the request besides the header
-		if self._buffer.find('Content-Length') == -1:
-			#request contains only header
-			self._parsereq()
+			httpreq = self._session.cmdParser.parseBody(self._buffer[:self._ramainingData])
+			self._buffer = self._buffer[self._ramainingData:]
+			self._session._headersRecieved = False
+
+			self._server.handle(httpreq, self._transport, self._session)
 			
-		else:
-			#searching for that content-length field in the header
-			for line in self._buffer.split('\r\n'):
-				if line.find('Content-Length') != -1:
-					line = line.strip()
-					self._request_data_size = int(line.split(':')[1].strip()) - len(self._buffer)
+			if len(self._buffer) > 0:
+				self._parsebuff()
+
+		return
+		
+
 		
 	def _parsereq(self):
-		_httpreq = HTTPReq()
-		_httpreq.parse(self._buffer)
-		self._buffer = ''
+		req = self._session.cmdParser.parse(io.BytesIO(self._buffer[:marker+1]))
 		
 		self._server.handle(_httpreq, self._transport)
 
-class HTTPAuthorization():
+
+
+
+
+class HTTP(ResponderServer):
 	def __init__(self):
-		self.type = ''
-		self.data = ''
+		ResponderServer.__init__(self)
+		self.protocol = HTTPProtocol
 
-	def parse(self, t):
-		marker = t.find(' ')
-		if marker == -1:
-			raise Exception('Header parsing error!' + repr(line))
+	def modulename(self):
+		return 'HTTP'
 
-		self.type = t[:marker]
-		self.data = t[marker+1:]
+	def handle(self, req, transport, session):
+		try:
+			if 'R3DEEPDEBUG' in os.environ:
+				print(repr(session))
+				self.log(logging.INFO,'Session state: %s Request: %s' % ( (session.currentState.name if session.currentState is not None else 'NONE') , repr(req)), session)
 
-	def toDict(self):
-		t = {}
-		t['type'] = self.type
-		t['data'] = self.data
-		return t
+			if session.currentState == HTTPState.UNAUTHENTICATED:
+				session.HTTPAtuhenticationHandler(req, transport, session)
+
+		except Exception as e:
+			traceback.print_exc()
+			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			pass
+
+
+
+class HTTPS(HTTP):
+	def modulename(self):
+		return 'HTTPS'
+
+
+"""
 
 class HTTPReq():
-	"""
-	HEADER KEYS ARE ALL LOWER CASE!!!
-	"""
+
 	def __init__(self):
 		self.rawdata = ''
 		self.method = ''
 		self.uri = ''
 		self.version = ''
 		self.headers = {}
-		self.data = None
+		self.body = None
 
 		self.authorization = None
 
@@ -144,7 +195,6 @@ class HTTPReq():
 
 	def __str__(self):
 		return self.toJSON()
-
 
 
 
@@ -353,9 +403,7 @@ class HTTP(ResponderServer):
 	def ServeFile(self, Filename):
 		with open (Filename, "rb") as bk:
 			return bk.read()
+"""
 
 
-class HTTPS(HTTP):
-	def modulename(self):
-		return 'HTTPS'
 

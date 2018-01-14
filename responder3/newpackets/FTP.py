@@ -1,45 +1,50 @@
 #https://tools.ietf.org/html/rfc959
 import enum
 
-class FTPCommandCode(enum.Enum):
-	USER = enum.auto()#<SP> <username> <CRLF>
-	PASS = enum.auto()#<SP> <password> <CRLF>
-	ACCT = enum.auto()#<SP> <account-information> <CRLF>
-	CWD  = enum.auto()#<SP> <pathname> <CRLF>
-	CDUP = enum.auto()#<CRLF>
-	SMNT = enum.auto()#<SP> <pathname> <CRLF>
-	QUIT = enum.auto()#<CRLF>
-	REIN = enum.auto()#<CRLF>
-	PORT = enum.auto()#<SP> <host-port> <CRLF>
-	PASV = enum.auto()#<CRLF>
-	TYPE = enum.auto()#<SP> <type-code> <CRLF>
-	STRU = enum.auto()#<SP> <structure-code> <CRLF>
-	MODE = enum.auto()#<SP> <mode-code> <CRLF>
-	RETR = enum.auto()#<SP> <pathname> <CRLF>
-	STOR = enum.auto()#<SP> <pathname> <CRLF>
-	STOU = enum.auto()#<CRLF>
-	APPE = enum.auto()#<SP> <pathname> <CRLF>
-	ALLO = enum.auto()#<SP> <decimal-integer> [<SP> R <SP> <decimal-integer>] <CRLF>
-	REST = enum.auto()#<SP> <marker> <CRLF>
-	RNFR = enum.auto()#<SP> <pathname> <CRLF>
-	RNTO = enum.auto()#<SP> <pathname> <CRLF>
-	ABOR = enum.auto()#<CRLF>
-	DELE = enum.auto()#<SP> <pathname> <CRLF>
-	RMD  = enum.auto()#<SP> <pathname> <CRLF>
-	MKD  = enum.auto()#<SP> <pathname> <CRLF>
-	PWD  = enum.auto()#<CRLF>
-	LIST = enum.auto()#[<SP> <pathname>] <CRLF>
-	NLST = enum.auto()#[<SP> <pathname>] <CRLF>
-	SITE = enum.auto()#<SP> <string> <CRLF>
-	SYST = enum.auto()#<CRLF>
-	STAT = enum.auto()#[<SP> <pathname>] <CRLF>
-	HELP = enum.auto()#[<SP> <string>] <CRLF>
-	NOOP = enum.auto()#<CRLF>
+class FTPState(enum.Enum):
+	AUTHORIZATION = enum.auto()
+	AUTHENTICATED   = enum.auto()
+
+class FTPCommand(enum.Enum):
+	USER = enum.auto()
+	PASS = enum.auto()
+	ACCT = enum.auto()
+	CWD  = enum.auto()
+	CDUP = enum.auto()
+	SMNT = enum.auto()
+	QUIT = enum.auto()
+	REIN = enum.auto()
+	PORT = enum.auto()
+	PASV = enum.auto()
+	TYPE = enum.auto()
+	STRU = enum.auto()
+	MODE = enum.auto()
+	RETR = enum.auto()
+	STOR = enum.auto()
+	STOU = enum.auto()
+	APPE = enum.auto()
+	ALLO = enum.auto()
+	REST = enum.auto()
+	RNFR = enum.auto()
+	RNTO = enum.auto()
+	ABOR = enum.auto()
+	DELE = enum.auto()
+	RMD  = enum.auto()
+	MKD  = enum.auto()
+	PWD  = enum.auto()
+	LIST = enum.auto()
+	NLST = enum.auto()
+	SITE = enum.auto()
+	SYST = enum.auto()
+	STAT = enum.auto()
+	HELP = enum.auto()
+	NOOP = enum.auto()
 	AUTH = enum.auto()
 	NLIST= enum.auto()
 	FEAT = enum.auto()
 	EPSV = enum.auto()
 	SIZE = enum.auto()
+	XXXX = enum.auto()
 
 FTPReplyCode = {
 	'110' : "Restart marker reply.",
@@ -80,144 +85,278 @@ FTPReplyCode = {
 	'532' : "Need account for storing files.",
 	'550' : "Requested action not taken.",  #File unavailable (e.g., file not found, no access).
 	'551' : "Requested action aborted: page type unknown.", 
-	'552' : "Requested file action aborted.",  #Exceeded storage allocation (for current directory or 	    dataset).
+	'552' : "Requested file action aborted.",  #Exceeded storage allocation (for current directory or dataset).
 	'553' : "Requested action not taken." #File name not allowed.
 }
 
-class FTPCommand():
-	def __init__(self, buff = None):
-		self.command = None
-		self.params  = None
-
-		if buff is not None:
-			self.parse(buff)
+class FTPCommandParser():
+	def __init__(self, strict = False, encoding = 'ascii'):
+		self.ftpcommand  = None
+		self.strict      = strict
+		self.encoding    = encoding
 
 	def parse(self, buff):
-		temp = buff.readline().decode('ascii')[:-2]
-		marker = temp.find(' ')
-		if marker == -1:
-			self.command = FTPCommandCode[temp]
-		else:
-			self.command = FTPCommandCode[temp[:marker]]
-		#TODO implement all possible commands :) 
-		if self.command == FTPCommandCode.USER:
-			self.params = {'username': temp[marker+1:]}
+		raw = buff.readline()
+		try:
+			temp = raw[:-2].decode('ascii').split(' ')
+			command = FTPCommand[temp[0]]
+			if command == FTPCommand.USER:
+				self.ftpcommand = FTPUSERCmd(temp[1])
 
-		elif self.command == FTPCommandCode.PASS:
-			self.params = {'password': temp[marker+1:]}
+			elif command == FTPCommand.PASS:
+				self.ftpcommand = FTPPASSCmd(temp[1])
 
-		elif self.command == FTPCommandCode.ACCT:
-			self.params = {'account-information': temp[marker+1:]}
+			else:
+				self.ftpcommand = SMTPXXXXCommand()
+				self.ftpcommand.raw_data = raw
 
-		elif self.command in [  FTPCommandCode.CWD, 
-								FTPCommandCode.SMNT,
-								FTPCommandCode.RETR,
-								FTPCommandCode.STOR,
-								FTPCommandCode.APPE,
-								FTPCommandCode.RNFR,
-								FTPCommandCode.RNTO,
-								FTPCommandCode.DELE,
-								FTPCommandCode.RMD,
-								FTPCommandCode.MKD,
-								FTPCommandCode.SIZE
-			                 ]:
-			self.params = {'pathname': temp[marker+1:]}
+		except Exception as e:
+			print(str(e))
+			self.ftpcommand = SMTPXXXXCommand()
+			self.ftpcommand.raw_data = raw
 
-		elif self.command == FTPCommandCode.TYPE:
-			self.params = {'type-code': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.STRU:
-			self.params = {'structure-code': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.MODE:
-			self.params = {'mode-code': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.ALLO:
-			self.params = {'decimal-integer': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.REST:
-			self.params = {'marker': temp[marker+1:]}
-			
-		elif self.command in [ FTPCommandCode.LIST, 
-							   FTPCommandCode.NLIST, 
-							   FTPCommandCode.STAT, 
-							   FTPCommandCode.HELP
-							 ]:
-			self.params = {'pathname': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.PORT:
-			self.params = {'hst-port': int(temp[marker+1:])}
-
-		elif self.command in [ FTPCommandCode.CDUP, 
-							   FTPCommandCode.QUIT,
-							   FTPCommandCode.REIN,
-							   FTPCommandCode.PASV,
-							   FTPCommandCode.STOU,
-							   FTPCommandCode.ABOR,
-							   FTPCommandCode.PWD,
-							   FTPCommandCode.SYST,
-							   FTPCommandCode.NOOP
-							 ]:
-			self.params = None
-		
-		elif self.command in [FTPCommandCode.HELP, FTPCommandCode.SITE]:
-			self.params = {'string': temp[marker+1:]}
-
-		elif self.command == FTPCommandCode.AUTH:
-			self.params = {'auth-mode': temp[marker+1:]}
+		return self.ftpcommand
 
 
-	def contruct(self, ftpcommand, params = None):
-		"""
-		ftpcommand is FTPCommandCode
-		params depends on the command, bu be aware it's not completely implemented now!
-		"""
-		self.command = ftpcommand
-
-		if self.command == FTPCommandCode.USER:
-			self.params = {'username': params}
-
-		elif self.command == FTPCommandCode.PASS:
-			self.params = {'password': params}
-
-		elif self.command == FTPCommandCode.ACCT:
-			self.params = {'account-information': params}
-
-		elif self.command in [  FTPCommandCode.CWD, 
-								FTPCommandCode.SMNT,
-								FTPCommandCode.RETR,
-								FTPCommandCode.STOR,
-								FTPCommandCode.APPE,
-								FTPCommandCode.RNFR,
-								FTPCommandCode.RNTO,
-								FTPCommandCode.DELE,
-								FTPCommandCode.RMD,
-								FTPCommandCode.MKD,
-			                 ]:
-			self.params = {'pathname': params}
-
-		else:
-			#TODO make the temple for the rest of the commands
-			self.params = params
-
+class FTPCommandBASE():
+	def __init__(self):
+		self.cmd = None
 
 	def toBytes(self):
-		return self.command.name.encode('ascii') + b' ' + self.params.encode('ascii') + b'\r\n'
+		return self.cmd.name.encode('ascii') + b' ' + self.params.encode('ascii') + b'\r\n'
 
 	def __repr__(self):
 		t  = '== FTP Command == \r\n'
-		t += 'Command: %s\r\n' % self.command.name
-		t += 'Params : %s\r\n' % repr(self.params)
-
+		t += 'Command: %s\r\n' % self.cmd.name
+		t += 'Params : %s\r\n' % (''.join(self.params) if self.params is not None else 'NONE')
 		return t
 
+class FTPUSERCmd(FTPCommandBASE):
+	def __init__(self, username):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.USER
+		self.params = [username]
 
+class FTPPASSCmd(FTPCommandBASE):
+	def __init__(self, password):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.PASS
+		self.params = [password]
+
+
+class FTPACCTCmd(FTPCommandBASE):
+	def __init__(self, account):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.ACCT
+		self.params = [account]
+
+class FTPCWDCmd(FTPCommandBASE):
+	def __init__(self, pathname):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.CWD
+		self.params = [pathname]
+
+class FTPCDUPCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.CDUP
+
+class FTPSMNTCmd(FTPCommandBASE):
+	def __init__(self, pathname):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.SMNT
+		self.params = [pathname]
+
+class FTPREINCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.REIN
+
+class FTPREINCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.QUIT
+
+class FTPPORTCmd(FTPCommandBASE):
+	#FTPPort should be a seperate object
+	#
+	def __init__(self, FTPPort):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.PORT
+		self.params = [FTPPort]
+
+class FTPPASVCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.PASV
+
+
+class FTPTYPECmd(FTPCommandBASE):
+	#FTPTypes should be a seperate object
+	#
+	def __init__(self, FTPTypes):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.TYPE
+		self.params = [str(FTPTypes)]
+
+class FTPSTRUCmd(FTPCommandBASE):
+	#FTPFileStructure should be an enum
+	#
+	def __init__(self, fileStructure):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.STRU
+		self.params = [fileStructure.name]
+
+class FTPRETRCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.RETR
+		self.params = [pathName]
+
+class FTPSTORCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.STOR
+		self.params = [pathName]
+
+class FTPSTOUCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.STOU
+		self.params = [pathName]
+
+class FTPAPPECmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.APPE
+		self.params = [pathName]
+
+class FTPALLOCmd(FTPCommandBASE):
+	def __init__(self, size):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.ALLO
+		self.params = [size]
+
+class FTPRESTCmd(FTPCommandBASE):
+	def __init__(self, marker):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.REST
+		self.params = [marker]
+
+class FTPRNFRCmd(FTPCommandBASE):
+	def __init__(self, oldPathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.RNFR
+		self.params = [oldPathName]
+
+class FTPRNTOCmd(FTPCommandBASE):
+	def __init__(self, newPathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.RNTO
+		self.params = [newPathName]
+
+class FTPABORCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.ABOR
+
+class FTPDELECmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.DELE
+		self.params = [pathName]
+
+class FTPRMDCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.RMD
+		self.params = [pathName]
+
+class FTPMKDCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.MKD
+		self.params = [pathName]
+
+class FTPPWDCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.PWD
+
+
+class FTPLISTCmd(FTPCommandBASE):
+	def __init__(self, pathName):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.LIST
+		self.params = [pathName]
+
+class FTPNLISTCmd(FTPCommandBASE):
+	def __init__(self, pathName = None):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.NLIST
+		self.params = [pathName]
+
+class FTPNLISTCmd(FTPCommandBASE):
+	def __init__(self, pathName = None):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.NLIST
+		self.params = [pathName]
+
+class FTPSITECmd(FTPCommandBASE):
+	def __init__(self, pathName = None):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.SITE
+
+class FTPSYSTCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.SYST
+
+class FTPSTATCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.STAT
+
+class FTPHELPCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.HELP
+
+class FTPNOOPCmd(FTPCommandBASE):
+	def __init__(self):
+		FTPCommandBASE.__init__(self)
+		self.cmd    = FTPCommand.NOOP
 
 class FTPReply():
+	def __init__(self, code, msg = None):
+		self.encoding = 'ascii'
+		self.code = str(code)
+		self.msg  = None
+		if msg is None:
+			self.msg  = [FTPReplyCode[self.code]]
+		elif isinstance(msg, str):
+			self.msg  = [msg]
+		elif isinstance(msg, list):
+			self.msg  = msg
+		else:
+			raise Exception('Invalid msg type')
+
+	def toBytes(self):
+		if len(self.msg) == 1:
+			return b'%s %s\r\n' % (self.code.encode(self.encoding), self.msg[0].encode(self.encoding))
+		elif len(self.msg) == 2:
+			temp  = b'%s-%s' % (self.code.encode(self.encoding) , self.msg[0].encode(self.encoding))
+			return temp + b'%s %s' % (self.code.encode(self.encoding) , self.msg[1].encode(self.encoding))
+		else:
+			temp  = b'%s-%s' % (self.code.encode(self.encoding) , self.msg[0].encode(self.encoding))
+			temp += b'\r\n'.join(['', (m.encode(self.encoding) for m in self.msg[1:-1] )])
+			return temp + b'%s %s' % (self.code.encode(self.encoding) , self.msg[-1].encode(self.encoding))
+
+"""
+class FTPReply():
 	def __init__(self, buff = None):
-		self.isMultiLine  = False
-		self.replyCode    = None
-		self.replyMessage = None
+		self.code = None
+		self.msg  = None
 
 		if buff is not None:
 			self.parse(buff)
@@ -265,3 +404,5 @@ class FTPReply():
 		t += 'Code verbose: %s \r\n' % FTPReplyCode[self.replyCode]
 		t += 'Reply: %s \r\n' % self.replyMessage
 		return t
+
+"""
