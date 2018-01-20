@@ -80,6 +80,7 @@ class HTTPProtocol(ResponderProtocolTCP):
 			self._server.handle(httpreq, self._transport, self._session)
 			
 			if len(self._buffer) > 0:
+				#keep parsing until we consumed all data
 				self._parsebuff()
 
 		return
