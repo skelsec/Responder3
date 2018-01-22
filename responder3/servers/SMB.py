@@ -6,6 +6,9 @@ from responder3.utils import ServerFunctionality
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.newpackets.SMB.SMBParser import SMBCommandParser
 
+class SMB2ServerState(enum.Enum):
+	START = enum.auto()
+	NEGOTIATE = enum.auto()
 
 class SMBSession(ProtocolSession):
 	def __init__(self, server):
@@ -15,7 +18,7 @@ class SMBSession(ProtocolSession):
 		self._packet_size = -1
 		self.SMBprotocol  = None
 		self.SMBdialect   = None
-		#self.currentState = SMTPServerState.START
+		self.currentState = SMB2ServerState.START
 		#self.authAPI      = None
 
 class SMB(ResponderServer):
@@ -32,7 +35,7 @@ class SMB(ResponderServer):
 		if 'R3DEEPDEBUG' in os.environ:
 			self.log(logging.INFO,'Message: %s' % (repr(msg)), session)
 		try:
-			return
+			
 		except Exception as e:
 			self.log(logging.INFO,'Exception! %s' % (str(e),), session)
 			traceback.print_exc()
