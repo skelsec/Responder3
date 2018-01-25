@@ -2,6 +2,7 @@ import traceback
 import logging
 import io
 import os
+import enum
 from responder3.utils import ServerFunctionality
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.newpackets.SMB.SMBParser import SMBCommandParser
@@ -35,7 +36,7 @@ class SMB(ResponderServer):
 		if 'R3DEEPDEBUG' in os.environ:
 			self.log(logging.INFO,'Message: %s' % (repr(msg)), session)
 		try:
-			
+			print(repr(msg))
 		except Exception as e:
 			self.log(logging.INFO,'Exception! %s' % (str(e),), session)
 			traceback.print_exc()

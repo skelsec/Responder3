@@ -19,7 +19,7 @@ import uuid
 from pathlib import Path
 
 from responder3.utils import ServerProtocol
-from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection, EmailEntry
+from responder3.servers.BASE import ResponderServer, Result, LogEntry, Connection, EmailEntry, PoisonResult
 
 multiprocessing.freeze_support()
 
@@ -175,6 +175,8 @@ class LogProcessor(multiprocessing.Process):
 				self.handleConnection(resultObj)
 			elif isinstance(resultObj, EmailEntry):
 				self.handleEmail(resultObj)
+			elif isinstance(resultObj, PoisonResult):
+				self.handlePoisonResult(resultObj)
 			else:
 				raise Exception('Unknown object in queue! Got type: %s' % type(resultObj))
 
@@ -210,6 +212,9 @@ class LogProcessor(multiprocessing.Process):
 				f.write(email.email.as_bytes())
 		
 		self.log(logging.INFO,'You got mail!')
+
+	def handlePoisonResult(self, poisonResult):
+		self.log(logging.INFO,repr(poisonResult))
 
 class LoggerExtension(ABC, threading.Thread):
 	def __init__(self, resQ, logQ, config):

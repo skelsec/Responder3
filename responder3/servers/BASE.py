@@ -44,17 +44,17 @@ class Connection():
 		self.local_ip, self.local_port   = soc.getsockname()
 		self.lookupRDNS()
 
-	def setupUDP(self, localAddr, remoteAddr):
+	def setupUDP(self, soc, remoteAddr, status):
 		"""
 		Gets the connection info for a UDP session
 		localAddr: socket,port tuple for the local server
 		localAddr: socket,port tuple for the remote client
 		"""
 		self.timestamp = datetime.datetime.utcnow()
+		self.local_ip, self.local_port   = soc.getsockname()
 		self.remote_ip, self.remote_port = remoteAddr
-		self.local_ip, self.local_port   = localAddr
-
 		self.lookupRDNS()
+		
 
 
 	def lookupRDNS(self):
@@ -96,6 +96,29 @@ class Connection():
 		else:
 			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_ip, self.remote_port, self.local_ip,self.local_port )
 
+class PoisonerMode(enum.Enum):
+	SPOOF = enum.auto()
+	ANALYSE = enum.auto()
+
+class PoisonResult():
+	def __init__(self):
+		self.module = None
+		self.target = None
+		self.request_name = None
+		self.request_type = None
+		self.poison_name = None
+		self.poison_addr = None
+		self.mode = None
+
+	def __repr__(self):
+		return str(self)
+		
+
+	def __str__(self):
+		if self.mode == PoisonerMode.ANALYSE:
+			return '[%s] Recieved request from IP: %s to resolve: %s' % (self.module, self.target, self.request_name)
+		else:
+			return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
 
 class Result():
 	"""
@@ -262,6 +285,19 @@ class ResponderServer(ABC):
 			self.log(logging.INFO, 'Connection closed', session)
 		self.logQ.put(session.connection)
 
+	def logPoisonResult(self, session, requestName = None, poisonName = None, poisonIP = None):
+		self.log(logging.INFO, 'Resolv request in!', session)
+		pr = PoisonResult()
+		pr.module = self.modulename()
+		pr.target = session.connection.remote_ip
+		pr.request_name = requestName
+		pr.request_type = None
+		pr.poison_name = poisonName
+		pr.poison_addr = poisonIP
+		pr.mode = self.settings['mode']
+
+		self.logQ.put(pr)
+
 	def logEmail(self, session, emailEntry):
 		self.log(logging.INFO, 'You got mail!', session)
 		self.logQ.put(emailEntry)
@@ -374,24 +410,45 @@ class ResponderProtocolUDP(asyncio.DatagramProtocol):
 	
 	def __init__(self, server):
 		asyncio.DatagramProtocol.__init__(self)
-		self._transport      = None
 		self._server         = server
-		self._con            = None
-		self._buffer_maxsize = 10*1024
-		self._buffer         = io.BytesIO()
+		self._session        = None
+		self._buffer_maxsize = 10*1024 #if the buffer becomes bigger than this, an exception will be raised
+		self._transport      = None
+		self._buffer         = b''
 
 	def connection_made(self, transport):
-		self._session.connection.setupTCP(transport.get_extra_info('socket'), ConnectionStatus.OPENED)
-		self._server.logConnection(self._session.connection)
 		self._transport = transport
 
 	def datagram_received(self, raw_data, addr):
-		self._buffer.write(raw_data)
-		self._parsebuff(addr)
-		self._buffer = b''
+		self._session.connection.setupUDP(self._transport.get_extra_info('socket'), addr, ConnectionStatus.STATELESS)
+		try:
+
+			self._buffer += raw_data
+			if len(self._buffer) >= self._buffer_maxsize:
+				raise Exception('Input data too large!')
+		
+			if 'R3DEEPDEBUG' in os.environ:
+				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
+				self._server.log(logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()), self._session)
+
+			
+			self._parsebuff(addr)
+
+			if 'R3DEEPDEBUG' in os.environ:
+				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
+				self._server.log(logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()), self._session)
+
+		
+		except Exception as e:
+			traceback.print_exc()
+			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e), self._session)
+
+
+
+
 
 	## Override this to start handling the buffer, the data is in self._buffer as a string!
-	def _parsebuff():
+	def _parsebuff(addr):
 		return
 
 	## Override this to start handling the buffer

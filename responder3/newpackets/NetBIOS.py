@@ -1,3 +1,4 @@
+import io
 import enum
 import ipaddress
 
@@ -59,7 +60,7 @@ class NBTSResponse(enum.Enum):
 	RESPONSE = 1
 
 class NBTNSPacket():
-	def __init__(self, data = None):
+	def __init__(self):
 		#HEADER
 		self.NAME_TRN_ID = None #Transaction ID for Name Service Transaction. Requestor places a unique value for each active  transaction.  Responder puts NAME_TRN_ID value from request packet in response packet.
 		self.RESPONSE = None
@@ -77,38 +78,40 @@ class NBTNSPacket():
 		self.Additionals = []
 
 
-		if data is not None:
-			self.parse(data)
+	def from_bytes(bbuff):
+		return NBTNSPacket.from_buffer(io.BytesIO(bbuff))
 
-	def parse(self, data):
-		self.NAME_TRN_ID = data.read(2)
-		t = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
-		self.RESPONSE = NBTSResponse((t >> 15))
-		self.OPCODE = NBTNSOpcode((t & 0x7800) >> 11)
-		self.NM_FLAGS = NBTSNMFlags((t & 0x7F0) >> 4)
-		self.RCODE = t & 0xF
-		self.QDCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed = False) 
-		self.ANCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed = False) 
-		self.NSCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed = False) 
-		self.ARCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed = False) 
+	def from_buffer(buff):
+		packet = NBTNSPacket()
+		packet.NAME_TRN_ID = buff.read(2)
+		t = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		packet.RESPONSE = NBTSResponse((t >> 15))
+		packet.OPCODE = NBTNSOpcode((t & 0x7800) >> 11)
+		packet.NM_FLAGS = NBTSNMFlags((t & 0x7F0) >> 4)
+		packet.RCODE = t & 0xF
+		packet.QDCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed = False) 
+		packet.ANCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed = False) 
+		packet.NSCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed = False) 
+		packet.ARCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed = False) 
 
-		for i in range(0, self.QDCOUNT):
-			dnsq = NBQuestion(data)
-			self.Questions.append(dnsq)
+		for i in range(0, packet.QDCOUNT):
+			dnsq = NBQuestion.from_buffer(buff)
+			packet.Questions.append(dnsq)
 
 		
-		for i in range(0, self.ANCOUNT):
-			dnsr = NBResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.ANCOUNT):
+			dnsr = NBResource.from_buffer(buff)
+			packet.Answers.append(dnsr)
 
-		for i in range(0, self.NSCOUNT):
-			dnsr = NBResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.NSCOUNT):
+			dnsr = NBResource.from_buffer(buff)
+			packet.Answers.append(dnsr)
 
-		for i in range(0, self.ARCOUNT):
-			dnsr = NBResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.ARCOUNT):
+			dnsr = NBResource.from_buffer(buff)
+			packet.Answers.append(dnsr)
 
+		return packet
 
 	def construct(self, TID, response, opcode, nmflags, rcode = 0, 
 					questions= [], answers= [], authorities = [], additionals = []):
@@ -178,28 +181,30 @@ class NBTNSPacket():
 
 
 class NBQuestion():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.QNAME_LEN = None
 		self.QNAME = None
 		self.QTYPE = None
 		self.QCLASS = None
 
-		if data is not None:
-			self.parse(data)
+	def from_bytes(bbuff):
+		return NBQuestion.from_buffer(io.BytesIO(bbuff))
 
-	def parse(self, data):
-		#data is io.byteio!!!!!
-		self.QNAME_LEN = data.read(1)[0]
-		self.QNAME = ''
-		if self.QNAME_LEN == 32:
-			self.decode_NS(data.read(self.QNAME_LEN))
-			data.read(1)
+	def from_buffer(buff):
+		qst = NBQuestion()
+		qst.QNAME_LEN = buff.read(1)[0]
+		qst.QNAME = ''
+		if qst.QNAME_LEN == 32:
+			qst.decode_NS(buff.read(qst.QNAME_LEN))
+			buff.read(1)
 		else:
-			self.QNAME  = data.read(self.QNAME_LEN).decode()
-			data.read(1)
+			qst.QNAME  = buff.read(qst.QNAME_LEN).decode()
+			buff.read(1)
 
-		self.QTYPE  = NBQType(int.from_bytes(data.read(2), byteorder = 'big'))
-		self.QCLASS = NBQClass(int.from_bytes(data.read(2), byteorder = 'big'))
+		qst.QTYPE  = NBQType(int.from_bytes(buff.read(2), byteorder = 'big'))
+		qst.QCLASS = NBQClass(int.from_bytes(buff.read(2), byteorder = 'big'))
+
+		return qst
 
 	def toBytes(self):
 		t  = self.QNAME_LEN.to_bytes(1, byteorder = 'big')
@@ -223,6 +228,9 @@ class NBQuestion():
 			self.QNAME += chr(transform[i] << 4 | transform[i+1] ) 
 			i+=2
 
+		#removing trailing x00 and trailing spaces
+		self.QNAME = self.QNAME.replace('\x00','').strip()
+
 	def __repr__(self):
 		t = '== NetBIOS Question ==\r\n'
 		t+= 'QNAME:  %s\r\n' % self.QNAME
@@ -231,7 +239,7 @@ class NBQuestion():
 		return t
 
 class NBResource():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.NAME_LEN = None
 		self.NAME     = None
 		self.TYPE     = None
@@ -240,25 +248,25 @@ class NBResource():
 		self.RDLENGTH = None
 		self.RDATA    = None
 
+	def from_bytes(bbuff):
+		return NBResource.from_buffer(io.BytesIO(bbuff))
 
-		if data is not None:
-			self.parse(data)
+	def from_buffer(buff):
+		rs = NBResource()
+		rs.NAME_LEN = buff.read(1)[0] + 1
+		rs.NAME     = buff.read(rs.NAME_LEN).decode()
+		rs.TYPE     = NBRType(int.from_bytes(buff.read(2), byteorder = 'big'))
+		rs.CLASS    = NBRClass(int.from_bytes(buff.read(2), byteorder = 'big'))
+		rs.TTL      = int.from_bytes(buff.read(4), byteorder = 'big')
+		rs.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big')
+		trdata      = buff.read(rs.RDLENGTH)
 
-	def parse(self, data):
-		self.NAME_LEN = data.read(1)[0] + 1
-		self.NAME     = data.read(self.NAME_LEN).decode()
-		self.TYPE     = NBRType(int.from_bytes(data.read(2), byteorder = 'big'))
-		self.CLASS    = NBRClass(int.from_bytes(data.read(2), byteorder = 'big'))
-		self.TTL       = int.from_bytes(data.read(4), byteorder = 'big')
-		self.RDLENGTH  = int.from_bytes(data.read(2), byteorder = 'big')
-		trdata         = data.read(self.RDLENGTH)
-
-		if self.TYPE == DNSType.A and self.QCLASS == NBRClass.IN:
-			self.RDATA = ipaddress.IPv4Address(trdata)
+		if rs.TYPE == DNSType.A and rs.QCLASS == NBRClass.IN:
+			rs.RDATA = ipaddress.IPv4Address(trdata)
 
 		#TODO for other types :)
 		else:
-			self.RDATA = trdata
+			rs.RDATA = trdata
 
 	
 	def toBytes(self):
