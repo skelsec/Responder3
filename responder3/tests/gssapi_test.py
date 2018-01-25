@@ -55,13 +55,17 @@ class NegHints(Sequence):
  
 
 class NegTokenInit2(Sequence):
+	class_ = 2
+	tag = 0
+	
 	_fields = [
-		('mechTypes', MechTypes, {'explicit': 0 ,'optional': True}),
+		('mechTypes', MechTypes, {'explicit': 0,'optional': True}),
 		('reqFlags', ContextFlags, {'explicit': 1 ,'optional': True}),
 		('mechToken', OctetString, {'explicit': 2 ,'optional': True,}),
 		('mechListMIC', OctetString, {'explicit':3 ,'optional': True}),
 		('negHints', NegHints, {'explicit': 4 ,'optional': True}),
 ]
+
 
 class negState(Enumerated):
 	_map = {
@@ -73,7 +77,7 @@ class negState(Enumerated):
 
 class negTokenResp(Sequence):
 	_fields = [
-		('negState', negState, {'explicit': 0, 'optional': True}),
+		('negState', negState, {'explicit': 0,'optional': True}),
 		('supportedMech', MechType, {'explicit': 1, 'optional': True}),
 		('responseToken', OctetString, {'explicit': 2, 'optional': True}),
 		('mechListMIC', OctetString, {'explicit': 3,'optional': True}),
@@ -81,8 +85,9 @@ class negTokenResp(Sequence):
 
 class NegotiationToken(Choice):
 	_alternatives = [
-		('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) } ), #NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
-		('negTokenResp', negTokenResp, {'implicit': (2,1) } ),
+		#('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ), #NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
+		('NegTokenInit2', NegTokenInit2, {'implicit': (0,16) }  ), #NegTokenInit2 the '2' in the name is because Microsoft added modifications to the original rfc :)
+		('negTokenResp', negTokenResp, {'explicit': (2,1) } ),
 		
 	]
 
@@ -170,8 +175,8 @@ print('=== Kerberos5 GSSAPI over SMB authentication example ===')
 print('Negotiate protocol response SMB, server sent supported mech types')
 kerb5_auth_gssapi = bytes.fromhex('605e06062b0601050502a0543052a024302206092a864882f71201020206092a864886f712010202060a2b06010401823702020aa32a3028a0261b246e6f745f646566696e65645f696e5f5246433431373840706c656173655f69676e6f7265')
 parsed = GSSAPI.load(kerb5_auth_gssapi, strict = True)
-#parsed.debug()
-#pprint.pprint(parsed.native)
+parsed.debug()
+pprint.pprint(parsed.native)
 assert str(parsed['type']) == '1.3.6.1.5.5.2'
 assert len(parsed.native['value']['NegotiationToken']['mechTypes']) == 4
 assert len(parsed.native['value']['NegotiationToken']['mechToken']) == 2879
