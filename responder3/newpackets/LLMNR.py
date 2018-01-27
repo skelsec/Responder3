@@ -24,7 +24,7 @@ class LLMNRResponse(enum.Enum):
 	RESPONSE = 1
 
 class LLMNRPacket():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.TransactionID = None
 		self.QR = None
 		self.Opcode = None
@@ -40,42 +40,44 @@ class LLMNRPacket():
 		self.Authorities = []
 		self.Additionals = []
 
+	def from_bytes(bbuff):
+		return LLMNRPacket.from_buffer(io.BytesIO(bbuff))
 
+	def from_buffer(buff):
+		packet = LLMNRPacket()
 
-		if data is not None:
-			self.parse(data)
+		packet.TransactionID = buff.read(2)
+		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
 
-	def parse(self, data):
-		self.TransactionID = data.read(2)
-		temp = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		packet.QR     = LLMNRResponse(temp >> 15)
+		packet.Opcode = LLMNROpcode((temp & 0x7800) >> 11) 
+		packet.FLAGS  = LLMNRFlags((temp & 0x7F0) >> 4)
+		packet.Rcode  = DNSResponseCode(temp & 0xF)
 
-		self.QR = LLMNRResponse(temp >> 15)
-		self.Opcode = LLMNROpcode((temp & 0x7800) >> 11) 
-		self.FLAGS = LLMNRFlags((temp & 0x7F0) >> 4)
-		self.Rcode = DNSResponseCode(temp & 0xF)
-
-		self.QDCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.ANCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.NSCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.ARCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-
-		
-		for i in range(0, self.QDCOUNT):
-			dnsq = DNSQuestion(data)
-			self.Questions.append(dnsq)
+		packet.QDCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.ANCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.NSCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.ARCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
 
 		
-		for i in range(0, self.ANCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.QDCOUNT):
+			dnsq = DNSQuestion.from_buffer(buff)
+			packet.Questions.append(dnsq)
 
-		for i in range(0, self.NSCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		
+		for i in range(0, packet.ANCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Answers.append(dnsr)
 
-		for i in range(0, self.ARCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.NSCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Authorities.append(dnsr)
+
+		for i in range(0, packet.ARCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Additionals.append(dnsr)
+
+		return packet
 		
 
 	def __repr__(self):
@@ -90,11 +92,21 @@ class LLMNRPacket():
 		t+= 'NSCOUNT: %s\r\n' % self.NSCOUNT
 		t+= 'ARCOUNT: %s\r\n' % self.ARCOUNT
 
-		for question in self.Questions:
-			t+= repr(question)
+		if len(self.Questions) > 0:
+			for question in self.Questions:
+				t+= repr(question)
 
-		for answer in self.Answers:
-			t+= repr(answer)
+		if len(self.Answers) > 0:
+			for answer in self.Answers:
+				t+= repr(answer)
+
+		if len(self.Authorities) > 0:
+			for answer in self.Authorities:
+				t+= repr(answer)
+
+		if len(self.Additionals) > 0:
+			for answer in self.Additionals:
+				t+= repr(answer)
 
 		return t
 

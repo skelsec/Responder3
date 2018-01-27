@@ -1,0 +1,1 @@
+sudo nmap --script llmnr-resolve --script-args 'llmnr-resolve.hostname=alma.com'

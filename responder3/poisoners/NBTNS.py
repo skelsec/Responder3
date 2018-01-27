@@ -37,7 +37,6 @@ class NBTNS(ResponderServer):
 
 			#compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.settings['mode'] == PoisonerMode.SPOOF:
-				print('1')
 				for exp in self.settings['spoofTable']:
 					if exp == 'ALL':
 						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spoofTable'][exp])))

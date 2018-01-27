@@ -70,7 +70,7 @@ class DNSType(enum.Enum):
 	TSIG       = 250 #RFC 2845 	Transaction Signature 	Can be used to authenticate dynamic updates as coming from an approved client, or to authenticate responses as coming from an approved recursive name server[11] similar to DNSSEC.
 	IXFR 	   = 251 #RFC 1996 	Incremental Zone Transfer 	Requests a zone transfer of the given zone but only differences from a previous serial number. This request may be ignored and a full (AXFR) sent in response if the authoritative server is unable to fulfill the request due to configuration or lack of required deltas.
 	AXFR       = 252 #RFC 1035[1] 	Authoritative Zone Transfer 	Transfer entire zone file from the master name server to secondary name servers.
-	ANY        = 255 #EVERYTHING
+	ANY        = 255 #ANYTHING
 	URI        = 256 #RFC 7553 	Uniform Resource Identifier 	Can be used for publishing mappings from hostnames to URIs.
 	CAA        = 257 #RFC 6844 	Certification Authority Authorization 	DNS Certification Authority Authorization, constraining acceptable CAs for a host/domain
 	
@@ -102,22 +102,21 @@ class DNSOpcode(enum.Enum):
 	RESERVED15 = 15
 
 #the upper bit is always zero and must never be set
-class DNSFlags(enum.IntEnum):
-	AA         = 0x40 #Authoritative Answer
-	TC         = 0x20 #TrunCation
-	RD         = 0x10 #Recursion Desired
-	RA         = 0x8  #Recursion Available
-	RESERVED1  = 0x4
-	RESERVED2  = 0x2
-	RESERVED3  = 0x1
-	ZERO       = 0x0 # <<< this should not be here, something is missing???
+class DNSFlags(enum.IntFlag):
+	AA         = 0x0040 #Authoritative Answer
+	TC         = 0x0020 #TrunCation
+	RD         = 0x0010 #Recursion Desired
+	RA         = 0x0008  #Recursion Available
+	RESERVED1  = 0x0004
+	RESERVED2  = 0x0002
+	RESERVED3  = 0x0001
 
 class DNSResponse(enum.Enum):
 	REQUEST = 0 #Query
 	RESPONSE = 1
 
 class DNSPacket():
-	def __init__(self, data = None, proto = ServerProtocol.UDP):
+	def __init__(self, proto = ServerProtocol.UDP):
 		self.proto     = proto
 		self.PACKETLEN = None #this is for TCP
 		self.TransactionID = None
@@ -135,54 +134,47 @@ class DNSPacket():
 		self.Authorities = []
 		self.Additionals = []
 
+	def from_bytes(bbuff, proto = ServerProtocol.UDP):
+		return DNSPacket.from_buffer(io.BytesIO(bbuff), proto)
 
+	def from_buffer(buff, proto = ServerProtocol.UDP):
+		packet = DNSPacket()
+		packet.proto = proto
+		if packet.proto == ServerProtocol.TCP:
+			packet.PACKETLEN = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+			buff = io.BytesIO(buff.read()) #need to repack this to a new buffer because the length field is not taken into account when calculating compressed DNSName 
 
-		if data is not None:
-			self.parse(data)
+		packet.TransactionID = buff.read(2)
+		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
 
-	def parse(self, data):
-		if self.proto == ServerProtocol.UDP:
-			self.PACKETLEN = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.TransactionID = data.read(2)
-		temp = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
+		packet.QR     = DNSResponse(temp >> 15)
+		packet.Opcode = DNSOpcode((temp & 0x7800) >> 11) 
+		packet.FLAGS  = DNSFlags((temp  >> 4) & 0x7F)
+		packet.Rcode  = DNSResponseCode(temp & 0xF)
 
-		self.QR     = DNSResponse(temp >> 15)
-		self.Opcode = DNSOpcode((temp & 0x7800) >> 11) 
-		self.FLAGS  = DNSFlags((temp  >> 4) & 0x7F)
-		self.Rcode  = DNSResponseCode(temp & 0xF)
-
-		self.QDCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.ANCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.NSCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-		self.ARCOUNT = int.from_bytes(data.read(2), byteorder = 'big', signed=False)
-
-		t = '== DNS Packet ==\r\n'
-		t+= 'TransactionID:  %s\r\n' % self.TransactionID.hex()
-		t+= 'QR:  %s\r\n' % self.QR.name
-		t+= 'Opcode: %s\r\n' % self.Opcode.name
-		t+= 'FLAGS: %s\r\n' % repr(self.FLAGS)
-		t+= 'Rcode: %s\r\n' % self.Rcode.name
-		t+= 'QDCOUNT: %s\r\n' % self.QDCOUNT
-		t+= 'ANCOUNT: %s\r\n' % self.ANCOUNT
-		t+= 'NSCOUNT: %s\r\n' % self.NSCOUNT
-		t+= 'ARCOUNT: %s\r\n' % self.ARCOUNT
+		packet.QDCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.ANCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.NSCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
+		packet.ARCOUNT = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
 		
-		for i in range(0, self.QDCOUNT):
-			dnsq = DNSQuestion(data)
-			self.Questions.append(dnsq)
+		for i in range(0, packet.QDCOUNT):
+			dnsq = DNSQuestion.from_buffer(buff)
+			packet.Questions.append(dnsq)
 
 		
-		for i in range(0, self.ANCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.ANCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Answers.append(dnsr)
 
-		for i in range(0, self.NSCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.NSCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Authorities.append(dnsr)
 
-		for i in range(0, self.ARCOUNT):
-			dnsr = DNSResource(data)
-			self.Answers.append(dnsr)
+		for i in range(0, packet.ARCOUNT):
+			dnsr = DNSResource.from_buffer(buff)
+			packet.Additionals.append(dnsr)
+
+		return packet
 		
 
 	def __repr__(self):
@@ -197,20 +189,26 @@ class DNSPacket():
 		t+= 'NSCOUNT: %s\r\n' % self.NSCOUNT
 		t+= 'ARCOUNT: %s\r\n' % self.ARCOUNT
 
-		for question in self.Questions:
-			t+= repr(question)
+		if len(self.Questions) > 0:
+			for question in self.Questions:
+				t+= repr(question)
 
-		for answer in self.Answers:
-			t+= repr(answer)
+		if len(self.Answers) > 0:
+			for answer in self.Answers:
+				t+= repr(answer)
+
+		if len(self.Authorities) > 0:
+			for answer in self.Authorities:
+				t+= repr(answer)
+
+		if len(self.Additionals) > 0:
+			for answer in self.Additionals:
+				t+= repr(answer)
 
 		return t
 
 	def toBytes(self):
-		if self.proto == ServerProtocol.TCP:
-			t = self.PACKETLEN.to_bytes(2, byteorder = 'big', signed=False)
-		else:
-			t = b''
-		t += self.TransactionID
+		t = self.TransactionID
 
 		a  = self.Rcode.value
 		a |= (self.FLAGS << 4 ) & 0x7F0
@@ -235,11 +233,16 @@ class DNSPacket():
 
 		for q in self.Additionals:
 			t += q.toBytes()
+		
+		if self.proto == ServerProtocol.TCP:
+			self.PACKETLEN = len(t)
+			t = self.PACKETLEN.to_bytes(2, byteorder = 'big', signed=False) + t
 
 		return t
 
 	def construct(self, TID, response,  flags = 0, opcode = DNSOpcode.QUERY, rcode = DNSResponseCode.NOERR, 
-					questions= [], answers= [], authorities = [], additionals = []):
+					questions= [], answers= [], authorities = [], additionals = [], proto = ServerProtocol.UDP):
+		self.proto   = proto
 		self.TransactionID = TID
 		self.QR      = response
 		self.Opcode  = opcode
@@ -257,22 +260,24 @@ class DNSPacket():
 
 
 class DNSQuestion():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.QNAME  = None
 		self.QTYPE  = None
 		self.QCLASS = None
 		self.QU     = None
 
-		if data is not None:
-			self.parse(data)
+	def from_bytes(bbuff):
+		return DNSQuestion.from_buffer(io.BytesIO(bbuff))
 
-	def parse(self, data):
-		#data is io.byteio!!!!!
-		self.QNAME  = DNSName(data)
-		self.QTYPE  = DNSType(int.from_bytes(data.read(2), byteorder = 'big', signed = False))
-		temp = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
-		self.QCLASS = DNSClass(temp & 0x7fff)
-		self.QU     = bool((temp & 0x8000) >> 15)
+	def from_buffer(buff):
+		qst = DNSQuestion()
+		qst.QNAME  = DNSName(buff)
+		qst.QTYPE  = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
+		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		qst.QCLASS = DNSClass(temp & 0x7fff)
+		qst.QU     = bool((temp & 0x8000) >> 15)
+
+		return qst
 
 	def toBytes(self):
 		t  = self.QNAME.toBytes()
@@ -298,8 +303,100 @@ class DNSQuestion():
 		t+= 'QU    : %s\r\n' % self.QU
 		return t
 
+class DNSOPT():
+	def __init__(self):
+		self.Code   = None
+		self.Length = None
+		self.Value  = None
+
+		#temp variable!
+		self.size = None
+
+	def from_bytes(buff):
+		return DNSOPT.from_buffer(io.BytesIO(buff))
+
+	def from_buffer(buff):
+		o = DNSOPT()
+		o.Code = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		o.Length = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		o.Value = buff.read(o.Length)
+		o.size = o.Length + 2
+		return o
+
+
+class DNSOPTResource():
+	#https://tools.ietf.org/html/rfc6891 Section 6.1.2.
+	#Comments from the author: <REDACTED PROFANITIES> Seriosuly why did you re-invent the format????
+	def __init__(self):
+		self.NAME     = None
+		self.TYPE     = None
+		self.UDPSIZE  = None
+		self.EXTRCODE = None
+		self.VERSION  = None
+		self.DO       = None
+		self.Z        = None
+		self.RDLENGTH = None
+		self.RDATA    = None
+
+		self.options = []
+
+	def from_bytes(bbuff):
+		return DNSOPTResource.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		rsc = DNSOPTResource()
+		rsc.NAME     = DNSName(buff)
+		rsc.TYPE     = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
+		rsc.UDPSIZE  = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		rsc.EXTRCODE = int.from_bytes(buff.read(1), byteorder = 'big', signed = False)
+		rsc.VERSION  = int.from_bytes(buff.read(1), byteorder = 'big', signed = False)
+		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		rsc.DO       = bool(temp & 0x8000)
+		rsc.Z        = temp & 0x7fff
+		rsc.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+
+		rsc.RDATA    = buff.read(rsc.RDLENGTH)
+
+		#TODO
+		"""
+		i = rsc.RDLENGTH
+		if rsc.RDLENGTH > 0:
+			opt = DNSOPT.from_bytes(rsc.RDATA)
+			rsc.options.append(opt)
+		"""
+		return rsc
+
+	def __repr__(self):
+		t = '== DNSOPTResource ==\r\n'
+		t+= 'NAME:  %s\r\n' % self.NAME.name
+		t+= 'TYPE:  %s\r\n' % self.TYPE.name
+		t+= 'UDPSIZE : %d\r\n' % self.UDPSIZE
+		t+= 'EXTRCODE: %s\r\n' % self.EXTRCODE
+		t+= 'VERSION: %s\r\n' % self.VERSION
+		t+= 'DO: %s\r\n' % repr(self.DO)
+		t+= 'RDLENGTH: %d\r\n' % self.RDLENGTH
+		t+= 'RDATA: %s\r\n' % repr(self.RDATA)
+		return t
+
+	def toBytes(self):
+		t  = self.NAME.toBytes()
+		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.UDPSIZE.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.EXTRCODE.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.VERSION.to_bytes(1, byteorder = 'big', signed = False)
+
+		a = self.Z
+		a |= int(self.DO) << 15
+		t += a.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.RDLENGTH.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.RDATA
+
+		return t
+		
+
+		
 class DNSResource():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.NAME     = None
 		self.TYPE     = None
 		self.CLASS    = None
@@ -308,28 +405,39 @@ class DNSResource():
 		self.RDLENGTH = None
 		self.RDATA    = None
 
+	def from_bytes(bbuff):
+		return DNSResource.from_buffer(io.BytesIO(bbuff))
 
-		if data is not None:
-			self.parse(data)
+	def from_buffer(buff):
+		pos = buff.tell()
+		rsc = DNSResource()
+		rsc.NAME     = DNSName(buff)
+		rsc.TYPE     = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
+		if rsc.TYPE == DNSType.OPT:
+			buff.seek(pos, io.SEEK_SET)
+			return DNSOPTResource.from_buffer(buff)
 
-	def parse(self, data):
-		self.NAME     = DNSName(data)
-		self.TYPE     = DNSType(int.from_bytes(data.read(2), byteorder = 'big'))
-		temp = int.from_bytes(data.read(2), byteorder = 'big', signed = False)
-		self.CLASS    = DNSClass(temp & 0x7fff)
-		self.CFLUSH   = bool((temp & 0x8000) >> 15)
-		self.TTL      = int.from_bytes(data.read(4), byteorder = 'big')
-		self.RDLENGTH = int.from_bytes(data.read(2), byteorder = 'big')
-
-		if self.TYPE == DNSType.A and self.CLASS == DNSClass.IN:
-			self.RDATA = ipaddress.IPv4Address(data.read(self.RDLENGTH))
-
-		elif self.TYPE == DNSType.PTR and self.CLASS == DNSClass.IN:
-			self.RDATA = DNSName(data)
-
-		#TODO for other types :)
 		else:
-			self.RDATA = data.read(self.RDLENGTH)
+			temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+			rsc.CLASS    = DNSClass(temp & 0x7fff)
+			rsc.CFLUSH   = bool((temp & 0x8000) >> 15)
+			rsc.TTL      = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+			rsc.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+
+			if rsc.TYPE == DNSType.A and rsc.CLASS == DNSClass.IN:
+				rsc.RDATA = ipaddress.IPv4Address(buff.read(rsc.RDLENGTH))
+
+			elif rsc.TYPE == DNSType.AAAA and rsc.CLASS == DNSClass.IN:
+				rsc.RDATA = ipaddress.IPv6Address(buff.read(rsc.RDLENGTH))
+
+			elif rsc.TYPE == DNSType.PTR and rsc.CLASS == DNSClass.IN:
+				rsc.RDATA = DNSName(buff)
+
+			#TODO for other types :)
+			else:
+				rsc.RDATA = buff.read(rsc.RDLENGTH)
+
+		return rsc
 
 	
 	def toBytes(self):
@@ -340,7 +448,11 @@ class DNSResource():
 		t += a.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.TTL.to_bytes(4, byteorder = 'big', signed = False)
 		t += self.RDLENGTH.to_bytes(2, byteorder = 'big', signed = False)
-		t += self.RDATA
+
+		if self.TYPE in [DNSType.A, DNSType.AAAA]:
+			t += self.RDATA.packed
+		else:
+			t += self.RDATA
 
 		return t
 
@@ -351,11 +463,14 @@ class DNSResource():
 		self.CLASS    = rclass
 		self.CFLUSH   = cflush
 		self.TTL      = ttl
+		self.RDATA    = rdata
 
-		if self.TYPE  == DNSType.A and self.CLASS == DNSClass.IN:
-			self.RDATA = rdata.packed
+		if self.TYPE in [DNSType.A, DNSType.AAAA]:
+			self.RDLENGTH = len(self.RDATA.packed)
+		else:
+			self.RDLENGTH = len(self.RDATA)
 
-		self.RDLENGTH = len(self.RDATA)
+		
 	
 	def __repr__(self):
 		t = '== DNSResource ==\r\n'

