@@ -4,7 +4,7 @@ import traceback
 import socket
 import io
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
-from responder3.newpackets.FTP import * 
+from responder3.protocols.FTP import * 
 
 class FTPSession(ProtocolSession):
 	def __init__(self, server):
@@ -18,10 +18,14 @@ class FTPSession(ProtocolSession):
 class FTP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
-		self.protocol = FTPProtocol
 
 	def modulename(self):
 		return 'FTP'
+
+	def setup(self):
+		self.protocol = FTPProtocol
+		#put settings parsing here!
+		return
 
 	def sendWelcome(self, transport):
 		transport.write(FTPReply(220, 'Honeypot FTP server').toBytes())

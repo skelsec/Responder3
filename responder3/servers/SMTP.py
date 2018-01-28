@@ -5,7 +5,7 @@ import os
 import email.parser
 from responder3.utils import ServerFunctionality
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession, EmailEntry
-from responder3.newpackets.SMTP import SMTPServerState, SMTPCommandParser, SMTPReply, SMTPCommand
+from responder3.protocols.SMTP import SMTPServerState, SMTPCommandParser, SMTPReply, SMTPCommand
 from responder3.servers import AuthClasses
 
 """
@@ -42,11 +42,6 @@ class SMTPProtocol(ResponderProtocolTCP):
 	def _connection_made(self):
 		self._server.sendWelcome(self._transport)
 
-	def _data_received(self, raw_data):
-		return
-
-	def _connection_lost(self, exc):
-		return
 
 	def _parsebuff(self):
 		if self._session.currentState == SMTPServerState.DATAINCOMING:
@@ -105,7 +100,7 @@ class SMTP(ResponderServer):
 			self.settings = { 
 							  'functionality'  : ServerFunctionality.HONEYPOT,
 							  'credentials'    : None,
-							  'authTypes'      : None, #['PLAIN'],
+							  'authTypes'      : ['PLAIN'], #['PLAIN'],
 							  'wecomeMsg'      : 'hello from Honeyport SMTP server',
 							  'heloMsg'        : 'Honypot SMTP at your service', 
 							  'ehloMsg'        : 'Honypot SMTP at your service', 
@@ -129,11 +124,6 @@ class SMTP(ResponderServer):
 		r = SMTPReply()
 		r.construct(220, 'hello from Honeyport POP3 server')
 		transport.write(r.toBytes())
-
-	"""
-	502 : 'Command not implemented', #(see Section 4.2.4)
-	503 : 'Bad sequence of commands',
-	"""
 
 	def handle(self, smtpcommand, transport, session):
 		try:

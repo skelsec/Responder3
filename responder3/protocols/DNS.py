@@ -1,3 +1,4 @@
+#https://www.ietf.org/rfc/rfc1035.txt
 import enum
 import io
 import ipaddress
@@ -163,15 +164,15 @@ class DNSPacket():
 
 		
 		for i in range(0, packet.ANCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Answers.append(dnsr)
 
 		for i in range(0, packet.NSCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Authorities.append(dnsr)
 
 		for i in range(0, packet.ARCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Additionals.append(dnsr)
 
 		return packet
@@ -240,23 +241,26 @@ class DNSPacket():
 
 		return t
 
-	def construct(self, TID, response,  flags = 0, opcode = DNSOpcode.QUERY, rcode = DNSResponseCode.NOERR, 
+	def construct(TID, response,  flags = 0, opcode = DNSOpcode.QUERY, rcode = DNSResponseCode.NOERR, 
 					questions= [], answers= [], authorities = [], additionals = [], proto = ServerProtocol.UDP):
-		self.proto   = proto
-		self.TransactionID = TID
-		self.QR      = response
-		self.Opcode  = opcode
-		self.FLAGS   = flags
-		self.Rcode   = rcode
-		self.QDCOUNT = len(questions)
-		self.ANCOUNT = len(answers)
-		self.NSCOUNT = len(authorities)
-		self.ARCOUNT = len(additionals)
+		packet = DNSPacket()
+		packet.proto   = proto
+		packet.TransactionID = TID
+		packet.QR      = response
+		packet.Opcode  = opcode
+		packet.FLAGS   = flags
+		packet.Rcode   = rcode
+		packet.QDCOUNT = len(questions)
+		packet.ANCOUNT = len(answers)
+		packet.NSCOUNT = len(authorities)
+		packet.ARCOUNT = len(additionals)
 
-		self.Questions   = questions
-		self.Answers     = answers
-		self.Authorities = authorities
-		self.Additionals = additionals
+		packet.Questions   = questions
+		packet.Answers     = answers
+		packet.Authorities = authorities
+		packet.Additionals = additionals
+
+		return packet
 
 
 class DNSQuestion():
@@ -271,7 +275,7 @@ class DNSQuestion():
 
 	def from_buffer(buff):
 		qst = DNSQuestion()
-		qst.QNAME  = DNSName(buff)
+		qst.QNAME  = DNSName.from_buffer(buff)
 		qst.QTYPE  = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
 		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
 		qst.QCLASS = DNSClass(temp & 0x7fff)
@@ -289,8 +293,7 @@ class DNSQuestion():
 		return t
 
 	def construct(self, qname, qtype, qclass, qu = False):
-		self.QNAME     = DNSName()
-		self.NAME.construct(qname)
+		self.QNAME     = DNSName.construct(qname)
 		self.QTYPE     = qtype
 		self.QCLASS    = qclass
 		self.QU        = qu
@@ -345,7 +348,7 @@ class DNSOPTResource():
 
 	def from_buffer(buff):
 		rsc = DNSOPTResource()
-		rsc.NAME     = DNSName(buff)
+		rsc.NAME     = DNSName.from_buffer(buff)
 		rsc.TYPE     = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
 		rsc.UDPSIZE  = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
 		rsc.EXTRCODE = int.from_bytes(buff.read(1), byteorder = 'big', signed = False)
@@ -357,7 +360,7 @@ class DNSOPTResource():
 
 		rsc.RDATA    = buff.read(rsc.RDLENGTH)
 
-		#TODO
+		#TODO Further parsing the opt elements
 		"""
 		i = rsc.RDLENGTH
 		if rsc.RDLENGTH > 0:
@@ -392,9 +395,7 @@ class DNSOPTResource():
 		t += self.RDATA
 
 		return t
-		
 
-		
 class DNSResource():
 	def __init__(self):
 		self.NAME     = None
@@ -405,40 +406,29 @@ class DNSResource():
 		self.RDLENGTH = None
 		self.RDATA    = None
 
+	#this method will parse the Resource object until RDATA, which will be parsed by the object inheriting it
+	def parse_header(self, buff):
+		self.NAME     = DNSName.from_buffer(buff)
+		self.TYPE     = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
+		temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		self.CLASS    = DNSClass(temp & 0x7fff)
+		self.CFLUSH   = bool((temp & 0x8000) >> 15)
+		self.TTL      = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		self.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		#this is here to support proxying of packets
+		pos = buff.tell()
+		self.RDATA    = buff.read(self.RDLENGTH)
+		buff.seek(pos, io.SEEK_SET)
+		return
+
 	def from_bytes(bbuff):
 		return DNSResource.from_buffer(io.BytesIO(bbuff))
 
 	def from_buffer(buff):
-		pos = buff.tell()
-		rsc = DNSResource()
-		rsc.NAME     = DNSName(buff)
-		rsc.TYPE     = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
-		if rsc.TYPE == DNSType.OPT:
-			buff.seek(pos, io.SEEK_SET)
-			return DNSOPTResource.from_buffer(buff)
-
-		else:
-			temp = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
-			rsc.CLASS    = DNSClass(temp & 0x7fff)
-			rsc.CFLUSH   = bool((temp & 0x8000) >> 15)
-			rsc.TTL      = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
-			rsc.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
-
-			if rsc.TYPE == DNSType.A and rsc.CLASS == DNSClass.IN:
-				rsc.RDATA = ipaddress.IPv4Address(buff.read(rsc.RDLENGTH))
-
-			elif rsc.TYPE == DNSType.AAAA and rsc.CLASS == DNSClass.IN:
-				rsc.RDATA = ipaddress.IPv6Address(buff.read(rsc.RDLENGTH))
-
-			elif rsc.TYPE == DNSType.PTR and rsc.CLASS == DNSClass.IN:
-				rsc.RDATA = DNSName(buff)
-
-			#TODO for other types :)
-			else:
-				rsc.RDATA = buff.read(rsc.RDLENGTH)
-
-		return rsc
-
+		res = DNSResource()
+		res.parse_header(buff)
+		res.RDATA = buff.read(res.RDLENGTH)
+		return res
 	
 	def toBytes(self):
 		t  = self.NAME.toBytes()
@@ -448,30 +438,21 @@ class DNSResource():
 		t += a.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.TTL.to_bytes(4, byteorder = 'big', signed = False)
 		t += self.RDLENGTH.to_bytes(2, byteorder = 'big', signed = False)
-
-		if self.TYPE in [DNSType.A, DNSType.AAAA]:
-			t += self.RDATA.packed
-		else:
-			t += self.RDATA
+		t += self.RDATA
 
 		return t
 
 	def construct(self, rname, rtype, rdata, ttl = 3000, rclass = DNSClass.IN, cflush = False):
-		self.NAME     = DNSName()
-		self.NAME.construct(rname)
-		self.TYPE     = rtype
-		self.CLASS    = rclass
-		self.CFLUSH   = cflush
-		self.TTL      = ttl
-		self.RDATA    = rdata
+		res = DNSResource()
+		res.NAME     = DNSName.construct(rname)
+		res.TYPE     = rtype
+		res.CLASS    = rclass
+		res.CFLUSH   = cflush
+		res.TTL      = ttl
+		res.RDATA    = rdata
+		return res
 
-		if self.TYPE in [DNSType.A, DNSType.AAAA]:
-			self.RDLENGTH = len(self.RDATA.packed)
-		else:
-			self.RDLENGTH = len(self.RDATA)
 
-		
-	
 	def __repr__(self):
 		t = '== DNSResource ==\r\n'
 		t+= 'NAME:  %s\r\n' % self.NAME.name
@@ -482,18 +463,166 @@ class DNSResource():
 		t+= 'RDLENGTH: %s\r\n' % self.RDLENGTH
 		t+= 'RDATA: %s\r\n' % repr(self.RDATA)
 		return t
+		
+#the logic here is: all resource types contain different data in the RDATA filed
+#we describe the custom data for each and every different type
+#and define a new object inheriting for the base object 
+class DNSAResource(DNSResource):
+	def __init__(self):
+		DNSResource.__init__(self)
+		self.ipaddress = None
+
+	def from_bytes(bbuff):
+		return DNSAResource.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		res = DNSAResource()
+		res.parse_header(buff)
+		res.ipaddress = ipaddress.IPv4Address(buff.read(res.RDLENGTH))
+		return res
+
+	def construct(rname, ipv4, ttl = 3000, rclass = DNSClass.IN, cflush = False):
+		res = DNSAResource()
+		res.NAME     = DNSName.construct(rname)
+		res.TYPE     = DNSType.A
+		res.CLASS    = rclass
+		res.CFLUSH   = cflush
+		res.TTL      = ttl
+		res.ipaddress = ipv4
+		
+		res.RDATA    = res.ipaddress.packed
+		res.RDLENGTH = len(res.RDATA) #should be 4
+
+		return res
+
+	def __repr__(self):
+		t = '=== DNS A ===\r\n'
+		t += DNSResource.__repr__(self)
+		t += 'IP address: %s\r\n' % str(self.ipaddress)
+		return t
+
+
+class DNSAAAAResource(DNSResource):
+	def __init__(self):	
+		DNSResource.__init__(self)
+		self.ipaddress = None
+
+	def from_bytes(bbuff):
+		return DNSAAAAResource.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		res = DNSAAAAResource()
+		res.parse_header(buff)
+		res.ipaddress = ipaddress.IPv6Address(buff.read(res.RDLENGTH))
+		return res
+
+	def construct(rname, ipv6, ttl = 3000, rclass = DNSClass.IN, cflush = False):
+		res = DNSAAAAResource()
+		res.NAME     = DNSName.construct(rname)
+		res.TYPE     = DNSType.AAAA
+		res.CLASS    = rclass
+		res.CFLUSH   = cflush
+		res.TTL      = ttl
+		res.ipaddress = ipv6
+		
+		res.RDATA    = res.ipaddress.packed
+		res.RDLENGTH = len(res.RDATA) #should be 16
+
+		return res
+
+	def __repr__(self):
+		t = '=== DNS AAAA ===\r\n'
+		t += DNSResource.__repr__(self)
+		t += 'IP address: %s\r\n' % str(self.ipaddress)
+		return t
+
+class DNSPTRResource(DNSResource):
+	def __init__(self):	
+		DNSResource.__init__(self)
+		self.domainname = None
+
+	def from_bytes(bbuff):
+		return DNSPTRResource.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		res = DNSPTRResource()
+		res.parse_header(buff)
+		res.domainname = DNSName.from_buffer(buff)
+		return res
+
+	def construct(rname, domainname, ttl = 3000, rclass = DNSClass.IN, cflush = False):
+		res = DNSPTRResource()
+		res.NAME     = DNSName.construct(rname)
+		res.TYPE     = DNSType.PTR
+		res.CLASS    = rclass
+		res.CFLUSH   = cflush
+		res.TTL      = ttl
+		res.domainname = domainname
+		
+		res.RDATA    = DNSName.construct(res.domainname)
+		res.RDLENGTH = len(res.RDATA) #should be 16
+
+		return res
+
+	def __repr__(self):
+		t = '=== DNS PTR ===\r\n'
+		t += DNSResource.__repr__(self)
+		t += 'PTR name: %s\r\n' % str(self.domainname)
+		return t
+		
+
+class DNSResourceParser():
+	def from_bytes(bbuff):
+		return DNSResourceParser.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		pos = buff.tell()
+
+		resname = DNSName.from_buffer(buff)
+		restype = DNSType(int.from_bytes(buff.read(2), byteorder = 'big', signed = False))
+
+		#Extended dns?
+		if restype == DNSType.OPT:
+			buff.seek(pos, io.SEEK_SET)
+			return DNSOPTResource.from_buffer(buff)
+
+		#nope.
+		else:
+			#rewinding the buffer
+			buff.seek(pos, io.SEEK_SET)
+			#now parse for various types
+			if restype == DNSType.A:
+				rsc = DNSAResource.from_buffer(buff)
+			elif restype == DNSType.AAAA:
+				rsc = DNSAAAAResource.from_buffer(buff)
+			elif restype == DNSType.PTR:
+				rsc = DNSPTRResource.from_buffer(buff)
+
+			#catch-all for not fully implemented or unknown types
+			#feel free to expand the if-else statement above...
+			else:
+				rsc = DNSResource.from_buffer(buff)
+				
+
+		return rsc
 
 
 class DNSName():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.name            = ''
+		#variables below are for parsing only
 		self.compressed      = False
 		self.compressed_pos  = None
 		self.compressed_done = False
-
-		if data is not None:
-			self.parse(data)
 			
+	def from_bytes(bbuff):
+		return DNSName.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		dnsname = DNSName()
+		dnsname.parse(buff)
+		return dnsname
+		
 
 	def parse(self, data, rec = False):
 		#this code is ugly :(
@@ -524,8 +653,10 @@ class DNSName():
 				self.name += data.read(length).decode()
 			self.parse(data, True)
 
-	def construct(self, name):
-		self.name = name
+	def construct(name):
+		dnsname = DNSName()
+		dnsname.name = name
+		return dnsname
 
 
 	def toBytes(self):

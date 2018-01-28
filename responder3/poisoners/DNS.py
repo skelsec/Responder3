@@ -78,12 +78,10 @@ class DNS(ResponderServer):
 					for q in packet.Questions:
 						if targetRE.match(q.QNAME.name):
 							self.logPoisonResult(session, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
-							res = DNSResource()
 							if ip.version == 4:
-								#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
-								res.construct(q.QNAME.name, DNSType.A, ip)
+								res = DNSAResource.construct(q.QNAME.name, ip)
 							elif ip.version == 6:
-								res.construct(q.QNAME.name, DNSType.AAAA, ip) #not tested, but should work
+								res = DNSAAAAResource.construct(q.QNAME.name, ip)
 							else:
 								raise Exception('This IP version scares me...')
 							#res.construct(q.QNAME, NBRType.NB, ip)
@@ -100,6 +98,7 @@ class DNS(ResponderServer):
 								passthru_packet = DNSPacket.from_bytes(data, self.bind_proto)
 								self.log(logging.INFO,'Passthru packet recieved! %s' % (repr(passthru_packet),))
 								#do modification if you wish here
+								#passthru_packet << this will be sent back to the victim
 								transport.sendto(passthru_packet.toBytes(), addr)
 								return
 
@@ -123,12 +122,11 @@ class DNS(ResponderServer):
 					raise Exception('DNS error response should be here!')
 					return
 
-				response = DNSPacket()
-				response.construct(TID = packet.TransactionID, 
-					 response = DNSResponse.RESPONSE, 
-					 answers = answers,
-					 questions = packet.Questions,
-					 proto = self.bind_proto)
+				response = DNSPacket.construct(TID = packet.TransactionID, 
+												 response = DNSResponse.RESPONSE, 
+												 answers = answers,
+												 questions = packet.Questions,
+												 proto = self.bind_proto)
 
 
 				if self.bind_proto == ServerProtocol.UDP:
@@ -144,20 +142,6 @@ class DNS(ResponderServer):
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
 
-	"""
-	def poison(self, requestPacket, poisonAddr, poisonName = None):
-		self.log(logging.DEBUG,'Poisoning!')
-		res = DNSResource()
-		res.construct(requestPacket.Questions[0].QNAME.name, DNSType.A, poisonAddr)
-		pp = DNSPacket()
-
-		pp.construct(TID = requestPacket.TransactionID, 
-					 response = DNSResponse.RESPONSE, 
-					 answers = [res],
-					 questions = requestPacket.Questions)
-
-		return pp
-	"""
 
 class DNSProtocolUDP(ResponderProtocolUDP):
 	

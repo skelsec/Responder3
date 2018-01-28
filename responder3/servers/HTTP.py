@@ -1,3 +1,4 @@
+import copy
 import traceback
 import struct
 from base64 import b64decode
@@ -5,24 +6,19 @@ import logging
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
 
 from responder3.utils import *
-from responder3.newpackets.HTTP import *
-from responder3.packets import IIS_Auth_401_Ans, IIS_Auth_Granted, IIS_NTLM_Challenge_Ans, IIS_Basic_401_Ans,WEBDAV_Options_Answer
-from responder3.packets import WPADScript, ServeExeFile, ServeHtmlFile
+from responder3.protocols.HTTP import *
 
 class HTTPSession(ProtocolSession):
 	def __init__(self, server):
 		ProtocolSession.__init__(self, server)
 		#for protocol-level
 		self._headersRecieved = False
-		self.encoding     = 'ascii'
-		self.cmdParser    = HTTPRequestParser(encoding = self.encoding)
+		self.cmdParser    = HTTPRequestParser(encoding = 'utf-8')
 		#for
 		self.HTTPVersion          = HTTPVersion.HTTP11
 		self.HTTPContentEncoding  = HTTPContentEncoding.IDENTITY
 		self.HTTPConectentCharset = 'utf8'
-		#self.HTTPAtuhentication   = HTTPBasicAuth()
-		self.HTTPAtuhentication        = HTTPNTLMAuth()
-		self.HTTPAtuhenticationHandler = HTTPNTLMAuthHandler
+		self.HTTPAtuhentication   = None
 		self.HTTPCookie           = None
 		self.HTTPServerBanner     = None
 		self.currentState         = HTTPState.UNAUTHENTICATED
@@ -30,7 +26,6 @@ class HTTPSession(ProtocolSession):
 	def __repr__(self):
 		t  = '== HTTPSession ==\r\n'
 		t += '_headersRecieved: %s\r\n' % repr(self._headersRecieved)
-		t += 'encoding:         %s\r\n' % repr(self.encoding)
 		t += 'cmdParser:        %s\r\n' % repr(self.cmdParser)
 		t += 'HTTPVersion:      %s\r\n' % repr(self.HTTPVersion)
 		t += 'HTTPContentEncoding: %s\r\n' % repr(self.HTTPContentEncoding)
@@ -41,20 +36,82 @@ class HTTPSession(ProtocolSession):
 		t += 'currentState:     %s\r\n' % repr(self.currentState)
 		return t
 
+class HTTP(ResponderServer):
+	def __init__(self):
+		ResponderServer.__init__(self)
+		
+
+	def modulename(self):
+		return 'HTTP'
+
+	def setup(self):
+		self.protocol = HTTPProtocol
+		self.protocolSession = HTTPSession(self.rdnsd)
+		#put settings parsing here!
+		if self.settings is None:
+			#default settings, basically just NTLm auth
+			self.protocolSession.HTTPAtuhentication   = HTTPNTLMAuth()
+			self.protocolSession.HTTPAtuhentication.setup()
+
+
+		else:
+			if 'authentication' in self.settings:
+				#supported authentication mechanisms
+				if self.settings['authentication']['authmecha'].upper() == 'NTLM':
+					self.protocolSession.HTTPAtuhentication   = HTTPNTLMAuth()
+					if 'settings' in self.settings['authentication']:
+						self.protocolSession.HTTPAtuhentication.setup(self.settings['authentication']['settings'])
+				elif self.settings['authmecha'].upper() == 'BASIC':
+					self.protocolSession.HTTPAtuhentication  = HTTPBasicAuth()
+
+				else:
+					raise Exception('Unsupported HTTP authentication mechanism: %s' % (self.settings['authentication']['authmecha']))
+
+				if 'cerdentials' in self.settings['authentication']:
+					self.protocolSession.HTTPAtuhentication.verifyCreds = self.settings['authentication']['cerdentials']
+
+		return
+
+	def handle(self, httpReq, transport, session):
+		try:
+			if 'R3DEEPDEBUG' in os.environ:
+				print(repr(session))
+				self.log(logging.INFO,'Session state: %s Request: %s' % ( (session.currentState.name if session.currentState is not None else 'NONE') , repr(httpReq)), session)
+
+			if session.currentState == HTTPState.UNAUTHENTICATED and session.HTTPAtuhentication is None:
+				session.currentState == HTTPState.AUTHENTICATED
+			
+			if session.currentState == HTTPState.UNAUTHENTICATED:
+				usercreds = session.HTTPAtuhentication.do_AUTH(httpReq, transport, session)
+				if usercreds is not None:
+					if isinstance(usercreds, list):
+						for uc in usercreds:
+							self.logResult(session, uc.toResult())
+					else:
+						self.logResult(session, usercreds.toResult())
+
+			if session.currentState == HTTPState.AUTHFAILED:
+				transport.write(HTTP403Resp(session, 'Basic').toBytes())
+				transport.close()
+				pass
+
+			if session.currentState == HTTPState.AUTHENTICATED:
+				#serve webpage or whatever
+				transport.write(HTTP200Resp(session, body = 'SUCCSESS!').toBytes())
+				transport.close()
+				pass
+
+		except Exception as e:
+			traceback.print_exc()
+			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			pass
+
 class HTTPProtocol(ResponderProtocolTCP):
 	
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
-		self._session = HTTPSession(server.rdnsd)
-
-	def _connection_made(self):
-		return
-
-	def _data_received(self, raw_data):
-		return
-
-	def _connection_lost(self, exc):
-		return
+		#reasoning: HTTP server does the parsing of the settings, but some setting parameters are modifying the session object
+		self._session = copy.deepcopy(server.protocolSession)
 
 	def _parsebuff(self):
 		if len(self._buffer) > self._buffer_maxsize:
@@ -91,34 +148,6 @@ class HTTPProtocol(ResponderProtocolTCP):
 		req = self._session.cmdParser.parse(io.BytesIO(self._buffer[:marker+1]))
 		
 		self._server.handle(_httpreq, self._transport)
-
-
-
-
-
-class HTTP(ResponderServer):
-	def __init__(self):
-		ResponderServer.__init__(self)
-		self.protocol = HTTPProtocol
-
-	def modulename(self):
-		return 'HTTP'
-
-	def handle(self, req, transport, session):
-		try:
-			if 'R3DEEPDEBUG' in os.environ:
-				print(repr(session))
-				self.log(logging.INFO,'Session state: %s Request: %s' % ( (session.currentState.name if session.currentState is not None else 'NONE') , repr(req)), session)
-
-			if session.currentState == HTTPState.UNAUTHENTICATED:
-				session.HTTPAtuhenticationHandler(req, transport, session)
-
-		except Exception as e:
-			traceback.print_exc()
-			self.log(logging.INFO,'Exception! %s' % (str(e),))
-			pass
-
-
 
 class HTTPS(HTTP):
 	def modulename(self):

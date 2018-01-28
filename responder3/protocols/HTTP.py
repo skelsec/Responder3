@@ -3,7 +3,7 @@ import os
 import enum
 import zlib
 import base64
-from responder3.newpackets.NTLM import *
+from responder3.protocols.NTLM import NTLMAUTHHandler, NTLMAuthStatus
 
 class HTTPVersion(enum.Enum):
 	HTTP10 = 'HTTP/1.0'
@@ -12,6 +12,7 @@ class HTTPVersion(enum.Enum):
 class HTTPState(enum.Enum):
 	UNAUTHENTICATED = enum.auto()
 	AUTHENTICATED   = enum.auto()
+	AUTHFAILED      = enum.auto()
 
 class HTTPAuthType(enum.Enum):
 	BASIC = enum.auto()
@@ -162,63 +163,178 @@ class HTTPResponseBase():
 		self.code    = str(code)
 		self.reason  = HTTPResponseReasons[code] if code in HTTPResponseReasons else 'Pink kittens'
 		self.body    = body
-		self.headers = {}
+		self.headers = {
+			'Content-Type'  : 'text/html',
+			'Content-Length': 0,
+		}
 
 	def toBytes(self):
-		t  = '%s %s %s\r\n' % (self.version, self.code, self.reason)
-		t  += "Content-Type: text/html\r\n"
-		t  += "Content-Length: 0\r\n"
-		for key, value in self.headers.items():
-			t += key + ': ' + self.headers[key] + '\r\n'
-
-
-		t += '\r\n'
-		t = t.encode('ascii')
 		####################################
 		####################################
 		## TODO!!! use specific encoding + compression when needed!!!
-		if self.body is not None:
-			t += self.body.encode('utf-8')
 
+		#calculating body by applying sepcific ancoding and compression
+		t_body = ''
+		if self.body is not None:
+			t_body = self.body
+
+		#updating content-length field
+		self.headers['Content-Length'] = str(len(t_body))
+
+
+		t  = '%s %s %s\r\n' % (self.version, self.code, self.reason)
+		for key, value in self.headers.items():
+			t += key + ': ' + self.headers[key] + '\r\n'
+		t += '\r\n'
+		t = t.encode('ascii')
+
+		if self.body is not None:
+			t += t_body.encode('utf-8')
+		
 		return t
 
 
 
 class HTTP200Resp(HTTPResponseBase):
-	def __init__(self, session):
-		HTTPResponseBase.__init__(self, session, 200)
+	def __init__(self, session, body = None):
+		HTTPResponseBase.__init__(self, session, 200, body = body)
 
 
 class HTTP301Resp(HTTPResponseBase):
 	def __init__(self, redirectURL):
-		HTTPResponseBase.__init__(self, session, 200)
+		HTTPResponseBase.__init__(self, session, 301)
 		self.headers['Location'] = redirectURL
 
+class HTTP400Resp(HTTPResponseBase):
+	def __init__(self, session, body = None):
+		HTTPResponseBase.__init__(self, session, 400, body = body)
+
 class HTTP401Resp(HTTPResponseBase):
-	def __init__(self, session, authType, authChallenge = None, body = None):
+	def __init__(self, session, authType, authChallenge = None, body = None, isProxy = False):
 		HTTPResponseBase.__init__(self, session, 401, body = body)
-		if authChallenge is not None:
-			self.headers['WWW-Authenticate'] = '%s %s' % (authType, authChallenge)
+		if isProxy:
+			if authChallenge is not None:
+				self.headers['Proxy-Authenticate'] = '%s %s' % (authType, authChallenge)
+			else:
+				self.headers['Proxy-Authenticate'] = '%s' % authType
 		else:
-			self.headers['WWW-Authenticate'] = '%s' % authType
+			if authChallenge is not None:
+				self.headers['WWW-Authenticate'] = '%s %s' % (authType, authChallenge)
+			else:
+				self.headers['WWW-Authenticate'] = '%s' % authType
+
+class HTTP403Resp(HTTPResponseBase):
+	def __init__(self, session, authType, authChallenge = None, body = None):
+		HTTPResponseBase.__init__(self, session, 403, body = body)
 
 class HTTPBasicAuth():
-	def __init__(self, creds = None):
+	"""
+	Handling HTTP basic Auth
+	verifyCreds: can be a  1. dictionary with user:password pairs.
+						 2. empty dict means nobody is allowed
+						 3. None means EVERYBODY IS ALLOWED
+	"""
+
+	def __init__(self, verifyCreds = None, isProxy = False):
 		self._iterations = 0
-		self.creds = creds
+		self.isProxy = isProxy
+		self.verifyCreds = verifyCreds
+		self.userCreds   = None
 
 
-	def handleRequest(self, req, transport, session):
-		print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
-		if 'authorization' in req.headers and req.headers['authorization'][:5] == 'Basic':
-			print('Authdata in! %s' % (base64.b64decode(req.headers['authorization'][5:]).decode('ascii')))
+	def do_AUTH(self, httpReq, transport, session):
+		authHdr = 'authorization'
+		if self.isProxy:
+			authHdr = 'proxy-authorization'
+		
+		if authHdr in httpReq.headers and httpReq.headers[authHdr][:5].upper() == 'BASIC':
+			#print('Authdata in! %s' % (base64.b64decode(httpReq.headers['authorization'][5:]).decode('ascii')))
+			temp = base64.b64decode(httpReq.headers[authHdr][5:]).decode('ascii')
+			marker = temp.find(':')
+			self.userCreds   = BASICUserCredentials()
+			self.userCreds.username = temp[:marker]
+			self.userCreds.password = temp[marker+1:]
+
+			#print(self.userCreds.username)
+			#print(self.userCreds.password)
+
+			if self.verify():
+				session.currentState = HTTPState.AUTHENTICATED
+			else:
+				session.currentState = HTTPState.AUTHFAILED
+
+			return self.userCreds
 
 		else:
-			transport.write(HTTP401Resp(session, 'Basic').toBytes())
+			transport.write(HTTP401Resp(session, 'Basic', isProxy = self.isProxy).toBytes())
 			transport.close()
 
-def HTTPNTLMAuthHandler(req, transport, session):
-		print('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+	def verify(self):
+		if self.verifyCreds is None:
+			return True
+		else:
+			if self.userCreds.username in self.verifyCreds:
+				return self.verifyCreds[self.userCreds.username] == self.userCreds.password
+			else:
+				return False
+		return False
+
+class BASICUserCredentials():
+	def __init__(self):
+		self.username = None
+		self.password = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'Cleartext', 
+			'user'     : self.username,
+			'cleartext': self.password, 
+			'fullhash' : '%s:%s' % (self.username, self.password)
+		}
+		return res
+
+class HTTPNTLMAuth():
+	def __init__(self, verifyCreds = None, isProxy = False):
+		self.isProxy = isProxy
+		self.hander = NTLMAUTHHandler()
+		self.verifyCreds = verifyCreds
+		self.settings = None
+		self.status = 0
+
+	def setup(self, settings = {}):
+		#settings here
+		self.hander.setup(settings)
+		return
+
+
+	def do_AUTH(self, httpRequest, transport, session):
+		authHdr = 'authorization'
+		if self.isProxy:
+			authHdr = 'proxy-authorization'
+
+		if authHdr in httpRequest.headers and httpRequest.headers[authHdr][:4].upper() == 'NTLM':
+			authStatus, ntlmMessage, creds = self.hander.do_AUTH(base64.b64decode(httpRequest.headers[authHdr][5:]))
+			if self.status == 0 and authStatus == NTLMAuthStatus.FAIL:
+				self.status += 1
+				transport.write(HTTP401Resp(session, 'NTLM '+ base64.b64encode(ntlmMessage).decode('ascii'), isProxy = self.isProxy).toBytes())
+				return
+			
+			elif self.status == 1 and authStatus == NTLMAuthStatus.FAIL:
+				session.currentState = HTTPState.AUTHFAILED
+				return creds
+
+			elif self.status == 1 and authStatus == NTLMAuthStatus.OK:
+				session.currentState = HTTPState.AUTHENTICATED
+				return creds
+
+			else:
+				raise Exception('Unexpected status')
+		else:
+			transport.write(HTTP401Resp(session, 'NTLM').toBytes())
+
+
+"""
+	def HTTPNTLMAuthHandler(req, transport, session):
 		if 'authorization' in req.headers and req.headers['authorization'][:4] == 'NTLM':
 			#print('Authdata in! %s' % (base64.b64decode(req.headers['authorization'][4:]).decode('ascii')))
 			if session.HTTPAtuhentication._iterations == 0:
@@ -229,12 +345,10 @@ def HTTPNTLMAuthHandler(req, transport, session):
 			
 			elif session.HTTPAtuhentication._iterations == 1:
 				session.HTTPAtuhentication._iterations = 2
-				print('BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB')
 				print(req.headers['authorization'][5:])
 				a = NTLMAuthenticate.from_bytes(base64.b64decode(req.headers['authorization'][5:]))
 				print(repr(a))
-				print('FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF')
-				
+
 				#THIS IS TERRIBLE!!!! TODODODODODODODODODODOD!!!!
 				#we'd need to check what authentication method is used exacly (choices: NTLMv1 NTLMv1extended NTLMv2)
 				if len(a.NTBytes) == 24:
@@ -243,13 +357,13 @@ def HTTPNTLMAuthHandler(req, transport, session):
 				else:
 					print('%s::%s:%s:%s:%s' % (a.UserName, a.DomainName, session.HTTPAtuhentication.ServerChallenge, a.NTBytes.hex()[:32], a.NTBytes.hex()[32:]))
 
-				"""
-				'%s::%s:%s:%s:%s' % (User, Domain, settings.Config.NumChal, NTHash[:32], NTHash[32:])
-				'%s::%s:%s:%s:%s' % (User, HostName, LMHash, NTHash, settings.Config.NumChal)
+				
+				#'%s::%s:%s:%s:%s' % (User, Domain, settings.Config.NumChal, NTHash[:32], NTHash[32:])
+				#'%s::%s:%s:%s:%s' % (User, HostName, LMHash, NTHash, settings.Config.NumChal)
 
-				"""
+				
 			elif session.HTTPAtuhentication._iterations == 2:
-				raise Exception()
+				raise Exception('unexpected iter')
 
 
 		else:
@@ -257,21 +371,8 @@ def HTTPNTLMAuthHandler(req, transport, session):
 			transport.write(HTTP401Resp(session, 'NTLM').toBytes())
 
 
-class HTTPNTLMAuth():
-	def __init__(self, creds = None):
-		self._iterations = 0
-		self.creds       = creds
-		self.ServerChallenge     = None
-
-	def __repr__(self):
-		t  = '== HTTPNTLMAuth ==\r\n'
-		t += '_iterations: %s\r\n' % repr(self._iterations)
-		t += 'creds:         %s\r\n' % repr(self.creds)
-		return t
 
 
-
-"""
 	def RandomChallenge(self):
 		if self.settings['NumChal'] == "random":
 			from random import getrandbits

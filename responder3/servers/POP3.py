@@ -17,12 +17,16 @@ class POP3Session(ProtocolSession):
 
 class POP3(ResponderServer):
 	def __init__(self):
-		ResponderServer.__init__(self)
-		self.protocol = POP3Protocol
-		
+		ResponderServer.__init__(self)		
 		
 	def modulename(self):
 		return 'POP3'
+
+	def setup(self):
+		self.protocol = POP3Protocol
+		
+		#put settings parsing here!
+		return
 
 	def sendWelcome(self, transport):
 		transport.write(POP3Response(POP3ResponseStatus.OK, ['<1896.697170952@dbc.mtview.ca.us>']).toBytes())

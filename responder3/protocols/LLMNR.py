@@ -139,19 +139,23 @@ class LLMNRPacket():
 
 		return t
 
-	def construct(self, TID, response,  flags = 0, opcode = LLMNROpcode.DEFAULT, rcode = DNSResponseCode.NOERR, 
+	def construct(TID, response,  flags = 0, opcode = LLMNROpcode.DEFAULT, rcode = DNSResponseCode.NOERR, 
 					questions= [], answers= [], authorities = [], additionals = []):
-		self.TransactionID = TID
-		self.QR      = response
-		self.Opcode  = opcode
-		self.FLAGS   = flags
-		self.Rcode   = rcode
-		self.QDCOUNT = len(questions)
-		self.ANCOUNT = len(answers)
-		self.NSCOUNT = len(authorities)
-		self.ARCOUNT = len(additionals)
+		
+		packet = LLMNRPacket()
+		packet.TransactionID = TID
+		packet.QR      = response
+		packet.Opcode  = opcode
+		packet.FLAGS   = flags
+		packet.Rcode   = rcode
+		packet.QDCOUNT = len(questions)
+		packet.ANCOUNT = len(answers)
+		packet.NSCOUNT = len(authorities)
+		packet.ARCOUNT = len(additionals)
 
-		self.Questions   = questions
-		self.Answers     = answers
-		self.Authorities = authorities
-		self.Additionals = additionals
+		packet.Questions   = questions
+		packet.Answers     = answers
+		packet.Authorities = authorities
+		packet.Additionals = additionals
+
+		return packet

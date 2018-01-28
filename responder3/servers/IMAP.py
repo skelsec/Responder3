@@ -17,10 +17,15 @@ class IMAPSession(ProtocolSession):
 class IMAP(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
-		self.protocol = IMAPProtocol
+		
 
 	def modulename(self):
 		return 'IMAP'
+
+	def setup(self):
+		self.protocol = IMAPProtocol
+		#put settings parsing here!
+		return
 
 	def sendWelcome(self, transport):
 		transport.write(IMAPOKResp(msg ='hello from Honeyport IMAP server').toBytes())

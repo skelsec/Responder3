@@ -220,6 +220,7 @@ class ResponderServer(ABC):
 		self.bind_port   = None
 		self.bind_family = None
 		self.bind_proto  = None
+		self.protocolSession = None
 
 	def _setup(self, server, loop, logQ):
 		self.bind_addr   = server.bind_addr
@@ -271,7 +272,7 @@ class ResponderServer(ABC):
 		Create a Result message and send it to the LogProcessor for procsesing
 		"""
 		resultd['module'] = self.modulename()
-		resultd['peername'] = session.connection.remote_ip
+		resultd['client'] = session.connection.remote_ip
 		self.logQ.put(Result(resultd))
 
 	def logConnection(self, session):

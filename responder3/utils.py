@@ -56,5 +56,6 @@ defaultports = {
 	"SMB"  : [445],
 	"NBTNS": [137],
 	"LLMNR": [5355],
-	"MDNS" : [5353]
+	"MDNS" : [5353],
+	"HTTPProxy":[8080],
 }

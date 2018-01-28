@@ -79,6 +79,103 @@ NegotiateFlagExp = {
 
 }
 
+class NTLMRevisionCurrent(enum.Enum):
+	NTLMSSP_REVISION_W2K3 = 0x0F
+
+#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
+class WindowsMajorVersion(enum.Enum):
+	WINDOWS_MAJOR_VERSION_5  = 0x05
+	WINDOWS_MAJOR_VERSION_6  = 0x06
+	WINDOWS_MAJOR_VERSION_10 = 0x0A
+#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
+class WindowsMinorVersion(enum.Enum):
+	WINDOWS_MINOR_VERSION_0 = 0x00
+	WINDOWS_MINOR_VERSION_1 = 0x01
+	WINDOWS_MINOR_VERSION_2 = 0x02
+	WINDOWS_MINOR_VERSION_3 = 0x03
+#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
+
+WindowsProduct = {
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_1) : 'Windows XP operating system Service Pack 2 (SP2)',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_2) : 'Windows Server 2003',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_0) : 'Windows Vista or Windows Server 2008',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_1) : 'Windows 7 or Windows Server 2008 R2',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_2) : 'Windows 8 or Windows Server 2012 operating system',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_3) : 'Windows 8.1 or Windows Server 2012 R2',
+	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_10,WindowsMinorVersion.WINDOWS_MINOR_VERSION_0) : 'Windows 10 or Windows Server 2016',
+}
+
+class AVPAIRType(enum.Enum):
+	MsvAvEOL             = 0x0000 #Indicates that this is the last AV_PAIR in the list. AvLen MUST be 0. This type of information MUST be present in the AV pair list.
+	MsvAvNbComputerName  = 0x0001 #The server's NetBIOS computer name. The name MUST be in Unicode, and is not null-terminated. This type of information MUST be present in the AV_pair list.
+	MsvAvNbDomainName    = 0x0002 #The server's NetBIOS domain name. The name MUST be in Unicode, and is not null-terminated. This type of information MUST be present in the AV_pair list.
+	MsvAvDnsComputerName = 0x0003 #The fully qualified domain name (FQDN) of the computer. The name MUST be in Unicode, and is not null-terminated.
+	MsvAvDnsDomainName   = 0x0004 #The FQDN of the domain. The name MUST be in Unicode, and is not null-terminated.
+	MsvAvDnsTreeName     = 0x0005 #The FQDN of the forest. The name MUST be in Unicode, and is not null-terminated.<13>
+	MsvAvFlags           = 0x0006 #A 32-bit value indicating server or client configuration.
+	MsvAvTimestamp       = 0x0007 #A FILETIME structure ([MS-DTYP] section 2.3.3) in little-endian byte order that contains the server local time. This structure is always sent in the CHALLENGE_MESSAGE.<16>
+	MsvAvSingleHost      = 0x0008 #A Single_Host_Data (section 2.2.2.2) structure. The Value field contains a platform-specific blob, as well as a MachineID created at computer startup to identify the calling machine.<17>
+	MsvAvTargetName      = 0x0009 #The SPN of the target server. The name MUST be in Unicode and is not null-terminated.<18>
+	MsvChannelBindings   = 0x000A #A channel bindings hash. The Value field contains an MD5 hash ([RFC4121] section 4.1.1.2) of a gss_channel_bindings_struct ([RFC2744] section 3.11). An all-zero value of the hash is used to indicate absence of channel bindings.<19>
+
+
+#???? https://msdn.microsoft.com/en-us/library/windows/desktop/aa374793(v=vs.85).aspx
+#https://msdn.microsoft.com/en-us/library/cc236646.aspx
+class AVPairs(collections.UserDict):
+	"""
+	AVPairs is a dictionary-like object that stores the "AVPair list" in a kev-value format where key is an AVPAIRType object and value is the corresponding object defined by the MSDN documentation. Usually it's string but can be other object as well
+	"""
+	def __init__(self, data = None):
+		collections.UserDict.__init__(self, data)
+
+	def from_bytes(bbuff):
+		return AVPairs.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		avp = AVPairs()
+		while True:
+			avId  = AVPAIRType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
+			AvLen = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
+			if avId == AVPAIRType.MsvAvEOL:
+				break
+
+			elif avId in [AVPAIRType.MsvAvNbComputerName,
+						  AVPAIRType.MsvAvNbDomainName,
+						  AVPAIRType.MsvAvDnsComputerName,
+						  AVPAIRType.MsvAvDnsDomainName,
+						  AVPAIRType.MsvAvDnsTreeName,
+						  AVPAIRType.MsvAvTargetName,
+			]:
+				avp[avId] = buff.read(AvLen).decode('utf-16le')
+
+			### TODO IMPLEMENT PARSING OFR OTHER TYPES!!!!
+			else:
+				avp[avId] = buff.read(AvLen)
+
+		return avp
+
+	def toBytes(self):
+		t = b''
+		for av in self.data:
+			t += AVPair(data = self.data[av], type = av).toBytes()
+
+		t+= AVPair(data = '', type = AVPAIRType.MsvAvEOL).toBytes()
+		return t
+
+class AVPair():
+	def __init__(self, data = None, type = None):
+		self.type = type
+		self.data = data
+
+	def toBytes(self):
+		t  = self.type.value.to_bytes(2, byteorder = 'little', signed = False)
+		t += len(self.data.encode('utf-16le')).to_bytes(2, byteorder = 'little', signed = False)
+		t += self.data.encode('utf-16le')
+		return t
+
+
+
+
 
 class Fields():
 	def __init__(self, length, offset, maxLength = None):
@@ -101,8 +198,72 @@ class Fields():
 				self.maxLength.to_bytes(2, byteorder = 'little', signed = False) + \
 				self.offset.to_bytes(4, byteorder = 'little', signed = False)
 
-class NTLMAuthenticate():
+class Version():
 	def __init__(self):
+		self.ProductMajorVersion = None
+		self.ProductMinorVersion = None
+		self.ProductBuild        = None
+		self.Reserved            = None
+		self.NTLMRevisionCurrent = None
+
+		#higher level
+		self.WindowsProduct = None
+
+	def toBytes(self):
+		t = self.ProductMajorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
+		t += self.ProductMinorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
+		t += self.ProductBuild.to_bytes(2, byteorder = 'little', signed = False)
+		t += self.Reserved.to_bytes(3, byteorder = 'little', signed = False)
+		t += self.NTLMRevisionCurrent.value.to_bytes(1, byteorder = 'little', signed = False)
+		return t
+
+	def from_bytes(bbuff):
+		return Version.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		v = Version()
+		v.ProductMajorVersion = WindowsMajorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		v.ProductMinorVersion = WindowsMinorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+		v.ProductBuild        = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
+		v.Reserved            = int.from_bytes(buff.read(3), byteorder = 'little', signed = False)
+		v.NTLMRevisionCurrent = NTLMRevisionCurrent(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+
+		v.WindowsProduct = WindowsProduct[(v.ProductMajorVersion, v.ProductMinorVersion)]
+
+		return v
+
+	def __repr__(self):
+		t  = '== NTLMVersion ==\r\n'
+		t += 'ProductMajorVersion  : %s\r\n' % repr(self.ProductMajorVersion.name)
+		t += 'ProductMinorVersion  : %s\r\n' % repr(self.ProductMinorVersion.name)
+		t += 'ProductBuild         : %s\r\n' % repr(self.ProductBuild)
+		t += 'WindowsProduct       : %s\r\n' % repr(self.WindowsProduct)
+		return t
+
+NTLMServerTemplates = {
+		"Windows2003" : {
+			'flags'      :  NegotiateFlags.NEGOTIATE_56|NegotiateFlags.NEGOTIATE_128|
+							NegotiateFlags.NEGOTIATE_VERSION|NegotiateFlags.NEGOTIATE_TARGET_INFO|
+							NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY|
+							NegotiateFlags.TARGET_TYPE_DOMAIN|NegotiateFlags.NEGOTIATE_NTLM|
+							NegotiateFlags.REQUEST_TARGET|NegotiateFlags.NEGOTIATE_UNICODE ,
+			'version'    : Version.from_bytes(b"\x05\x02\xce\x0e\x00\x00\x00\x0f"),
+			'targetinfo' : AVPairs({ AVPAIRType.MsvAvNbDomainName    : 'SMB',
+								AVPAIRType.MsvAvNbComputerName       : 'SMB-TOOLKIT',
+								AVPAIRType.MsvAvDnsDomainName        : 'smb.local',
+								AVPAIRType.MsvAvDnsComputerName      : 'server2003.smb.local',
+								AVPAIRType.MsvAvDnsTreeName          : 'smb.local',
+					       }),
+
+			'targetname' : 'SMB',
+		},
+}
+
+
+
+
+class NTLMAuthenticate():
+	def __init__(self, _use_NTLMv2 = True):
 		self.Signature = None
 		self.MessageType = None
 		self.LmChallengeResponseFields = None
@@ -124,16 +285,15 @@ class NTLMAuthenticate():
 		self.Workstation = None
 		self.EncryptedRandomSession = None
 
-		#for "checking" the password
-		self.NTBytes = None
-		self.LMBytes = None
+		#this is a global variable that needs to be indicated
+		self._use_NTLMv2 = _use_NTLMv2
 
 
-	def from_bytes(bbuff):
-		return NTLMAuthenticate.from_buffer(io.BytesIO(bbuff))
+	def from_bytes(bbuff,_use_NTLMv2 = True):
+		return NTLMAuthenticate.from_buffer(io.BytesIO(bbuff), _use_NTLMv2 = _use_NTLMv2)
 
-	def from_buffer(buff):
-		auth = NTLMAuthenticate()
+	def from_buffer(buff, _use_NTLMv2 = True):
+		auth = NTLMAuthenticate(_use_NTLMv2)
 		auth.Signature    = buff.read(8).decode('ascii')
 		auth.MessageType  = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
 		auth.LmChallengeResponseFields = Fields.from_buffer(buff)
@@ -149,25 +309,25 @@ class NTLMAuthenticate():
 		## TODO: I'm not sure about this condition!!! Need to test this!
 		if auth.NegotiateFlags & NegotiateFlags.NEGOTIATE_ALWAYS_SIGN:
 			auth.MIC = int.from_bytes(buff.read(16), byteorder = 'little', signed = False)
-		#auth.Payload = buff.read()
-
-		##### MASSIVE BIG TODO!!!
-		####here we shoudl decide which version of NTLM is used!!!!
-		####Now I'm assuming ntlmv2
-		####DID YOU JUST ASSUME MY AUTHENTICATION PROTOCOL VERSION???
 
 		currPos = buff.tell()
 
-		buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
-		auth.LMBytes = buff.read(auth.LmChallengeResponseFields.length)
-		buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
-		auth.LMChallenge = LMv2Response.from_buffer(buff)
-		
-		buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
-		auth.NTBytes = buff.read(auth.NtChallengeResponseFields.length)
-		buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
-		auth.NTChallenge = NTLMv2Response.from_buffer(buff)
-		
+		if auth._use_NTLMv2:
+			buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
+			auth.LMChallenge = LMv2Response.from_buffer(buff)
+			
+
+			buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
+			auth.NTChallenge = NTLMv2Response.from_buffer(buff)
+
+		else:
+			buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
+			auth.LMChallenge = LMResponse.from_buffer(buff)
+				
+			buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
+			auth.NTChallenge = NTLMv1Response.from_buffer(buff)
+				
+
 		buff.seek(auth.DomainNameFields.offset,io.SEEK_SET)
 		auth.DomainName = buff.read(auth.DomainNameFields.length).decode('utf-16le')
 		
@@ -204,6 +364,7 @@ class NTLMAuthenticate():
 class LMResponse():
 	def __init__(self):
 		self.Response = None
+		self.raw = None
 
 	def from_bytes(bbuff):
 		return LMResponse.from_buffer(io.BytesIO(bbuff))
@@ -262,6 +423,7 @@ class NTLMv2Response():
 	def __init__(self):
 		self.Response = None
 		self.ChallengeFromClinet = None
+		self.ChallengeFromClinet_hex = None
 
 	def from_bytes(bbuff):
 		return NTLMv2Response.from_buffer(io.BytesIO(bbuff))
@@ -269,7 +431,13 @@ class NTLMv2Response():
 	def from_buffer(buff):
 		t = NTLMv2Response()
 		t.Response = buff.read(16).hex()
+		pos = buff.tell()
 		t.ChallengeFromClinet = NTLMv2ClientChallenge.from_buffer(buff)
+		pos2 = buff.tell()
+		challengeLength = pos2 - pos
+		buff.seek(pos, io.SEEK_SET)
+		t.ChallengeFromClinet_hex = buff.read(challengeLength).hex()
+
 		return t
 
 	def __repr__(self):
@@ -334,13 +502,19 @@ class NTLMChallenge():
 
 
 	
-	def construct_from_template(templateName = 'Windows2003'):
-		version    = NTLMTemplates[templateName]['version']
-		challenge  = NTLMTemplates[templateName]['challenge'] if NTLMTemplates[templateName]['challenge'] is not None else os.urandom(8).hex()
-		targetName = NTLMTemplates[templateName]['targetname']
-		targetInfo = NTLMTemplates[templateName]['targetinfo']
-		targetInfo = NTLMTemplates[templateName]['targetinfo']
-		flags      = NTLMTemplates[templateName]['flags']
+	def construct_from_template(templateName, challenge = os.urandom(8).hex(), ess = True):
+		version    = NTLMServerTemplates[templateName]['version']
+		challenge  = challenge
+		targetName = NTLMServerTemplates[templateName]['targetname']
+		targetInfo = NTLMServerTemplates[templateName]['targetinfo']
+		targetInfo = NTLMServerTemplates[templateName]['targetinfo']
+		flags      = NTLMServerTemplates[templateName]['flags']
+		if ess:
+			flags |= NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY
+		else:
+			flags &= ~NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY
+
+
 
 		return NTLMChallenge.construct(challenge=challenge, targetName = targetName, targetInfo = targetInfo, version = version, flags= flags)
 	
@@ -392,73 +566,6 @@ class NTLMChallenge():
 	def toBase64(self):
 		return base64.b64encode(self.toBytes()).decode('ascii')
 
-#???? https://msdn.microsoft.com/en-us/library/windows/desktop/aa374793(v=vs.85).aspx
-#https://msdn.microsoft.com/en-us/library/cc236646.aspx
-class AVPairs(collections.UserDict):
-	"""
-	AVPairs is a dictionary-like object that stores the "AVPair list" in a kev-value format where key is an AVPAIRType object and value is the corresponding object defined by the MSDN documentation. Usually it's string but can be other object as well
-	"""
-	def __init__(self, data = None):
-		collections.UserDict.__init__(self, data)
-
-	def from_bytes(bbuff):
-		return AVPairs.from_buffer(io.BytesIO(bbuff))
-
-	def from_buffer(buff):
-		avp = AVPairs()
-		while True:
-			avId  = AVPAIRType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
-			AvLen = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
-			if avId == AVPAIRType.MsvAvEOL:
-				break
-
-			elif avId in [AVPAIRType.MsvAvNbComputerName,
-						  AVPAIRType.MsvAvNbDomainName,
-						  AVPAIRType.MsvAvDnsComputerName,
-						  AVPAIRType.MsvAvDnsDomainName,
-						  AVPAIRType.MsvAvDnsTreeName,
-						  AVPAIRType.MsvAvTargetName,
-			]:
-				avp[avId] = buff.read(AvLen).decode('utf-16le')
-
-			### TODO IMPLEMENT PARSING OFR OTHER TYPES!!!!
-			else:
-				avp[avId] = buff.read(AvLen)
-
-		return avp
-
-	def toBytes(self):
-		t = b''
-		for av in self.data:
-			t += AVPair(data = self.data[av], type = av).toBytes()
-
-		t+= AVPair(data = '', type = AVPAIRType.MsvAvEOL).toBytes()
-		return t
-
-class AVPair():
-	def __init__(self, data = None, type = None):
-		self.type = type
-		self.data = data
-
-	def toBytes(self):
-		t  = self.type.value.to_bytes(2, byteorder = 'little', signed = False)
-		t += len(self.data.encode('utf-16le')).to_bytes(2, byteorder = 'little', signed = False)
-		t += self.data.encode('utf-16le')
-		return t
-
-
-class AVPAIRType(enum.Enum):
-	MsvAvEOL             = 0x0000 #Indicates that this is the last AV_PAIR in the list. AvLen MUST be 0. This type of information MUST be present in the AV pair list.
-	MsvAvNbComputerName  = 0x0001 #The server's NetBIOS computer name. The name MUST be in Unicode, and is not null-terminated. This type of information MUST be present in the AV_pair list.
-	MsvAvNbDomainName    = 0x0002 #The server's NetBIOS domain name. The name MUST be in Unicode, and is not null-terminated. This type of information MUST be present in the AV_pair list.
-	MsvAvDnsComputerName = 0x0003 #The fully qualified domain name (FQDN) of the computer. The name MUST be in Unicode, and is not null-terminated.
-	MsvAvDnsDomainName   = 0x0004 #The FQDN of the domain. The name MUST be in Unicode, and is not null-terminated.
-	MsvAvDnsTreeName     = 0x0005 #The FQDN of the forest. The name MUST be in Unicode, and is not null-terminated.<13>
-	MsvAvFlags           = 0x0006 #A 32-bit value indicating server or client configuration.
-	MsvAvTimestamp       = 0x0007 #A FILETIME structure ([MS-DTYP] section 2.3.3) in little-endian byte order that contains the server local time. This structure is always sent in the CHALLENGE_MESSAGE.<16>
-	MsvAvSingleHost      = 0x0008 #A Single_Host_Data (section 2.2.2.2) structure. The Value field contains a platform-specific blob, as well as a MachineID created at computer startup to identify the calling machine.<17>
-	MsvAvTargetName      = 0x0009 #The SPN of the target server. The name MUST be in Unicode and is not null-terminated.<18>
-	MsvChannelBindings   = 0x000A #A channel bindings hash. The Value field contains an MD5 hash ([RFC4121] section 4.1.1.2) of a gss_channel_bindings_struct ([RFC2744] section 3.11). An all-zero value of the hash is used to indicate absence of channel bindings.<19>
 
 
 #https://msdn.microsoft.com/en-us/library/cc236641.aspx
@@ -484,8 +591,8 @@ class NTLMNegotiate():
 		t.Signature         = buff.read(8).decode('ascii')
 		t.MessageType       = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
 		t.NegotiateFlags    = NegotiateFlags(int.from_bytes(buff.read(4), byteorder = 'little', signed = False))
-		t.DomainNameFields  = Fields.from_buff(buff)
-		t.WorkstationFields = Fields.from_buff(buff)
+		t.DomainNameFields  = Fields.from_buffer(buff)
+		t.WorkstationFields = Fields.from_buffer(buff)
 
 		if t.NegotiateFlags & NegotiateFlags.NEGOTIATE_VERSION: 
 			t.Version = buff.read(8)
@@ -514,99 +621,240 @@ class NTLMNegotiate():
 	def contrct(self):
 		pass
 
-class Version():
+
+
+class NTLMAuthStatus(enum.Enum):
+	OK   = enum.auto()
+	FAIL = enum.auto()
+
+class NTLMAUTHHandler():
 	def __init__(self):
-		self.ProductMajorVersion = None
-		self.ProductMinorVersion = None
-		self.ProductBuild        = None
-		self.Reserved            = None
-		self.NTLMRevisionCurrent = None
+		self.use_NTLMv2            = None
+		self.use_Extended_security = None
+		self.serverTemplateName    = None
+		self.challenge             = None
+		
+		self.ntlmNegotiate     = None #ntlm Negotiate message from client
+		self.ntlmChallenge     = None #ntlm Challenge message to client
+		self.ntlmAuthenticate  = None #ntlm Authenticate message from client
 
-		#higher level
-		self.WindowsProduct = None
+	def setup(self, settings = {}):
+		#settings here
+		self.use_NTLMv2 = True
+		if 'ntlm_downgrade' in settings:
+			self.use_NTLMv2 = not settings['ntlm_downgrade']
 
-	def toBytes(self):
-		t = self.ProductMajorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
-		t += self.ProductMinorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
-		t += self.ProductBuild.to_bytes(2, byteorder = 'little', signed = False)
-		t += self.Reserved.to_bytes(3, byteorder = 'little', signed = False)
-		t += self.NTLMRevisionCurrent.value.to_bytes(1, byteorder = 'little', signed = False)
-		return t
+		self.use_Extended_security = True 
+		if 'extended_security' in settings:
+			self.use_Extended_security = settings['extended_security']
 
-	def from_bytes(bbuff):
-		return Version.from_buffer(io.BytesIO(bbuff))
+		self.serverTemplateName = 'Windows2003'
+		if 'template' in settings:
+			if settings['template']['name'].upper() == 'CUSTOM':
+				NTLMServerTemplates['CUSTOM'] = {
+					'flags'      : settings['template']['flags'],
+					'version'    : settings['template']['version'],
+					'targetinfo' : settings['template']['targetinfo'],
+					'targetname' : settings['template']['targetname'],
+				}
 
-	def from_buffer(buff):
-		v = Version()
-		v.ProductMajorVersion = WindowsMajorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
-		v.ProductMinorVersion = WindowsMinorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
-		v.ProductBuild        = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
-		v.Reserved            = int.from_bytes(buff.read(3), byteorder = 'little', signed = False)
-		v.NTLMRevisionCurrent = NTLMRevisionCurrent(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
+			else:
+				if settings['template']['name'] in NTLMServerTemplates:
+					self.serverTemplateName = settings['template']['name']
 
-		v.WindowsProduct = WindowsProduct[(v.ProductMajorVersion, v.ProductMinorVersion)]
+				else:
+					raise Exception('Selected NTLM server template name not found! %s' % (settings['template']))
 
-		return v
-
-	def __repr__(self):
-		t  = '== NTLMVersion ==\r\n'
-		t += 'ProductMajorVersion  : %s\r\n' % repr(self.ProductMajorVersion.name)
-		t += 'ProductMinorVersion  : %s\r\n' % repr(self.ProductMinorVersion.name)
-		t += 'ProductBuild         : %s\r\n' % repr(self.ProductBuild)
-		t += 'WindowsProduct       : %s\r\n' % repr(self.WindowsProduct)
-		return t
-
-
-class NTLMRevisionCurrent(enum.Enum):
-	NTLMSSP_REVISION_W2K3 = 0x0F
-
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
-class WindowsMajorVersion(enum.Enum):
-	WINDOWS_MAJOR_VERSION_5  = 0x05
-	WINDOWS_MAJOR_VERSION_6  = 0x06
-	WINDOWS_MAJOR_VERSION_10 = 0x0A
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
-class WindowsMinorVersion(enum.Enum):
-	WINDOWS_MINOR_VERSION_0 = 0x00
-	WINDOWS_MINOR_VERSION_1 = 0x01
-	WINDOWS_MINOR_VERSION_2 = 0x02
-	WINDOWS_MINOR_VERSION_3 = 0x03
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
-
-WindowsProduct = {
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_1) : 'Windows XP operating system Service Pack 2 (SP2)',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_2) : 'Windows Server 2003',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_0) : 'Windows Vista or Windows Server 2008',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_1) : 'Windows 7 or Windows Server 2008 R2',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_2) : 'Windows 8 or Windows Server 2012 operating system',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_3) : 'Windows 8.1 or Windows Server 2012 R2',
-	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_10,WindowsMinorVersion.WINDOWS_MINOR_VERSION_0) : 'Windows 10 or Windows Server 2016',
-}
-
-NTLMTemplates = {
-		"Windows2003" : {
-							'flags'      :  NegotiateFlags.NEGOTIATE_56|NegotiateFlags.NEGOTIATE_128|
-											NegotiateFlags.NEGOTIATE_VERSION|NegotiateFlags.NEGOTIATE_TARGET_INFO|
-											NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY|
-											NegotiateFlags.TARGET_TYPE_DOMAIN|NegotiateFlags.NEGOTIATE_NTLM|
-											NegotiateFlags.REQUEST_TARGET|NegotiateFlags.NEGOTIATE_UNICODE ,
-							'version'    : Version.from_bytes(b"\x05\x02\xce\x0e\x00\x00\x00\x0f"),
-							'targetinfo' : AVPairs({ AVPAIRType.MsvAvNbDomainName    : 'SMB',
-												AVPAIRType.MsvAvNbComputerName       : 'SMB-TOOLKIT',
-												AVPAIRType.MsvAvDnsDomainName        : 'smb.local',
-												AVPAIRType.MsvAvDnsComputerName      : 'server2003.smb.local',
-												AVPAIRType.MsvAvDnsTreeName          : 'smb.local',
-									       }),
-
-							'targetname' : 'SMB',
-							'challenge'  : 'AAAAAAAAAAAAAAAA', #None = random
+		self.challenge = os.urandom(8).hex()
+		if 'challenge' in settings:
+			self.challenge = settings['challenge']
 
 
-						}
+		return
 
 
+	def do_AUTH(self, authData):
+		if self.ntlmNegotiate is None:
+			###parse client NTLMNegotiate message
+			self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
+			print(self.serverTemplateName)
+			self.ntlmChallenge = NTLMChallenge.construct_from_template(self.serverTemplateName, challenge = self.challenge, ess = self.use_Extended_security)
+			return (NTLMAuthStatus.FAIL, self.ntlmChallenge.toBytes(), None)
 
-	}
+		elif self.ntlmAuthenticate is None:
+			self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
+			creds = NTLMCredentials.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)			
+
+			###do verification!!!
+			###TODO
+
+			return (NTLMAuthStatus.FAIL, None, creds)
+
+		else:
+			raise Exception('Too many calls to do_AUTH function!')
+
+class NTLMCredentials():
+	def construct(ntlmNegotiate, ntlmChallenge, ntlmAuthenticate):
+		if ntlmAuthenticate._use_NTLMv2:
+			#this is a netNTLMv2 then, otherwise auth would have failed on protocol level
+			creds = netntlmv2()
+			creds.username = ntlmAuthenticate.UserName
+			creds.domain   = ntlmAuthenticate.DomainName
+			creds.ServerChallenge = ntlmChallenge.ServerChallenge
+			creds.ClientResponse  = ntlmAuthenticate.NTChallenge.Response
+			creds.ChallengeFromClinet = ntlmAuthenticate.NTChallenge.ChallengeFromClinet_hex
+
+			creds2 = netlmv2()
+			creds2.username = ntlmAuthenticate.UserName
+			creds2.domain   = ntlmAuthenticate.DomainName
+			creds2.ServerChallenge = ntlmChallenge.ServerChallenge
+			creds2.ClientResponse  = ntlmAuthenticate.LMChallenge.Response
+			creds2.ChallengeFromClinet = ntlmAuthenticate.LMChallenge.ChallengeFromClinet
+			return [creds, creds2]
+
+		else:
+			if ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
+				#extended security is used, this means that the LMresponse actually contains client challenge data
+				#and the LM and NT respondses need to be combined to form the cred data
+				creds = netntlm_ess()
+				creds.username = ntlmAuthenticate.UserName
+				creds.domain   = ntlmAuthenticate.DomainName
+				creds.ServerChallenge = ntlmChallenge.ServerChallenge
+				creds.ClientResponse  = ntlmAuthenticate.NTChallenge.Response
+				creds.ChallengeFromClinet = ntlmAuthenticate.LMChallenge.Response
+
+				return creds
+
+			else:
+				creds = netntlm()
+				creds.username = ntlmAuthenticate.UserName
+				creds.domain   = ntlmAuthenticate.DomainName
+				creds.ServerChallenge = ntlmChallenge.ServerChallenge
+				creds.ClientResponse  = ntlmAuthenticate.NTChallenge.Response
+				
+				if ntlmAuthenticate.NTChallenge.Response == ntlmAuthenticate.LMChallenge.Response:
+					#the the two responses are the same, then the client did not send encrypted LM hashes, only NT
+					return creds
+					
+
+				#CAME FOR COPPER, FOUND GOLD!!!!!
+				#HOW OUTDATED IS YOUR CLIENT ANYHOW???
+				creds2 = netlm()
+				creds2.username = ntlmAuthenticate.UserName
+				creds2.domain   = ntlmAuthenticate.DomainName
+				creds2.ServerChallenge = ntlmChallenge.ServerChallenge
+				creds2.ClientResponse  = ntlmAuthenticate.LMChallenge.Response
+				return [creds, creds2]
+
+
+class netlm():
+	#not supported by hashcat?
+	def __init__(self):
+		#this part comes from the NTLMAuthenticate class
+		self.username = None
+		self.domain = None
+		#this comes from the NTLMChallenge class
+		self.ServerChallenge = None
+
+		#this is from the LMv1Response class (that is a member of NTLMAuthenticate class)
+		self.ClientResponse = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'netLM', 
+			'user'     : self.username,
+			'fullhash' : '%s:$NETLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
+			#username:$NETLM$1122334455667788$0836F085B124F33895875FB1951905DD2F85252CC731BB25
+		}
+		return res
+
+class netlmv2():
+	#not supported by hashcat?
+	def __init__(self):
+		#this part comes from the NTLMAuthenticate class
+		self.username = None
+		self.domain = None
+		#this comes from the NTLMChallenge class
+		self.ServerChallenge = None
+
+		#this is from the LMv2Response class (that is a member of NTLMAuthenticate class)
+		self.ClientResponse = None
+		self.ChallengeFromClinet = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'netLMv2', 
+			'user'     : self.username,
+			'fullhash' : '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+			#NETLMv2$USER1$1122334455667788$B1D163EA5881504F3963DC50FCDC26C1$EB4D9E8138149E20:::::::
+		}
+		return res
+
+class netntlm_ess():
+	def __init__(self):
+		#this part comes from the NTLMAuthenticate class
+		self.username = None
+		self.domain = None
+		#this comes from the NTLMChallenge class
+		self.ServerChallenge = None
+
+		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
+		self.ClientResponse = None
+		self.ChallengeFromClinet = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'netNTLMv1-ESS', 
+			'user'     : self.username,
+			'fullhash' : '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
+			
+		}
+		return res
+		#u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c 
+		#print('%s::%s:%s:%s:%s' % (a.UserName, a.Workstation, a.LMBytes.hex(), a.NTBytes.hex(), session.HTTPAtuhentication.ServerChallenge))
+
+class netntlm():
+	#not supported by hashcat?
+	def __init__(self):
+		#this part comes from the NTLMAuthenticate class
+		self.username = None
+		self.domain = None
+		#this comes from the NTLMChallenge class
+		self.ServerChallenge = None
+
+		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
+		self.ClientResponse = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'netNTLMv1', 
+			'user'     : self.username,
+			'fullhash' : '%s:$NETNTLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
+			
+		}
+		return res
+		#username:$NETNTLM$1122334455667788$B2B2220790F40C88BCFF347C652F67A7C4A70D3BEBD70233
+
+class netntlmv2():
+	def __init__(self):
+		#this part comes from the NTLMAuthenticate class
+		self.username = None
+		self.domain = None
+		#this comes from the NTLMChallenge class
+		self.ServerChallenge = None
+
+		#this is from the NTLMv2Response class (that is a member of NTLMAuthenticate class)
+		self.ClientResponse = None
+		self.ChallengeFromClinet = None
+
+	def toResult(self):
+		res = {
+			'type'     : 'netNTLMv2', 
+			'user'     : self.username,
+			'domain'   : self.domain,
+			'fullhash' : '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+		}
+		return res
 
 ##def verifyNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
 
@@ -663,17 +911,3 @@ def genNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
 	hm.update(bytes.fromHex(cchall))
 	return hm.digest()
 
-
-
-"""
-if __name__ == '__main__':
-	temp = int.from_bytes(b"\x05\x02\x89\xa2", byteorder = 'little', signed = False)
-	n = NegotiateFlags(temp)
-	print(repr(n))
-	
-	members, uncovered = enum._decompose(n.__class__, n._value_)
-	for k in members:
-		print('%s : %s' % (k,NegotiateFlagExp[k]))
-
-
-"""

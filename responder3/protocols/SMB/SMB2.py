@@ -1,3 +1,4 @@
+import os
 import sys
 import enum
 import uuid
@@ -397,6 +398,9 @@ class NEGOTIATE_REPLY():
 		self.Buffer = None
 		self.Padding = None
 		self.NegotiateContextList = None
+
+	def from_bytes(bbuff):
+		return NEGOTIATE_REPLY.from_buffer(io.BytesIO(bbuff))
 
 	def from_buffer(buff):
 		msg = NEGOTIATE_REPLY()
