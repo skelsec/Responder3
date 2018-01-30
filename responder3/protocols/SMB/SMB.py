@@ -1,8 +1,8 @@
 import enum
 import binascii
 import sys
-from responder3.newpackets.SMB.ntstatus import *
-from responder3.newpackets.SMB.utils import *
+from responder3.protocols.SMB.ntstatus import *
+from responder3.protocols.SMB.utils import *
 
 #https://msdn.microsoft.com/en-us/library/ee441774.aspx
 class SMBHeader():
@@ -337,6 +337,7 @@ class SMB_Dialect():
 
 class SMBMessage():
 	def __init__(self):
+		self.type      = 1
 		self.header    = None
 		self.command   = None
 

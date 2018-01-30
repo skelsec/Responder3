@@ -1,10 +1,12 @@
+import io
 import os
 import sys
 import enum
 import uuid
+import traceback
 
-from responder3.newpackets.SMB.ntstatus import *
-from responder3.newpackets.SMB.utils import *
+from responder3.protocols.SMB.ntstatus import *
+from responder3.protocols.SMB.utils import *
 
 class SMB2HeaderFlag(enum.IntFlag):
 	SMB2_FLAGS_SERVER_TO_REDIR    = 0x00000001 #When set, indicates the message is a response rather than a request. This MUST be set on responses sent from the server to the client, and MUST NOT be set on requests sent from the client to the server.
@@ -66,11 +68,47 @@ class SMB2Header_ASYNC():
 		hdr.Credit =  int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		hdr.Flags =  SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		hdr.NextCommand = int.from_bytes(buff.read(4), byteorder='little', signed = False)
-		hdr.MessageId = buff.read(8)
+		hdr.MessageId = int.from_bytes(buff.read(8), byteorder='little', signed = False)
 		hdr.AsyncId = buff.read(8)
 		hdr.SessionId = buff.read(8)
 		hdr.Signature = buff.read(16)
 		return hdr
+
+	def construct(cmd, flags, msgid, Credit = 0, NextCommand=0, CreditCharge = 0, 
+					Signature=b'\x00'*16,
+					AsyncId=b'\x00'*8, SessionId = b'\x00'*8, 
+					status = NTStatus.STATUS_SUCCESS):
+		hdr = SMB2Header_ASYNC()
+		hdr.ProtocolId = b'\xFESMB'
+		hdr.StructureSize = 64
+		hdr.CreditCharge = CreditCharge
+		hdr.Status = status
+		hdr.Command = cmd
+		hdr.Credit =  Credit
+		hdr.Flags =  flags
+		hdr.NextCommand = NextCommand
+		hdr.MessageId = msgid
+		hdr.AsyncId = AsyncId
+		hdr.SessionId = SessionId
+		hdr.Signature = Signature
+
+		return hdr
+
+	def toBytes(self):
+		t  = self.ProtocolId
+		t += self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.CreditCharge.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Status.value.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.Command.value.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Credit.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Flags.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.NextCommand.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MessageId.to_bytes(8, byteorder = 'little', signed=False)
+		t += self.AsyncId
+		t += self.SessionId
+		t += self.Signature
+		return t
+
 
 	def __repr__(self):
 		t = '===SMB2 HEADER ASYNC===\r\n'
@@ -108,21 +146,37 @@ class SMB2Header_SYNC():
 	def from_buffer(buff):
 		hdr = SMB2Header_SYNC()
 		hdr.ProtocolId = buff.read(4)
-		assert self.ProtocolId == b'\xFESMB'
-		self.StructureSize = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		assert self.StructureSize == 64
-		self.CreditCharge = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		self.Status      = NTStatus(int.from_bytes(buff.read(4), byteorder='little', signed = False))
-		self.Command     = SMB2Command(int.from_bytes(buff.read(2), byteorder='little', signed = False))
-		self.Credit      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		self.Flags       = SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little', signed = False))
-		self.NextCommand = int.from_bytes(buff.read(4), byteorder='little', signed = False)
-		self.MessageId   = buff.read(8)
-		self.Reserved    = buff.read(4)
-		self.TreeId      = buff.read(4)
-		self.SessionId   = buff.read(8)
-		self.Signature   = buff.read(16)
+		assert hdr.ProtocolId == b'\xFESMB'
+		hdr.StructureSize = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		assert hdr.StructureSize == 64
+		hdr.CreditCharge = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		hdr.Status      = NTStatus(int.from_bytes(buff.read(4), byteorder='little', signed = False))
+		hdr.Command     = SMB2Command(int.from_bytes(buff.read(2), byteorder='little', signed = False))
+		hdr.Credit      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		hdr.Flags       = SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little', signed = False))
+		hdr.NextCommand = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		hdr.MessageId   = int.from_bytes(buff.read(8), byteorder='little', signed = False)
+		hdr.Reserved    = buff.read(4)
+		hdr.TreeId      = buff.read(4)
+		hdr.SessionId   = buff.read(8)
+		hdr.Signature   = buff.read(16)
 		return hdr
+
+	def toBytes(self):
+		t  = self.ProtocolId
+		t += self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.CreditCharge.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Status.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.Command.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Credit.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Flags.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.NextCommand.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MessageId.to_bytes(8, byteorder = 'little', signed=False)
+		t += self.Reserved
+		t += self.TreeId
+		t += self.SessionId
+		t += self.Signature
+		return t
 
 	def __repr__(self):
 		t = '===SMB2 HEADER SYNC===\r\n'
@@ -145,8 +199,10 @@ class SMB2NotImplementedCommand():
 	def __init__(self):
 		self.data = None
 
-	def parse(self,data):
-		self.data = data
+	def from_buffer(buff):
+		cmd = SMB2NotImplementedCommand()
+		cmd.data = buff.read()
+		return cmd
 
 	def __repr__(self):
 		t = '=== SMB2NotImplementedCommand ===\r\n'
@@ -155,8 +211,12 @@ class SMB2NotImplementedCommand():
 
 class SMB2Message():
 	def __init__(self):
+		self.type      = 2
 		self.header    = None
 		self.command   = None
+
+	def from_bytes(bbuff):
+		return SMB2Message.from_buffer(io.BytesIO(bbuff))
 
 	def from_buffer(buff):
 		msg = SMB2Message()
@@ -167,15 +227,17 @@ class SMB2Message():
 
 		classname = msg.header.Command.name
 		try:
-			if SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in self.header.Flags:
+			if SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR in msg.header.Flags:
 				classname += '_REPLY'
 			else:
 				classname += '_REQ'
+			print(classname)
 			class_ = getattr(sys.modules[__name__], classname)
-			msg.command = class_()
-			msg.command.from_buffer(buff)
+			msg.command = class_.from_buffer(buff)
+			#msg.command.from_buffer(buff)
 		except Exception as e:
-			print(str(e))
+			traceback.print_exc()
+			print('Could not find command implementation! %s' % str(e))
 			msg.command = SMB2NotImplementedCommand.from_buffer(buff)
 
 		return msg
@@ -186,9 +248,14 @@ class SMB2Message():
 		"""
 		pos = buff.tell()
 		buff.seek(16, io.SEEK_SET)
-		flags = SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little'), signed = False)
+		flags = SMB2HeaderFlag(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		buff.seek(pos, io.SEEK_SET)
 		return SMB2HeaderFlag.SMB2_FLAGS_ASYNC_COMMAND in flags
+
+	def toBytes(self):
+		t  = self.header.toBytes()
+		t += self.command.toBytes()
+		return t
 
 
 	def __repr__(self):
@@ -221,24 +288,28 @@ class NegotiateDialects(enum.Enum):
 
 #https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NEGOTIATE_REQ():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.StructureSize   = None
 		self.DialectCount    = None
 		self.SecurityMode    = None
 		self.Reserved        = None
 		self.Capabilities    = None
-		self.ClientGuid      = None
-		self.MultiData1      = None #This field is interpreted in different ways depending on the SMB2 Dialects field.
-		self.Dialects        = None
-		self.Padding         = None
+		self.ClientGuid      = None			
+		self.ClientStartTime = None
+		self.NegotiateContextOffset = None
+		self.NegotiateContextCount = None
+		self.Reserved2 = None
+
 		self.NegotiateContextList = None
+		self.Dialects        = None	
+
 
 	def from_buffer(buff):
 		cmd = NEGOTIATE_REQ()
 		cmd.StructureSize = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		assert self.StructureSize == 36
+		assert cmd.StructureSize == 36
 		cmd.DialectCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		assert self.DialectCount > 0
+		assert cmd.DialectCount > 0
 		cmd.SecurityMode = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		cmd.Reserved = buff.read(2)
 		cmd.Capabilities = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
@@ -247,22 +318,27 @@ class NEGOTIATE_REQ():
 		pos = buff.tell()
 		buff.seek(8, io.SEEK_CUR)
 		
-		self.Dialects = []		
-		for i in range(0, self.DialectCount):
-			self.Dialects.append(NegotiateDialects(int.from_bytes(buff.read(2), byteorder = 'little', signed = False)))
+		cmd.Dialects = []		
+		for i in range(0, cmd.DialectCount):
+			cmd.Dialects.append(NegotiateDialects(int.from_bytes(buff.read(2), byteorder = 'little', signed = False)))
 
 		pos_buff_end = buff.tell()
 		buff.seek(pos, io.SEEK_SET)
-		if NegotiateDialects.SMB311 in self.Dialects:
+
+		if NegotiateDialects.SMB311 in cmd.Dialects:
 			cmd.NegotiateContextOffset = int.from_bytes(buff.read(4),byteorder = 'little', signed = False)
 			cmd.NegotiateContextCount  = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
 			cmd.Reserved2 = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
 			cmd.NegotiateContextList = []
-			buff.seek(8, io.SEEK_SET)
+			buff.seek(cmd.NegotiateContextOffset, io.SEEK_SET)
 
 			for i in range(0, cmd.NegotiateContextCount):
 				cmd.NegotiateContextList.append(SMB2NegotiateContext.from_buffer(buff))
-
+				pad_pos = buff.tell()
+				#aligning buffer, because the next data must be on 8-byte aligned position
+				q,m = divmod(pad_pos, 8)
+				if m != 0:
+					buff.seek((q+1)*8, io.SEEK_SET)
 		else:
 			cmd.ClientStartTime = wintime2datetime(int.from_bytes(buff.read(8), byteorder = 'little', signed = False))
 			buff.seek(pos_buff_end, io.SEEK_SET)
@@ -277,7 +353,15 @@ class NEGOTIATE_REQ():
 		t += 'Reserved:      %s\r\n' % self.Reserved
 		t += 'Capabilities:  %s\r\n' % repr(self.Capabilities)
 		t += 'ClientGuid:    %s\r\n' % self.ClientGuid
-		t += 'MultiData1:    %s\r\n' % self.MultiData1
+		if NegotiateDialects.SMB311 in self.Dialects:
+			t += 'NegotiateContextOffset:    %s\r\n' % self.NegotiateContextOffset
+			t += 'NegotiateContextCount:    %s\r\n' % self.NegotiateContextCount
+			t += 'Reserved2:    %s\r\n' % self.Reserved2
+			for ctx in self.NegotiateContextList:
+				t += repr(ctx)
+		else:
+			t += 'ClientStartTime:    %s\r\n' % self.ClientStartTime
+		
 		for dialect in self.Dialects:
 			t += '\t Dialect: %s\r\n' % dialect.name
 
@@ -312,6 +396,13 @@ class SMB2NegotiateContext():
 
 		return ctx
 
+	def toBytes(self):
+		t  = self.ContextType.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.DataLength.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Reserved.to_bytes(4, byteorder = 'little', signed=False)
+
+		return t
+
 	def __repr__(self):
 		t = '==== SMB2 Negotiate Context ====\r\n'
 		t += 'ConextType: %s\r\n' % self.ContextType.name
@@ -339,6 +430,16 @@ class SMB2PreauthIntegrityCapabilities():
 
 		return cap
 
+	def toBytes(self):
+		t  = self.HashAlgorithmCount.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SaltLength.to_bytes(2, byteorder = 'little', signed=False)
+		for hashalgo in self.HashAlgorithms:
+			t += hashalgo.to_bytes(2, byteorder = 'little', signed=False)
+		
+		t += self.Salt
+
+		return t
+
 	def __repr__(self):
 		t = '==== SMB2 Preauth Integrity Capabilities ====\r\n'
 		t += 'HashAlgorithmCount: %s\r\n' % self.HashAlgorithmCount
@@ -365,9 +466,16 @@ class SMB2EncryptionCapabilities():
 		cap.Ciphers = []
 
 		for i in range(cap.CipherCount):
-			cap.Ciphers.append(SMB2Cipher(int.from_bytes(buff.read(2))))
+			cap.Ciphers.append(SMB2Cipher(int.from_bytes(buff.read(2), byteorder='little', signed = False)))
 
 		return cap
+
+	def toBytes(self):
+		t  = self.CipherCount.to_bytes(2, byteorder = 'little', signed=False)
+		for cipher in self.Ciphers:
+			t += cipher.to_bytes(2, byteorder = 'little', signed=False)
+
+		return t
 			
 
 	def __repr__(self):
@@ -380,6 +488,7 @@ class SMB2EncryptionCapabilities():
 
 #https://msdn.microsoft.com/en-us/library/cc246561.aspx
 class NEGOTIATE_REPLY():
+	
 	def __init__(self):
 		self.StructureSize = None
 		self.SecurityMode = None
@@ -394,10 +503,13 @@ class NEGOTIATE_REPLY():
 		self.ServerStartTime = None
 		self.SecurityBufferOffset = None
 		self.SecurityBufferLength = None
-		self.Multidata2 = None
+		self.NegotiateContextOffset = None
 		self.Buffer = None
 		self.Padding = None
 		self.NegotiateContextList = None
+		self.ppos = 64
+		
+		
 
 	def from_bytes(bbuff):
 		return NEGOTIATE_REPLY.from_buffer(io.BytesIO(bbuff))
@@ -409,7 +521,7 @@ class NEGOTIATE_REPLY():
 		msg.SecurityMode    = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.DialectRevision = NegotiateDialects(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.NegotiateContextCount  = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		msg.ServerGuid      = uuid.UUID(bytes=buff.read(16))
+		msg.ServerGuid      = uuid.UUID(bytes_le=buff.read(16))
 		msg.Capabilities    = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		msg.MaxTransactSize = int.from_bytes(buff.read(4), byteorder='little', signed = False)
 		msg.MaxReadSize     = int.from_bytes(buff.read(4), byteorder='little', signed = False)
@@ -435,12 +547,70 @@ class NEGOTIATE_REPLY():
 
 		return msg
 
+	def construct(data, SecurityMode, DialectRevision, ServerGuid, Capabilities, 
+					MaxTransactSize= 8388608, MaxReadSize= 8388608, MaxWriteSize= 8388608, 
+					SystemTime = datetime.datetime.now(), 
+					ServerStartTime=datetime.datetime.now() - datetime.timedelta(days=1),
+					NegotiateContextList = [], ppos = None):
+		
+		cmd = NEGOTIATE_REPLY()
+		if ppos is None:
+			ppos = cmd.ppos
+		#ppos = the size of the message until this class. it is needed to calculate the offsets!
+		cmd.StructureSize = 65
+		cmd.SecurityMode = SecurityMode
+		cmd.DialectRevision = DialectRevision
+		cmd.NegotiateContextCount = len(NegotiateContextList) #or reserved
+		cmd.ServerGuid = ServerGuid
+		cmd.Capabilities = Capabilities
+		cmd.MaxTransactSize = MaxTransactSize
+		cmd.MaxReadSize = MaxReadSize
+		cmd.MaxWriteSize = MaxWriteSize
+		cmd.SystemTime = SystemTime
+		cmd.ServerStartTime = ServerStartTime
+		cmd.SecurityBufferOffset = ppos + 64
+		cmd.SecurityBufferLength = len(data)
+		cmd.NegotiateContextOffset = cmd.SecurityBufferOffset + cmd.SecurityBufferLength ##WARNING! THIS SHOULD BE PADDED!!!!!
+		cmd.Buffer = data
+		cmd.NegotiateContextList = NegotiateContextList
+
+		return cmd
+
+
+	def toBytes(self, ppos = None):
+		if ppos is None:
+			ppos = self.ppos
+		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityMode.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.DialectRevision.value.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.NegotiateContextCount.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.ServerGuid.bytes_le
+		t += self.Capabilities.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MaxTransactSize.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MaxReadSize.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MaxWriteSize.to_bytes(4, byteorder = 'little', signed=False)
+		t += dt2wt(self.SystemTime).to_bytes(8, byteorder = 'little', signed=False)
+		t += dt2wt(self.ServerStartTime).to_bytes(8, byteorder = 'little', signed=False)
+
+		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.NegotiateContextOffset.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.Buffer
+
+		if self.NegotiateContextCount > 0:
+			for ngctx in self.NegotiateContextList:
+				t+= ngctx.toBytes()
+				#PADDING!
+				q,m = divmod(len(t)+ppos,8)
+				t+= b'\x00'*( (q+1)*8 -  len(t)   )
+
+		return t
+
 	def __repr__(self):
 		t = '==== SMB2 NEGOTIATE REPLY ====\r\n'
 		t += 'StructureSize: %s\r\n' % self.StructureSize
 		t += 'SecurityMode: %s\r\n' % repr(self.SecurityMode)
 		t += 'DialectRevision: %s\r\n' % self.DialectRevision.name
-		t += 'Multidata1: %s\r\n' % self.Multidata1
 		t += 'ServerGuid: %s\r\n' % self.ServerGuid
 		t += 'Capabilities: %s\r\n' % repr(self.Capabilities)
 		t += 'MaxTransactSize: %s\r\n' % self.MaxTransactSize
@@ -466,7 +636,7 @@ class SessionSetupCapabilities(enum.IntFlag):
 
 #https://msdn.microsoft.com/en-us/library/cc246563.aspx
 class SESSION_SETUP_REQ():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.StructureSize = None
 		self.Flags = None
 		self.SecurityMode = None
@@ -477,20 +647,24 @@ class SESSION_SETUP_REQ():
 		self.PreviousSessionId = None
 		self.Buffer = None
 
-		if data is not None:
-			self.parse(data)
+	def from_bytes(bbuff):
+		return SESSION_SETUP_REQ.from_buffer(io.BytesIO(bbuff))
 
-	def parse(self, data):
-		self.StructureSize   = int.from_bytes(data[:2], byteorder='little')
-		assert self.StructureSize == 25
-		self.Flags = SessionSetupFlag(data[2])
-		self.SecurityMode = NegotiateSecurityMode(data[3])
-		self.Capabilities = SessionSetupCapabilities(int.from_bytes(data[4:8], byteorder = 'little'))
-		self.Channel      = int.from_bytes(data[8:12], byteorder = 'little')
-		self.SecurityBufferOffset = int.from_bytes(data[12:14], byteorder = 'little')
-		self.SecurityBufferLength = int.from_bytes(data[14:16], byteorder = 'little')
-		self.PreviousSessionId    = int.from_bytes(data[16:24], byteorder = 'little')
-		self.Buffer= data[24:24+self.SecurityBufferLength]
+	def from_buffer(buff):
+		msg = SESSION_SETUP_REQ()
+		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
+		assert msg.StructureSize == 25
+		msg.Flags = SessionSetupFlag(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.SecurityMode = NegotiateSecurityMode(int.from_bytes(buff.read(1), byteorder='little'))
+		msg.Capabilities = SessionSetupCapabilities(int.from_bytes(buff.read(4), byteorder = 'little'))
+		msg.Channel      = int.from_bytes(buff.read(4), byteorder = 'little')
+		msg.SecurityBufferOffset = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.SecurityBufferLength = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.PreviousSessionId    = buff.read(2)
+
+		buff.seek(msg.SecurityBufferOffset, io.SEEK_SET)
+		msg.Buffer= buff.read(msg.SecurityBufferLength)
+		return msg
 
 	def __repr__(self):
 		t = '==== SMB2 SESSION SETUP REQ ====\r\n'
@@ -513,23 +687,45 @@ class SessionFlags(enum.IntFlag):
 
 #https://msdn.microsoft.com/en-us/library/cc246564.aspx
 class SESSION_SETUP_REPLY():
-	def __init__(self, data = None):
+	def __init__(self):
 		self.StructureSize = None
 		self.SessionFlags = None
 		self.SecurityBufferOffset = None
 		self.SecurityBufferLength = None
 		self.Buffer = None
+		self.ppos = 64
 
-		if data is not None:
-			self.parse(data)
+	def from_bytes(bbuff):
+		return SESSION_SETUP_REPLY.from_buffer(io.BytesIO(bbuff))
 
-	def parse(self, data):
-		self.StructureSize   = int.from_bytes(data[:2], byteorder='little')
-		assert self.StructureSize == 9
-		self.SessionFlags = SessionFlags(int.from_bytes(data[2:4], byteorder = 'little'))
-		self.SecurityBufferOffset = int.from_bytes(data[4:6], byteorder = 'little')
-		self.SecurityBufferLength = int.from_bytes(data[6:8], byteorder = 'little')
-		self.Buffer= data[8:8+self.SecurityBufferLength]
+	def from_buffer(buff):
+		msg = SESSION_SETUP_REPLY()
+		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
+		assert msg.StructureSize == 9
+		msg.SessionFlags = SessionFlags(int.from_bytes(buff.read(2), byteorder = 'little'))
+		msg.SecurityBufferOffset = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.SecurityBufferLength = int.from_bytes(buff.read(2), byteorder = 'little')
+		msg.Buffer= buff.read(msg.SecurityBufferLength)
+
+	def construct(data, flags, ppos = None):
+
+		msg = SESSION_SETUP_REPLY()
+		if ppos is None:
+			ppos = msg.ppos
+		msg.StructureSize = 9
+		msg.SessionFlags = flags
+		msg.SecurityBufferOffset = ppos + 8
+		msg.SecurityBufferLength = len(data)
+		msg.Buffer = data
+		return msg
+
+	def toBytes(self):
+		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SessionFlags.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Buffer
+		return t
 
 	def __repr__(self):
 		t = '==== SMB2 SESSION SETUP REPLY ====\r\n'

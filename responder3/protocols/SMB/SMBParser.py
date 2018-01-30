@@ -1,9 +1,9 @@
 import io
 import enum
 
-#from responder3.newpackets.SMB.SMB import SMB2Message
-from responder3.newpackets.SMB.SMB2 import SMB2Message
-from responder3.newpackets.SMB.SMB  import SMBMessage
+#from responder3.protocols.SMB.SMB import SMB2Message
+from responder3.protocols.SMB.SMB2 import SMB2Message
+from responder3.protocols.SMB.SMB  import SMBMessage
 
 class SMBVersion(enum.Enum):
 	V1 = 0xFF
