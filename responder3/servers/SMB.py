@@ -28,6 +28,7 @@ class SMBSession(ProtocolSession):
 		self.gssapihandler = GSSAPIAuthHandler()
 		self.serverUUID = uuid.UUID(bytes=os.urandom(16))
 		self.SMBSessionID = os.urandom(8)
+		self.SMBMessageCnt = 0
 		#self.authAPI      = None
 
 class SMB(ResponderServer):
@@ -48,16 +49,18 @@ class SMB(ResponderServer):
 				#this could be SMB/NegotiateProtocol or SMB2/NegotiateProtocol or SMB2/SessionSetup
 				if msg.type == 1:
 					if msg.header.Command == SMBCommand.SMB_COM_NEGOTIATE:
-						#currently we only supports smbv2, but the way the protocol is,
-						#the first message could be SMBv1/NegotiateProtocol to identiy smbv2
+						#currently we only support smbv2, but the way the protocol is,
+						#the first message could be SMBv1/NegotiateProtocol to identiy smbv2 capabilities
 						print([dialect.DialectString for dialect in msg.command.data.Dialects])
 						if session.SMBdialect in [dialect.DialectString for dialect in msg.command.data.Dialects]:
 							print('client is capable of smbv2')
 							status, data, t = session.gssapihandler.do_AUTH()
 							resp = SMB2Message()
-							resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, 0)
+							resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.SMBMessageCnt)
 							resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 								NegotiateDialects.SMB202, session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
+
+							#MessageCn t should not be incremented here
 
 							respdata = resp.toBytes()
 							transport.write(b'\x00' + len(respdata).to_bytes(3, byteorder = 'big') + respdata)
@@ -67,16 +70,18 @@ class SMB(ResponderServer):
 							
 					else:
 						raise Exception('SMBv1 currently not supported!')
+				
 				else:
 					if msg.header.Command == SMB2Command.NEGOTIATE:
 						status, data, t = session.gssapihandler.do_AUTH()
 						resp = SMB2Message()
-						resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, 0)
+						resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.SMBMessageCnt)
 						resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 							NegotiateDialects.SMB202, session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
 						respdata = resp.toBytes()
 						transport.write(b'\x00' + len(respdata).to_bytes(3, byteorder = 'big') + respdata)
+					
 					elif msg.header.Command == SMB2Command.SESSION_SETUP:
 						status, data, creds = session.gssapihandler.do_AUTH(msg.command.Buffer)
 						if creds is not None:

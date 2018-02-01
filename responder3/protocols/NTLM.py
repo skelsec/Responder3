@@ -2,10 +2,10 @@ import io
 import os
 import enum
 import base64
-import hashlib
-import hmac
 import collections
+import hmac
 from responder3.crypto.DES import *
+from responder3.crypto.hashing import *
 from responder3.utils import timestamp2datetime
 
 #https://msdn.microsoft.com/en-us/library/cc236650.aspx
@@ -253,7 +253,7 @@ NTLMServerTemplates = {
 								AVPAIRType.MsvAvDnsDomainName        : 'smb.local',
 								AVPAIRType.MsvAvDnsComputerName      : 'server2003.smb.local',
 								AVPAIRType.MsvAvDnsTreeName          : 'smb.local',
-					       }),
+						   }),
 
 			'targetname' : 'SMB',
 		},
@@ -627,8 +627,13 @@ class NTLMAuthStatus(enum.Enum):
 	OK   = enum.auto()
 	FAIL = enum.auto()
 
+class NTLMAuthMode(enum.Enum):
+	CLIENT   = enum.auto()
+	SERVER   = enum.auto()
+
 class NTLMAUTHHandler():
 	def __init__(self):
+		self.mode = NTLMAuthMode.SERVER
 		self.use_NTLMv2            = None
 		self.use_Extended_security = None
 		self.serverTemplateName    = None
@@ -637,6 +642,11 @@ class NTLMAUTHHandler():
 		self.ntlmNegotiate     = None #ntlm Negotiate message from client
 		self.ntlmChallenge     = None #ntlm Challenge message to client
 		self.ntlmAuthenticate  = None #ntlm Authenticate message from client
+
+		self.verify_credentials = None #put dictionary with username password in it!
+		self.client_credentials = None 
+		self.SessionBaseKey = None
+		self.KeyExchangeKey = None
 
 	def setup(self, settings = {}):
 		#settings here
@@ -672,6 +682,35 @@ class NTLMAUTHHandler():
 
 		return
 
+	def calc_KeyExchangeKey(self):
+		if not self.use_NTLMv2:
+			if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
+				if isinstance(cred, netlm):
+					#KeyExchangeKey to ConcatenationOf( DES(LMOWF[0..6],LmChallengeResponse[0..7]), 
+					#                                   DES(   ConcatenationOf(LMOWF[7], 0xBDBDBDBDBDBD),  
+					#                                          LmChallengeResponse[0..7]
+					#										)
+					#									)
+					pass
+				else:
+					if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY:
+						#Set KeyExchangeKey to ConcatenationOf(LMOWF[0..7], Z(8)), 
+						pass
+					else:
+						pass
+						#Set KeyExchangeKey to SessionBaseKey
+						
+		else:
+			self.KeyExchangeKey = self.SessionBaseKey
+
+		return
+
+	def calc_SessionBaseKey(self):
+			if self._use_NTLMv2:
+				self.SessionBaseKey = hmac.new(self.client_credentials.ClientResponse, creds.ChallengeFromClinet, hashlib.MD5()).digest()
+			else:
+				self.SessionBaseKey = MD4(self.credentials.nthash).digest()
+
 
 	def do_AUTH(self, authData):
 		if self.ntlmNegotiate is None:
@@ -687,6 +726,10 @@ class NTLMAUTHHandler():
 
 			###do verification!!!
 			###TODO
+
+			#TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
+			#self.calc_SessionBaseKey()
+			#self.calc_KeyExchangeKey()
 
 			return (NTLMAuthStatus.FAIL, None, creds)
 
@@ -767,6 +810,20 @@ class netlm():
 			#username:$NETLM$1122334455667788$0836F085B124F33895875FB1951905DD2F85252CC731BB25
 		}
 		return res
+
+	def verify(self, creds):
+		if creds is None:
+			return True
+		
+		elif self.username in creds:
+			password = creds[self.username]
+			calc_challenge = DES(genLMHash(password), self.ServerChallenge) #DESL(ResponseKeyLM, CHALLENGE_MESSAGE.ServerChallenge)
+			if calc_challenge == self.ClientResponse:
+				return True
+			return False
+
+		else:
+			return False
 
 class netlmv2():
 	#not supported by hashcat?
@@ -856,42 +913,19 @@ class netntlmv2():
 		}
 		return res
 
-##def verifyNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
-
-
-#from impacket
-def __expand_DES_key( key):
-	# Expand the key from a 7-byte password key into a 8-byte DES key
-	key  = key[:7]
-	key += b'\x00'*(7-len(key))
-	s  = (((key[0] >> 1) & 0x7f) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[0] & 0x01) << 6 | ((key[1] >> 2) & 0x3f)) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[1] & 0x03) << 5 | ((key[2] >> 3) & 0x1f)) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[2] & 0x07) << 4 | ((key[3] >> 4) & 0x0f)) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[3] & 0x0f) << 3 | ((key[4] >> 5) & 0x07)) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[4] & 0x1f) << 2 | ((key[5] >> 6) & 0x03)) << 1).to_bytes(1, byteorder = 'big')
-	s += (((key[5] & 0x3f) << 1 | ((key[6] >> 7) & 0x01)) << 1).to_bytes(1, byteorder = 'big')
-	s += ( (key[6] & 0x7f) << 1).to_bytes(1, byteorder = 'big')
-	return s
-#
-
-
 def genLMHash(password):
 	LM_SECRET = b'KGS!@#$%'
 	t1 = password[:14].ljust(14, '\x00').upper()
-	p1 = t1[:7].encode('ascii')
-	p2 = t1[7:].encode('ascii')
-
-	d = des(__expand_DES_key(p1))
+	d = DES(t1[:7].encode('ascii'))
 	r1 = d.encrypt(LM_SECRET)
-	d = des(__expand_DES_key(p2))
+	d = des(t1[7:].encode('ascii'))
 	r2 = d.encrypt(LM_SECRET)
 
 	return r1+r2
 	
 
 def genNTHash(password):
-	return hashlib.new('md4', password.encode('utf-16le')).digest()
+	return md4(password.encode('utf-16le')).digest()
 
 def genNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
 	if NTHash is None and password is None:
@@ -901,13 +935,15 @@ def genNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
 	if password is not None:
 		NTHash = genNTHash(password)
 	
-	fp = hmac.new(NTHash, digestmod = hashlib.md5)
+	fp = hmac_md5(NTHash)
 	fp.update(user.upper().decode('utf-16le'))
 	fp.update(domain.decode('utf-16le'))
 
 	
-	hm = hmac.new(fp.digest(), digestmod = hashlib.md5)
+	hm = hmac_md5(fp.digest())
 	hm.update(bytes.fromHex(schall))
 	hm.update(bytes.fromHex(cchall))
 	return hm.digest()
+
+
 
