@@ -11,7 +11,6 @@ import logging
 import logging.config
 import logging.handlers
 import asyncio
-import requests
 import json
 import datetime
 import ipaddress
