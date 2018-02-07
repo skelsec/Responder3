@@ -3,7 +3,7 @@ import io
 import socket
 import ipaddress
 
-from responder3.newpackets.DNS import * 
+from responder3.protocols.DNS import * 
 
 #https://tools.ietf.org/html/rfc1035
 #https://tools.ietf.org/html/rfc4795

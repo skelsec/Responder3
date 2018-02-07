@@ -9,7 +9,7 @@ import enum
 import traceback
 import ipaddress
 
-from responder3.newpackets.DNS import * 
+from responder3.protocols.DNS import * 
 from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
 
 class MDNSSession(ProtocolSession):

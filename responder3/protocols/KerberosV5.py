@@ -1,5 +1,9 @@
 
 #https://tools.ietf.org/html/rfc1510
+#https://github.com/wbond/asn1crypto/blob/master/docs/universal_types.md
+#https://github.com/wbond/asn1crypto/blob/master/asn1crypto/core.py
+#https://github.com/tiran/kkdcpasn1/blob/asn1crypto/pykkdcpasn1.py
+#https://www.cloudshark.org/captures/fa35bc16bbb0?filter=frame%20and%20raw%20and%20ip%20and%20udp%20and%20kerberos
 from asn1crypto.core import ObjectIdentifier,Choice, Any, SequenceOf, BitString, Sequence, GeneralString, OctetString, Enumerated, Integer, GeneralizedTime
 
 class Realm(GeneralString):
@@ -119,10 +123,22 @@ class CipherText(Sequence):
 	]
 """
 
+class EncPart(OctetString):
+	method = 1
+	tag    = 16
+
 class EncryptionKey(Sequence):
 	_fields = [
 			('keytype', OctetString, {'explicit': 0, 'optional': False}),
 			('keyvalue', OctetString, {'explicit': 1, 'optional': False}),
+	]
+
+class TicketI(Sequence):
+	_fields = [
+			('tkt-vno', Integer, {'explicit': 0, 'optional': False}),
+			('realm', Realm, {'explicit': 1, 'optional': False}),
+			('sname', PrincipalName, {'explicit': 2, 'optional': False}),
+			('enc-part', EncPart, {'explicit': 3, 'optional': False}), #EncryptedData
 	]
 
 class Ticket(Sequence):
@@ -130,10 +146,7 @@ class Ticket(Sequence):
 	tag    = 1
 	
 	_fields = [
-			('tkt-vno', Integer, {'explicit': 0, 'optional': False}),
-			('realm', Realm, {'explicit': 1, 'optional': False}),
-			('sname', PrincipalName, {'explicit': 1, 'optional': False}),
-			('enc-part', EncryptedData, {'explicit': 1, 'optional': False}),
+			('ticket', TicketI),
 	]
 
 class TransitedEncoding(Sequence):
@@ -255,13 +268,22 @@ class EncKDCRepPart(Sequence):
 			('caddr', HostAddresses, {'explicit': 11, 'optional': True}),
 	]
 
-class EncTGSRepPart(EncKDCRepPart):
+class EncTGSRepPart(Sequence):
 	class_ = 1
 	tag    = 26
 
-class EncASRepPart(EncKDCRepPart):
+	_fields = [
+			('as-req', EncKDCRepPart),
+	]
+
+class EncASRepPart(Sequence):
 	class_ = 1
 	tag    = 25
+
+	_fields = [
+			('as-req', EncKDCRepPart),
+	]
+
 
 
 class KDC_REP(Sequence):
@@ -272,17 +294,25 @@ class KDC_REP(Sequence):
 			('crealm', Realm, {'explicit': 3, 'optional': False}),
 			('cname', PrincipalName, {'explicit': 4, 'optional': False}),
 			('ticket', Ticket, {'explicit': 5, 'optional': False}),
-			('enc-part', EncryptedData, {'explicit': 6, 'optional': False}),
+			('enc-part', EncPart, {'explicit': 6, 'optional': False}), #EncryptedData
 
 	]
 
-class AS_REP(KDC_REP):
+class AS_REP(Sequence):
 	class_ = 1
 	tag    = 11
 
-class TGS_REP(KDC_REP):
+	_fields = [
+			('as-req', KDC_REP),
+	]
+
+class TGS_REP(Sequence):
 	class_ = 1
 	tag    = 13
+
+	_fields = [
+			('as-req', KDC_REP),
+	]
 
 class AP_REQ(Sequence):
 	class_ = 1
@@ -411,10 +441,7 @@ class KRB_CRED(Sequence):
 			('enc-part', EncryptedData, {'explicit': 3, 'optional': False}),
 	]
 
-class KRB_ERROR(Sequence):
-	class_ = 1
-	tag    = 30
-
+class KRB_ERRORI(Sequence):
 	_fields = [
 			('pvno', Integer, {'explicit': 0, 'optional': False}),
 			('msg-type', Integer, {'explicit': 1, 'optional': False}),
@@ -429,6 +456,14 @@ class KRB_ERROR(Sequence):
 			('sname', PrincipalName, {'explicit': 10, 'optional': False}),
 			('e-text', GeneralString, {'explicit': 11, 'optional': True}),
 			('e-data', OctetString, {'explicit': 12, 'optional': True}),
+	]
+
+class KRB_ERROR(Sequence):
+	class_ = 1
+	tag    = 30
+
+	_fields = [
+			('krberr', KRB_ERRORI),
 	]
 
 

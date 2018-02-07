@@ -8,7 +8,7 @@ import traceback
 import ipaddress
 import re
 
-from responder3.newpackets.NetBIOS import * 
+from responder3.protocols.NetBIOS import * 
 from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
 
 class NBTNSSession(ProtocolSession):

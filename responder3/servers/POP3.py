@@ -2,7 +2,7 @@ import os
 import logging
 import traceback
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
-from responder3.newpackets.POP3 import *
+from responder3.protocols.POP3 import *
 
 
 class POP3Session(ProtocolSession):

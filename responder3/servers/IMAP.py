@@ -2,7 +2,7 @@ import os
 import logging
 import traceback
 from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
-from responder3.newpackets.IMAP import *
+from responder3.protocols.IMAP import *
 
 class IMAPSession(ProtocolSession):
 	def __init__(self, server):
