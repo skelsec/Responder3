@@ -55,6 +55,7 @@ defaultports = {
 	"IMAPS": [993],
 	"SMB"  : [445],
 	"NBTNS": [137],
+	"SOCKS5": [1050],
 	"LLMNR": [5355],
 	"MDNS" : [5353],
 	"HTTPProxy":[8080],
