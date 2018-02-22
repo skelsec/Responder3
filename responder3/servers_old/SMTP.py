@@ -4,7 +4,7 @@ import io
 import os
 import email.parser
 from responder3.utils import ServerFunctionality
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession, EmailEntry
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession, EmailEntry
 from responder3.protocols.SMTP import SMTPServerState, SMTPCommandParser, SMTPReply, SMTPCommand
 from responder3.servers import AuthClasses
 
@@ -21,8 +21,8 @@ and a lot more probably
 """
 
 class SMTPSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.encoding     = 'utf8' #THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
 		self.cmdParser    = SMTPCommandParser(encoding = self.encoding)
 		self.emailParser  = email.parser.Parser()
@@ -37,7 +37,7 @@ class SMTPProtocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
-		self._session = SMTPSession(server.rdnsd)
+		self._session = SMTPSession()
 
 	def _connection_made(self):
 		self._server.sendWelcome(self._transport)

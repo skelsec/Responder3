@@ -1,6 +1,7 @@
 import enum
 import io
 import socket
+import asyncio
 import ipaddress
 
 from responder3.protocols.DNS import * 
@@ -40,6 +41,11 @@ class LLMNRPacket():
 		self.Authorities = []
 		self.Additionals = []
 
+	@asyncio.coroutine
+	def from_streamreader(reader):
+		data = yield from reader.read()
+		return LLMNRPacket.from_bytes(data)
+
 	def from_bytes(bbuff):
 		return LLMNRPacket.from_buffer(io.BytesIO(bbuff))
 
@@ -66,15 +72,15 @@ class LLMNRPacket():
 
 		
 		for i in range(0, packet.ANCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Answers.append(dnsr)
 
 		for i in range(0, packet.NSCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Authorities.append(dnsr)
 
 		for i in range(0, packet.ARCOUNT):
-			dnsr = DNSResource.from_buffer(buff)
+			dnsr = DNSResourceParser.from_buffer(buff)
 			packet.Additionals.append(dnsr)
 
 		return packet

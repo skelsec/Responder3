@@ -3,14 +3,14 @@ import traceback
 import struct
 from base64 import b64decode
 import logging
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 
 from responder3.utils import *
 from responder3.protocols.HTTP import *
 
 class HTTPSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		#for protocol-level
 		self._headersRecieved = False
 		self.cmdParser    = HTTPRequestParser(encoding = 'utf-8')
@@ -46,7 +46,7 @@ class HTTP(ResponderServer):
 
 	def setup(self):
 		self.protocol = HTTPProtocol
-		self.protocolSession = HTTPSession(self.rdnsd)
+		self.protocolSession = HTTPSession()
 		#put settings parsing here!
 		if self.settings is None:
 			#default settings, basically just NTLm auth

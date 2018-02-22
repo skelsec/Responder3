@@ -8,202 +8,8 @@ import socket
 import os
 import traceback
 
-
+from responder3.core.common import *
 from responder3.utils import ServerProtocol
-
-class ConnectionStatus(enum.Enum):
-	OPENED = 0
-	CLOSED = 1
-	STATELESS = 3
-
-class Connection():
-	"""
-	Keeps all the connection related information that is used for logging and/or connection purposes
-	rdnsd: multiprocessing shared dictionary of the rds-ip pairs that have already been resolved
-	"""
-	def __init__(self, rdnsd):
-		self.status      = None
-		self.rdnsd       = rdnsd
-		self.rdns        = None
-		self.remote_ip   = None
-		self.remote_port = None
-		self.local_ip    = None
-		self.local_port  = None
-		self.timestamp   = None
-
-
-	def setupTCP(self, soc, status):
-		"""
-		Gets the connection info for a TCP session
-		soc : the current socket
-		status: ConnectionStatus
-
-		"""
-		self.timestamp = datetime.datetime.utcnow()
-		self.remote_ip, self.remote_port = soc.getpeername()
-		self.local_ip, self.local_port   = soc.getsockname()
-		self.lookupRDNS()
-
-	def setupUDP(self, soc, remoteAddr, status):
-		"""
-		Gets the connection info for a UDP session
-		localAddr: socket,port tuple for the local server
-		localAddr: socket,port tuple for the remote client
-		"""
-		self.timestamp = datetime.datetime.utcnow()
-		self.local_ip, self.local_port   = soc.getsockname()
-		self.remote_ip, self.remote_port = remoteAddr
-		self.lookupRDNS()
-		
-
-
-	def lookupRDNS(self):
-		"""
-		Reolves the remote host's IP address to a DNS address. 
-		First checks if the address has already been resolved by polling the shared rdns dictionary
-		"""
-		if self.remote_ip in self.rdnsd :
-			self.rdns = self.rdnsd [self.remote_ip]
-		
-		else:
-			try:
-				self.rdns = socket.gethostbyaddr(self.remote_ip)[0]
-			except Exception as e:
-				pass
-
-			self.rdnsd [self.remote_ip] = self.rdns
-
-	def getRemoteAddress(self):
-		return (self.remote_ip, self.remote_port)
-
-	def toDict(self):
-		t = {}
-		t['status']      = self.status
-		t['rdns']        = self.rdns
-		t['remote_ip']   = self.remote_ip
-		t['remote_port'] = self.remote_port
-		t['local_ip']    = self.local_ip
-		t['local_port']  = self.local_port
-		t['timestamp']   = self.timestamp
-		return t
-
-	def __repr__(self):
-		return str(self)
-
-	def __str__(self):
-		if self.rdns != '':
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.rdns, self.remote_port, self.local_ip,self.local_port )
-		else:
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_ip, self.remote_port, self.local_ip,self.local_port )
-
-class PoisonerMode(enum.Enum):
-	SPOOF = enum.auto()
-	ANALYSE = enum.auto()
-
-class PoisonResult():
-	def __init__(self):
-		self.module = None
-		self.target = None
-		self.request_name = None
-		self.request_type = None
-		self.poison_name = None
-		self.poison_addr = None
-		self.mode = None
-
-	def __repr__(self):
-		return str(self)
-		
-
-	def __str__(self):
-		if self.mode == PoisonerMode.ANALYSE:
-			return '[%s] Recieved request from IP: %s to resolve: %s' % (self.module, self.target, self.request_name)
-		else:
-			return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
-
-class Result():
-	"""
-	Communications object that is used to pass  authentication information to the LogProcessor
-	"""
-	def __init__(self, data = None):
-		self.module    = None
-		self.type      = None 
-		self.client    = None
-		self.user      = None
-		self.cleartext = None
-		self.fullhash  = None
-
-		self.fingerprint = None
-
-		if data is not None:
-			self.parse(data)
-
-	def parse(self,data):
-		m = hashlib.sha256()
-		self.module    = data['module']
-		m.update(self.module.encode())
-		self.type  = data['type'] 
-		m.update(self.type.encode())
-		self.client    = data['client']
-		m.update(self.client.encode())
-		self.user      = data.get('user')
-		if self.user is not None:
-			m.update(self.user.encode())
-		self.cleartext = data.get('cleartext')
-		if self.cleartext is not None:
-			m.update(self.cleartext.encode())
-		self.fullhash  = data.get('fullhash')
-		##some types needs to be excluded because they relay on some form of randomness in the auth protocol, 
-		##yielding different fullhash data for the same password
-		if self.fullhash is not None and self.type not in ['NTLMv1','NTLMv2']:
-			m.update(self.fullhash.encode())
-
-		self.fingerprint = m.hexdigest()
-
-	def toDict(self):
-		t = {}
-
-		t['module'] = self.module
-		t['type'] = self.type
-		t['client'] = self.client
-		t['user'] = self.user
-		t['cleartext'] = self.cleartext
-		t['fullhash'] = self.fullhash
-
-		t['fingerprint'] = self.fingerprint
-		return t
-
-	def __eq__(self, other):
-		return self.fingerprint == other.fingerprint
-
-	def __ne__(self, other):
-		return self.fingerprint != other.fingerprint
-
-class EmailEntry():
-	"""
-	If the SMTP server recieved an email it's sent to the log queue for processing
-	"""
-	def __init__(self):
-		self.fromAddress = None #string
-		self.toAddress   = None #list
-		self.email       = None #email object (from the email package)
-
-
-class LogEntry():
-	"""
-	Communications object that is used to pass log information to the LogProcessor
-	"""
-	def __init__(self, level, name, msg):
-		"""
-		level: the log level, needs to be a level specified by the built-in logging module (eg. logging.INFO)
-		name : name of the source module
-		msg  : message that is to be printed in the logs 
-		"""
-		self.level = level
-		self.name  = name
-		self.msg   = msg
-
-	def __str__(self):
-		return "[%s] %s" % (self.name, self.msg)
 
 class ResponderServer(ABC):
 	"""
@@ -222,15 +28,15 @@ class ResponderServer(ABC):
 		self.bind_proto  = None
 		self.protocolSession = None
 
-	def _setup(self, server, loop, logQ):
+	def _setup(self, server, loop):
 		self.bind_addr   = server.bind_addr
 		self.bind_port   = server.bind_port
 		self.bind_family = server.bind_family
 		self.bind_proto  = server.proto
 		self.loop        = loop
-		self.logQ        = logQ
+		self.logQ        = get_logQueue()
 		self.settings    = server.settings
-		self.rdnsd       = server.rdnsd
+		self.rdnsd       = get_rdnsLookupDict()
 		self.setup()
 
 	def run(self, ssl_context = None):
@@ -331,8 +137,8 @@ class ProtocolSession():
 	This object is the only one that will retrain the data what you are passing to the ResponderServer.handle() and above!
 	Inherit form this object in your server template if additional session info is desired
 	"""
-	def __init__(self, rdnsd):
-		self.connection = Connection(rdnsd)
+	def __init__(self):
+		self.connection = Connection(get_rdnsLookupDict())
 
 
 
@@ -374,14 +180,14 @@ class ResponderProtocolTCP(asyncio.Protocol):
 		
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(logging.INFO,'Buffer contents before parsing: %s' % (self._buffer.hex()), self._session)
+				self._server.log(logging.DEBUG,'Buffer contents before parsing: %s' % (self._buffer.hex()), self._session)
 
 			
 			self._parsebuff()
 
 			if 'R3DEEPDEBUG' in os.environ:
 				#FOR DEBUG AND DEVELOPEMENT PURPOSES ONLY!!!
-				self._server.log(logging.INFO,'Buffer contents after parsing: %s' % (self._buffer.hex()), self._session)
+				self._server.log(logging.DEBUG,'Buffer contents after parsing: %s' % (self._buffer.hex()), self._session)
 
 		
 		except Exception as e:
@@ -443,9 +249,6 @@ class ResponderProtocolUDP(asyncio.DatagramProtocol):
 		except Exception as e:
 			traceback.print_exc()
 			self._server.log(logging.INFO, 'Data reception failed! Reason: %s' % str(e), self._session)
-
-
-
 
 
 	## Override this to start handling the buffer, the data is in self._buffer as a string!

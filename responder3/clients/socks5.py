@@ -172,7 +172,7 @@ class Socks5Client():
 			if addr is not None:
 				#here the server opens a different socet for us, but following this would require
 				#an algo that is too complex for me (like for each and every recirsion layer we'd need to jump back to the original while keeping track of the latest layer's new address)
-				raise Exception('This feature is not implemented ')
+				raise Exception('This feature is not implemented')
 			else:
 				return self.get_multitunnel(servers, target, recursion = recursion+1, rsock = rsock):
 		

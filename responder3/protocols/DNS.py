@@ -1,9 +1,10 @@
 #https://www.ietf.org/rfc/rfc1035.txt
 import enum
 import io
+import asyncio
 import ipaddress
 
-from responder3.utils import ServerProtocol
+from responder3.core.commons import ServerProtocol
 
 class DNSResponseCode(enum.Enum):
 	NOERR = 0 #No error condition
@@ -134,6 +135,18 @@ class DNSPacket():
 		self.Answers   = []
 		self.Authorities = []
 		self.Additionals = []
+
+	@asyncio.coroutine
+	def from_streamreader(reader, proto = ServerProtocol.UDP):
+		if proto == ServerProtocol.UDP:
+			data = yield from reader.read()
+			return DNSPacket.from_bytes(data)
+		else:
+			plen_bytes = yield from reader.readexactly(2)
+			plen = int.from_bytes(plen_bytes, byteorder = 'big', signed=False)
+			data = yield from reader.readexactly(plen)
+			return DNSPacket.from_bytes(plen_bytes + data, proto = proto)
+
 
 	def from_bytes(bbuff, proto = ServerProtocol.UDP):
 		return DNSPacket.from_buffer(io.BytesIO(bbuff), proto)
@@ -292,11 +305,13 @@ class DNSQuestion():
 
 		return t
 
-	def construct(self, qname, qtype, qclass, qu = False):
-		self.QNAME     = DNSName.construct(qname)
-		self.QTYPE     = qtype
-		self.QCLASS    = qclass
-		self.QU        = qu
+	def construct(qname, qtype, qclass, qu = False):
+		qst = DNSQuestion()
+		qst.QNAME     = DNSName.construct(qname)
+		qst.QTYPE     = qtype
+		qst.QCLASS    = qclass
+		qst.QU        = qu
+		return qst
 
 	def __repr__(self):
 		t = '== DNSQuestion ==\r\n'
@@ -569,7 +584,50 @@ class DNSPTRResource(DNSResource):
 		t += DNSResource.__repr__(self)
 		t += 'PTR name: %s\r\n' % str(self.domainname)
 		return t
+
+class DNSSRVResource(DNSResource):
+	def __init__(self):	
+		DNSResource.__init__(self)
+		self.Service = None
+		self.Proto = None
+		self.Name = None
+		self.Priority = None
+		self.Weight = None
+		self.Port = None
+		self.Target = None
+
+		#_Service._Proto.Name TTL Class SRV Priority Weight Port Target
 		
+	def from_bytes(bbuff):
+		return DNSSRVResource.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		res = DNSSRVResource()
+		res.parse_header(buff)
+		try:
+			if res.NAME.name.count('.') == 4:
+				res.Service, res.Proto, res.Name, tld = res.NAME.name.split('.')
+				print(res.Service, res.Proto, res.Name, tld)
+			else:
+				res.Service = res.NAME.name
+		except Exception as e:
+			print(res.NAME.name)
+			raise(e)
+		res.Priority = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		res.Weight = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		res.Port = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
+		res.Target = DNSName.from_buffer(buff)
+
+		return res
+
+	def __repr__(self):
+		t = '=== DNS SRV ===\r\n'
+		t += DNSResource.__repr__(self)
+		t += 'Priority: %s\r\n' % str(self.Priority)
+		t += 'Weight: %s\r\n' % str(self.Weight)
+		t += 'Port: %s\r\n' % str(self.Port)
+		t += 'Target: %s\r\n' % str(self.Target)
+		return t
 
 class DNSResourceParser():
 	def from_bytes(bbuff):
@@ -597,6 +655,8 @@ class DNSResourceParser():
 				rsc = DNSAAAAResource.from_buffer(buff)
 			elif restype == DNSType.PTR:
 				rsc = DNSPTRResource.from_buffer(buff)
+			elif restype == DNSType.SRV:
+				rsc = DNSSRVResource.from_buffer(buff)
 
 			#catch-all for not fully implemented or unknown types
 			#feel free to expand the if-else statement above...

@@ -5,7 +5,7 @@ import os
 import enum
 import uuid
 from responder3.utils import ServerFunctionality
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.SMB.SMBParser import SMBCommandParser
 from responder3.protocols.SMB.SMB import * 
 from responder3.protocols.SMB.SMB2 import * 
@@ -17,8 +17,8 @@ class SMB2ServerState(enum.Enum):
 	AUTHENTICATED = enum.auto()
 
 class SMBSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.cmdParser = SMBCommandParser
 		self._buffer_minsize = 4 #netbios session header including the size of the whole message
 		self._packet_size = -1
@@ -117,7 +117,7 @@ class SMBProtocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
-		self._session = SMBSession(server.rdnsd)
+		self._session = SMBSession()
 	
 	def _parsebuff(self):
 		try:

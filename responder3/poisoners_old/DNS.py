@@ -11,11 +11,11 @@ import ipaddress
 
 from responder3.utils import ServerProtocol
 from responder3.protocols.DNS import * 
-from responder3.servers.BASE import ResponderServer, ResponderProtocolUDP, ResponderProtocolTCP, ProtocolSession, PoisonerMode
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolUDP, ResponderProtocolTCP, ProtocolSession, PoisonerMode
 
 class DNSSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self._parsed_length = None
 
 class DNS(ResponderServer):
@@ -104,6 +104,7 @@ class DNS(ResponderServer):
 
 							else:
 								### THIS IS A QUICK HACK!!! SOCK.RECV SHOULDN'T BE USED LIKE THIS
+								### make asyncio!!
 								sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 								sock.bind((self.passthru_ip, 0))
 								sock.connect((self.passthru_server, self.passthru_port))
@@ -147,7 +148,7 @@ class DNSProtocolUDP(ResponderProtocolUDP):
 	
 	def __init__(self, server):
 		ResponderProtocolUDP.__init__(self, server)
-		self._session = DNSSession(server.rdnsd)
+		self._session = DNSSession()
 
 	def _parsebuff(self, addr):
 		packet = DNSPacket.from_bytes(self._buffer, ServerProtocol.UDP)

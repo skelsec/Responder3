@@ -8,50 +8,87 @@ import time
 import asyncio
 import socket
 import threading
+import collections
 from ipaddress import IPv4Address, IPv6Address
+from responder3.core.common import *
 from responder3.utils import ServerFunctionality
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.Socks5 import *
 
+"""
+TODO: fix the settings parsing!
+re-test everything
+"""
+
 class SOCKS5Session(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
-		### Settings controlled
-		self.supportedAuthTypes = [SOCKS5Method.PLAIN]
-		self.creds = {'admin':'admin'}
-		self.proxyMode = SOCKS5ServerMode.NORMAL
-		self.proxyTable = None #{ 'ALL:ALL' : 'fake_ip:fake_port'}
-		###
-		self.allinterface   = IPv4Address('0.0.0.0') #TODO: change this tp '::'if IPv6 is used
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.cmdParser      = SOCKS5CommandParser()
 		self.currentState   = SOCKS5ServerState.NEGOTIATION
 		self.mutualAuthType = None
 		self.authHandler    = None
-		self.remote_reader  = None
-		self.remote_writer  = None
-		self.proxy_soc      = None
-		self.proxy_thread   = None
-		self.proxy_control  = None
+		self.clientTransport= None
 
 """
-proxyTable = {
-	re.compile('alma.com'): [
-		{
-			range(1,500) : '127.0.0.1'
-		}
-	]
-}
+proxyTable = [
+	{
+		re.compile('alma.com'): [
+			{
+				range(1,500) : '127.0.0.1'
+			}
+		]
+	},
+]
 """
+
+class TCPProxyClientProtocol(asyncio.Protocol):
+	def __init__(self, serverTransport, rdns, logQ):
+		asyncio.Protocol.__init__(self)#serverTransport, rdns, logQ
+		self.logQ = logQ
+		self.serverTransport = serverTransport
+		self.transport = None
+		self.connection = Connection(rdns)
+	
+	def modulename(self):
+		return 'TCPProxyClient'
+
+	def log(self, level, message):
+		self.logQ.put(LogEntry(level, self.modulename(), '[%s:%d] %s' % (self.connection.remote_ip, self.connection.remote_port, message)))
+
+	def logConnection(self):
+		if self.connection.status == ConnectionStatus.OPENED:
+			self.log(logging.INFO, 'New connection opened')
+
+		elif self.connection.status == ConnectionStatus.CLOSED:
+			self.log(logging.INFO, 'Connection closed')
+		self.logQ.put(self.connection)
+
+	def data_received(self, raw_data):
+		self.serverTransport.write(raw_data)
+
+	def connection_made(self, transport):
+		self.connection.setupTCP(transport.get_extra_info('socket'), ConnectionStatus.OPENED)
+		self.logConnection()
+		self.transport = transport
+
+	def connection_lost(self, exc):
+		self.connection.status = ConnectionStatus.CLOSED
+		self.logConnection()
+
+
+@asyncio.coroutine
+def create_clinet_connection(dest_addr, dest_port, transport, session, server):
+	clientTransport, clientProtocol = yield from server.loop.create_connection(
+															lambda: TCPProxyClientProtocol(transport, session.connection.rdnsd, server.logQ), 
+															host = dest_addr, 
+															port = dest_port)
+	return clientTransport
 
 class SOCKS5Protocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1024*1024
 		self._session = copy.deepcopy(server.protocolSession)
-
-	def _connection_lost(self, exc):
-		if self._session.proxy_control is not None:
-			self._session.proxy_control.set()
 
 	def _parsebuff(self):
 		if self._session.currentState != SOCKS5ServerState.RELAYING:
@@ -67,126 +104,79 @@ class SOCKS5Protocol(ResponderProtocolTCP):
 
 		else:
 			#self._session.remote_writer.write(self._buffer)
-			self._session.proxy_soc.sendall(self._buffer)
+			#self._session.proxy_soc.sendall(self._buffer)
+			self._session.clientTransport.write(self._buffer)
+			
 			self._buffer = b''
-
-def proxy(soc, transport, control):
-	while not control.is_set():
-		try:
-			data = soc.recv(8192)
-			if data == '':
-				return
-			transport.write(data)
-		except Exception as e:
-			print(e)
-			return
-
 
 class SOCKS5(ResponderServer):
 	def __init__(self):
 		ResponderServer.__init__(self)
+		### BE CAREFUL, THE proxyTable IS NOT PART OF THE SESSION OBJECT!
+		self.proxyTable = collections.OrderedDict()
+		self.supportedAuthTypes = [SOCKS5Method.PLAIN]
+		self.creds = {'admin':'admin'}
+		self.proxyMode = SOCKS5ServerMode.NORMAL
+		self.allinterface   = IPv4Address('0.0.0.0') #TODO: change this tp '::'if IPv6 is used
+
 
 	def setup(self):
 		self.protocol = SOCKS5Protocol
-		self.protocolSession = SOCKS5Session(self.rdnsd)
+		self.protocolSession = SOCKS5Session()
 
-		self.protocolSession.creds = None
+		self.creds = None
 		if 'creds' in self.settings:
-			self.protocolSession.creds = self.settings['creds']
+			self.creds = self.settings['creds']
 
-		self.protocolSession.supportedAuthTypes = [SOCKS5Method.PLAIN]
+		self.supportedAuthTypes = [SOCKS5Method.PLAIN]
 		if 'authType' in self.settings:
-			self.protocolSession.supportedAuthTypes = []
+			self.supportedAuthTypes = []
 			at = self.settings['authType']
 			if not isinstance(self.settings['authType'], list):
 				at = [self.settings['authType']]
 			for textAuthType in at:
-				self.protocolSession.supportedAuthTypes.append(SOCKS5Method[textAuthType.upper()])
+				self.supportedAuthTypes.append(SOCKS5Method[textAuthType.upper()])
 
 
-		self.protocolSession.proxyMode = SOCKS5ServerMode.OFF
+		self.proxyMode = SOCKS5ServerMode.OFF
 		if 'proxyMode' in self.settings:
-			self.protocolSession.proxyMode = SOCKS5ServerMode[self.settings['proxyMode'].upper()]
+			self.proxyMode = SOCKS5ServerMode[self.settings['proxyMode'].upper()]
 		
-		if self.protocolSession.proxyMode == SOCKS5ServerMode.EVIL:
+		if self.proxyMode == SOCKS5ServerMode.EVIL:
 			if 'proxyTable' not in self.settings:
 				raise Exception('EVIL mode requires proxyTable to be specified!')
 
 			#ughh...
-			self.protocolSession.proxyTable = {}
-			for ip in self.settings['proxyTable']:
-				iprex = ip #cannot deepcopy a regexp apparently... re.compile(ip)
-				self.protocolSession.proxyTable[iprex] = []
-				for portrangel in self.settings['proxyTable'][ip]:
-					for portranged in portrangel:
-						print(portranged)
-						if portranged.find('-') != -1:
-							start, stop = portranged.split('-')
-							prange = range(int(start),int(stop))
-						else:
-							prange = range(int(portranged),int(portranged)+1)
-
-						if portrangel[portranged].find(':') != -1:
-							#additional parsing to enable IPv6 addresses...
-							marker = portrangel[portranged].rfind(':')
-							self.protocolSession.proxyTable[iprex].append({prange : (portrangel[portranged][:marker], int(portrangel[portranged][marker+1:]))})
-						else:
-							raise Exception('The target address MUST be supplied in IP:PORT format! Problem: %s' % portrangel[portranged])
-			print(self.protocolSession.proxyTable)
+			for entry in self.settings['proxyTable']:
+				for ip in entry:
+					iprex = re.compile(ip)
+					self.proxyTable[iprex] = []
+					for portranged in entry[ip]:
+						for portrange in portranged:
+							if portrange.find('-') != -1:
+								start, stop = portrange.split('-')
+								prange = range(int(start.strip()),int(stop.strip())+1)
+						
+							else:
+								prange = range(int(portrange),int(portrange)+1)
+							
+							if portranged[portrange].find(':') != -1:
+								#additional parsing to enable IPv6 addresses...
+								marker = portranged[portrange].rfind(':')
+								self.proxyTable[iprex].append({prange : (portranged[portrange][:marker], int(portranged[portrange][marker+1:]))})
+							else:
+								raise Exception('The target address MUST be supplied in IP:PORT format! Problem: %s' % portranged[portrange])
 
 	def modulename(self):
 		return 'SOCKS5'
 
-	"""
-	@asyncio.coroutine
-	def proxy_open_connection(self, dest_addr, dest_port, transport, session):
-		try:
-			fut = asyncio.open_connection(dest_addr, dest_port)
-			self.remote_reader, self.remote_writer = yield from asyncio.wait_for(fut, timeout=3)
-		except asyncio.TimeoutError:
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.HOST_UNREACHABLE, IPv4Address('0.0.0.0'), 0).toBytes())
-			transport.close()
-			return
-		except ConnectionRefusedError:
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.CONN_REFUSED, IPv4Address('0.0.0.0'), 0).toBytes())
-			transport.close()
-			return
-		except Exception as e:
-			print(str(e))
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.FAILURE, IPv4Address('0.0.0.0'), 0).toBytes())
-			transport.close()
-			return
-
-		session.currentState = SOCKS5ServerState.RELAYING
-		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, IPv4Address('0.0.0.0'), 0).toBytes())
-
-	@asyncio.coroutine
-	def proxy_reader(self, transport, session):
-		while True:
-			try:
-				data = yield from session.remote_reader.read(1024)
-				transport.write(data)
-			except Exception as e:
-				print(str(e))
-				transport.close()
-				return
-	"""
-
-	def fake_dest_lookup(self, dest_ip, dest_port, session):
-		for ipregx in session.proxyTable:
-			#currently no regex cause python doest like to copy them...
-			#if ipregx.match(dest_ip):
-			if ipregx == dest_ip:
-				for portranged in session.proxyTable[ipregx]:
+	def fake_dest_lookup(self, dest_ip, dest_port):
+		for ipregx in self.proxyTable:
+			if ipregx.match(dest_ip):
+				for portranged in self.proxyTable[ipregx]:
 					for portrange in portranged:
 						if dest_port in portrange:
 							return portranged[portrange]
-		#at this point nothing mached
-		if '.*' in session.proxyTable:
-			for portranged in session.proxyTable['.*']:
-				for portrange in portranged:
-					if dest_port in portrange:
-						return portranged[portrange]
 
 		return None, None
 
@@ -207,15 +197,20 @@ class SOCKS5(ResponderServer):
 			transport.close()
 			return
 
-		session.proxy_soc = s
+		try:
+			session.proxy_soc = s
 
-		session.currentState = SOCKS5ServerState.RELAYING
-		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
+			session.currentState = SOCKS5ServerState.RELAYING
+			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
 
-		session.proxy_control = threading.Event()
-		session.proxy_thread = threading.Thread(target=proxy, args=(s,transport, session.proxy_control))
-		session.proxy_thread.start()
-		self.log(logging.INFO,'Started proxying to %s:%d' % (dest_ip, dest_port), session)
+			session.proxy_control = threading.Event()
+			session.proxy_thread = threading.Thread(target=proxy, args=(s,transport, session.proxy_control))
+			session.proxy_thread.start()
+			self.log(logging.INFO,'Started proxying to %s:%d' % (dest_ip, dest_port), session)
+		
+		except Exception as e:
+			print(str(e))
+			
 
 		return
 
@@ -225,26 +220,23 @@ class SOCKS5(ResponderServer):
 				self.log(logging.INFO,'Session state: %s Command: %s' % (session.currentState.name, type(packet) if packet is not None else 'NONE'), session)
 			#should be checking which commands are allowed in this state...
 			if session.currentState == SOCKS5ServerState.NEGOTIATION:
-				mutual = list(set(session.supportedAuthTypes).intersection(set(packet.METHODS)))
+				mutual = list(set(self.supportedAuthTypes).intersection(set(packet.METHODS)))
 				if len(mutual) == 0:
 					self.log(logging.INFO,'No common authentication types! Client supports %s' % (','.join([str(x) for x in packet.METHODS])), session)
 					transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).toBytes())
 					transport.close()
 
-				print(mutual)
 				#selecting preferred auth type
-				for authType in session.supportedAuthTypes:
-					print(mutual)
+				for authType in self.supportedAuthTypes:
 					if session.mutualAuthType is not None:
 						break
 					
 					for clientAuthType in mutual:
 						if authType == clientAuthType:
 							session.mutualAuthType = authType
-							session.authHandler = SOCKS5AuthHandler(session.mutualAuthType, session.creds)
+							session.authHandler = SOCKS5AuthHandler(session.mutualAuthType, self.creds)
 							break
 
-				print(session.mutualAuthType)
 				if session.mutualAuthType == SOCKS5Method.NOAUTH:
 					session.currentState = SOCKS5ServerState.REQUEST #if no authentication is requred then we skip the auth part
 				else:
@@ -273,17 +265,24 @@ class SOCKS5(ResponderServer):
 			elif session.currentState == SOCKS5ServerState.REQUEST:
 				self.log(logging.INFO, 'Remote client wants to connect to %s:%d' % (str(packet.DST_ADDR), packet.DST_PORT), session)
 				if packet.CMD == SOCKS5Command.CONNECT:
-					if session.proxyMode == SOCKS5ServerMode.OFF:
+					if self.proxyMode == SOCKS5ServerMode.OFF:
 						#so long and thanks for all the fish...
 						transport.close() 
-					elif session.proxyMode == SOCKS5ServerMode.NORMAL:
+					elif self.proxyMode == SOCKS5ServerMode.NORMAL:
 						#in this case the server acts as a normal socks5 server
 						#t = threading.Thread(target=self.start_proxy, args=(str(packet.DST_ADDR), packet.DST_PORT, transport, session))
 						#t.start()
-						self.start_proxy(str(packet.DST_ADDR), packet.DST_PORT, transport, session)
+						#self.start_proxy(str(packet.DST_ADDR), packet.DST_PORT, transport, session)
+						task = self.loop.ensure_future(create_clinet_connection(str(packet.DST_ADDR), packet.DST_PORT, transport, session, self))
+						#asyncio.wait([task], return_when=asyncio.ALL_COMPLETED)
+						print(task.result())
+
+						session.currentState = SOCKS5ServerState.RELAYING
+						transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
+
 					else:
 						#in this case we route the traffic to a specific server :)
-						fake_dest_ip, fake_dest_port = self.fake_dest_lookup(str(packet.DST_ADDR), packet.DST_PORT, session)
+						fake_dest_ip, fake_dest_port = self.fake_dest_lookup(str(packet.DST_ADDR), packet.DST_PORT)
 						if fake_dest_ip is None:
 							self.log( logging.INFO,'Could not find fake address for %s:%d' % (str(packet.DST_ADDR), packet.DST_PORT), session)
 							transport.close()
@@ -291,7 +290,11 @@ class SOCKS5(ResponderServer):
 						else:
 							#t = threading.Thread(target=self.start_proxy, args=(fake_dest_ip, fake_dest_port, transport, session))
 							#t.start()
-							self.start_proxy(fake_dest_ip, fake_dest_port, transport, session)
+							#self.start_proxy(fake_dest_ip, fake_dest_port, transport, session)
+							task = self.loop.ensure_future(create_clinet_connection(fake_dest_ip, fake_dest_port, transport, session, self))
+							asyncio.wait([task])
+							session.currentState = SOCKS5ServerState.RELAYING
+							transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
 
 				else:
 					transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.allinterface, 0).toBytes())

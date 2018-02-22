@@ -3,12 +3,12 @@ import logging
 import traceback
 import socket
 import io
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.FTP import * 
 
 class FTPSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.encoding     = 'ascii'
 		self.cmdParser    = FTPCommandParser(encoding = self.encoding)
 		self.currentState = FTPState.AUTHORIZATION
@@ -81,7 +81,7 @@ class FTPProtocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
-		self._session = FTPSession(server.rdnsd)
+		self._session = FTPSession()
 
 	def _connection_made(self):
 		self._server.sendWelcome(self._transport)

@@ -32,4 +32,6 @@ setup(
 	install_requires=[
 		"asn1crypto"
 	],
+
+	python_requires='>=3.6',
 )

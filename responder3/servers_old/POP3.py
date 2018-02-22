@@ -1,13 +1,13 @@
 import os
 import logging
 import traceback
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.POP3 import *
 
 
 class POP3Session(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.encoding     = 'ascii'
 		self.cmdParser    = POP3CommandParser(encoding = self.encoding)
 		self.currentState = POP3State.AUTHORIZATION
@@ -104,7 +104,7 @@ class POP3Protocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
-		self._session = POP3Session(server.rdnsd)
+		self._session = POP3Session()
 
 	def _connection_made(self):
 		self._server.sendWelcome(self._transport)

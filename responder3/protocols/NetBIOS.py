@@ -1,5 +1,6 @@
 import io
 import enum
+import asyncio
 import ipaddress
 
 class DNSResponseCode(enum.Enum):
@@ -77,6 +78,10 @@ class NBTNSPacket():
 		self.Authorities = []
 		self.Additionals = []
 
+	@asyncio.coroutine
+	def from_streamreader(reader):
+		data = yield from reader.read()
+		return NBTNSPacket.from_bytes(data)
 
 	def from_bytes(bbuff):
 		return NBTNSPacket.from_buffer(io.BytesIO(bbuff))

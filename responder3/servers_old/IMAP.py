@@ -1,12 +1,12 @@
 import os
 import logging
 import traceback
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
+from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.IMAP import *
 
 class IMAPSession(ProtocolSession):
-	def __init__(self, server):
-		ProtocolSession.__init__(self, server)
+	def __init__(self):
+		ProtocolSession.__init__(self)
 		self.encoding     = 'utf-7'
 		self.cmdParser    = IMAPCommandParser(encoding = self.encoding)
 		self.currentState = IMAPState.NOTAUTHENTICATED
@@ -92,7 +92,7 @@ class IMAPProtocol(ResponderProtocolTCP):
 	def __init__(self, server):
 		ResponderProtocolTCP.__init__(self, server)
 		self._buffer_maxsize = 1*1024
-		self._session = IMAPSession(server.rdnsd)
+		self._session = IMAPSession()
 
 	def _connection_made(self):
 		self._server.sendWelcome(self._transport)
