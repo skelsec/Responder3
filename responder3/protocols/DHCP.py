@@ -14,6 +14,7 @@ class DHCPFlags(enum.IntFlag):
 
 #https://tools.ietf.org/html/rfc1700
 class DHCPHardwareType(enum.Enum):
+	STRING = 0 #not in RFC, but from packet dissection it seems like this type indicates a string
 	ETHERNET_10MB                        =  1  
 	EXPERIMENTAL_ETHERNET_3MB            =  2  
 	AMATEUR_RADIO_AX25                    =  3  
@@ -45,26 +46,31 @@ def mac_to_bytes(m):
 class DHCPMessage():
 	def __init__(self):
 		self.op = None
-		self.htype = None
-		self.hlen  = None
-		self.hops  = None
-		self.xid   = None
-		self.secs  = None
-		self.flags = None
-		self.ciaddr = None
-		self.yiaddr = None
-		self.siaddr = None
-		self.giaddr = None
-		self.chaddr = None
+		self.htype = None #Hardware address type
+		self.hlen  = None #Hardware address length
+		self.hops  = None #Client sets to zero, optionally used by relay agents when booting via a relay agent.
+		self.xid   = None #Transaction ID
+		self.secs  = None #seconds elapsed since client began address acquisition or renewal process.
+		self.flags = None #flags
+		self.ciaddr = None #Client IP address
+		self.yiaddr = None #'your' (client) IP address.
+		self.siaddr = None #IP address of next server to use in bootstrap
+		self.giaddr = None #Relay agent IP address
+		self.chaddr = None #Client hardware address.
 		self.chaddr_padding = None
-		self.sname = None
-		self.file = None
-		self.magic = None
+		self.sname = None #Optional server host name, null terminated string.
+		self.file = None #Boot file name, null terminated string;
+		self.magic = None #Queen
 		self.options = None
 		self.padding = None
 
 		#helper variables, not part of the standard
 		self.dhcpmessagetype = None
+
+	@asyncio.coroutine
+	def from_streamreader(reader):
+		#running on UDP with no fragmentation possible, we just read everything from buffer and parse it
+		return DHCPMessage.from_buffer(reader.buff)
 
 	def from_bytes(bbuff):
 		return DHCPMessage.from_buffer(io.BytesIO(bbuff))
@@ -389,6 +395,16 @@ class DHCPOptDNSSERVERS():
 		if not isinstance(addresses, list):
 			addresses = [addresses]
 		opt.addresses = addresses
+		opt.len = len(addresses) *4
+		return opt
+
+	def from_setting(setting):
+		opt = DHCPOptDNSSERVERS()
+		addresses = setting
+		if not isinstance(setting, list):
+			addresses = [setting]
+		for address in addresses:
+			opt.addresses.append(ipaddress.ip_address(address))
 		opt.len = len(addresses) *4
 		return opt
 
@@ -1504,6 +1520,16 @@ class DHCPOptNTP():
 			opt.addresses.append(ipaddress.ip_address(int.from_bytes(buff.read(4), byteorder = 'big', signed=False)))
 		return opt
 
+	def from_setting(setting):
+		opt = DHCPOptNTP()
+		addresses = setting
+		if not isinstance(setting, list):
+			addresses = [setting]
+		for address in addresses:
+			opt.addresses.append(ipaddress.ip_address(address))
+		opt.len = len(addresses) *4
+		return opt
+
 	def construct(addresses):
 		opt = DHCPOptNTP()
 		if not isinstance(addresses, list):
@@ -1854,6 +1880,7 @@ class DHCPOptMessageType(enum.Enum):
 	DHCPACK      = 5
 	DHCPNAK      = 6
 	DHCPRELEASE  = 7
+	DHCPINFORM   = 8
 
 
 class DHCPOptDHCPMESSAGETYPE():
@@ -2108,19 +2135,22 @@ class DHCPOptCLIENTIDENTIFIER():
 		opt = DHCPOptCLIENTIDENTIFIER()
 		opt.code = int.from_bytes(buff.read(1), byteorder = 'big', signed=False)
 		opt.len = int.from_bytes(buff.read(1), byteorder = 'big', signed=False)
-		opt.clientid = buff.read(opt.len).decode()
+		opt.type = DHCPHardwareType(int.from_bytes(buff.read(1), byteorder = 'big', signed=False))
+		opt.clientid = buff.read(opt.len-1)
 		return opt
 
-	def construct(clientid):
+	def construct(clienttype, clientid):
 		opt = DHCPOptCLIENTIDENTIFIER()
 		opt.clientid = clientid
-		opt.len = len(opt.clientid.encode())
+		opt.len = len(opt.clientid)-1
+		opt.type = clienttype
 		return opt
 
 	def toBytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
-		t += self.clientid.encode()
+		t += self.type.value.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.clientid
 		return t
 
 	def __repr__(self):

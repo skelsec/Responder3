@@ -1,105 +1,67 @@
-"""
-TODO:
-1. broadcast NTP
-2. TCP NTP
-3. cleanup
-4. implement peer command reply
-5. implement and capute authentication
-... a lot of things :(
-"""
-
-import io
-import os
-import re
 import logging
-import traceback
-import socket
-import struct
-import enum
+import asyncio
 import traceback
 import ipaddress
 import datetime
 
-from responder3.utils import ServerProtocol
+from responder3.core.commons import *
 from responder3.protocols.NTP import * 
-from responder3.core.servertemplate import ResponderServer, ResponderProtocolUDP, ResponderProtocolTCP, ProtocolSession
+from responder3.core.udpwrapper import UDPClient
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
-class NTPSession(ProtocolSession):
-	def __init__(self):
-		ProtocolSession.__init__(self)
-		self._parsed_length = None
 
-class NTP(ResponderServer):
-	def __init__(self):
-		ResponderServer.__init__(self)
-		#self.refID = ipaddress.IPv4Address(os.urandom(4))
+class NTPGlobalSession():
+	def __init__(self, server_properties):
+		self.server_properties = server_properties
+		self.settings = server_properties.settings
 
-	def modulename(self):
-		return 'NTP'
+		self.refid = ipaddress.IPv4Address('127.0.0.1')
+		self.faketime = datetime.datetime.now()
 
-	def setup(self):
-		self.protocol = NTPProtocolUDP
-		###### DEFAULT SETTINGS
-		self.refID = ipaddress.IPv4Address('127.0.0.1')
-		self.fakeTime = datetime.datetime.now()
+		self.parse_settings()
+
+	def parse_settings(self):
 		fmt = '%b %d %Y %H:%M'
 		###### PARSING SETTINGS IF ANY
 		if self.settings is None:
 			return
 
 		if 'refID' in self.settings:
-			self.refID = ipaddress.ip_address(self.settings['refID'])
+			self.refid = ipaddress.ip_address(self.settings['refid'])
 
-		if 'fakeTime' in self.settings:			
+		if 'faketime' in self.settings:			
 			if 'fakeTimeFmt' in self.settings:
 				fmt = self.settings['fakeTimeFmt']
 			
-			self.fakeTime = datetime.datetime.strptime(self.settings['fakeTime'], fmt)
-		#if self.bind_proto == ServerProtocol.TCP:
-		#	self.protocol = NTPProtocolTCP
+			self.faketime = datetime.datetime.strptime(self.settings['faketime'], fmt)
 
-	def handle(self, packet, addr, transport, session):
-		if 'R3DEEPDEBUG' in os.environ:
-			self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
+class NTPSession(ResponderServerSession):
+	pass
+
+
+class NTP(ResponderServer):
+	def init(self):
+		self.parser = NTPPacket
+
+	@asyncio.coroutine
+	def parse_message(self):
+		return self.parser.from_buffer(self.creader.buff)
+
+	@asyncio.coroutine
+	def send_data(self, data):
+		yield from asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		return
+
+	@asyncio.coroutine
+	def run(self):
 		try:
-			self.log(logging.INFO,'Request in! Spoofing time to: %s' % self.fakeTime.isoformat(), session)
-			transport.sendto(NTPPacket.construct_fake_reply(packet.TransmitTimestamp, self.fakeTime, self.refID).toBytes(), addr)
+			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+
+			response = NTPPacket.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
+			
+			yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()
-			self.log(logging.INFO,'Exception! %s' % (str(e),))
+			self.log('Exception! %s' % (str(e),))
 			pass
-
-
-class NTPProtocolUDP(ResponderProtocolUDP):
-	
-	def __init__(self, server):
-		ResponderProtocolUDP.__init__(self, server)
-		self._session = NTPSession()
-
-	def _parsebuff(self, addr):
-		packet = NTPPacket.from_bytes(self._buffer, ServerProtocol.UDP)
-		self._server.handle(packet, addr, self._transport, self._session)
-		self._buffer = b''
-
-
-"""
-class NTPProtocolTCP(ResponderProtocolTCP):
-	
-	def __init__(self, server):
-		ResponderProtocolTCP.__init__(self, server)
-		self._session = DNSSession(server.rdnsd)
-			
-		
-	def _parsebuff(self):
-		if self._session._parsed_length is None and len(self._buffer) > 2:
-			self._session._parsed_length = int.from_bytes(self._buffer[:2], byteorder = 'big', signed=False)
-
-		if len(self._buffer) >= self._session._parsed_length:
-			packet = DNSPacket.from_bytes(self._buffer[:self._session._parsed_length + 2], ServerProtocol.TCP)
-			self._server.handle(packet, None, self._transport, self._session)
-			self._buffer = self._buffer[self._session._parsed_length + 2:]
-			self._session._parsed_length = None
-			if len(self._buffer) != 0:
-				self._parsebuff()
-"""

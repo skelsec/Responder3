@@ -41,12 +41,15 @@ class ServerProperties():
 		self.bind_family   = None
 		self.bind_porotcol = None
 		self.bind_iface    = None
+		self.bind_iface_idx = None
 		self.serverhandler = None
 		self.serversession = None
+		self.serverglobalsession = None
 		self.settings      = None
 		self.sslcontext    = None
-		self.shared_rdns          = None
-		self.shared_logQ          = None
+		self.shared_rdns   = None
+		self.shared_logQ   = None
+		self.interfaced    = None
 
 		##default settings
 		self.bind_addr   = ipaddress.ip_address('0.0.0.0')
@@ -55,6 +58,10 @@ class ServerProperties():
 
 	def from_dict(settings):
 		sp = ServerProperties()
+
+		if 'interfaced' in settings and settings['interfaced'] is not None:
+			sp.interfaced = settings['interfaced']
+
 		if 'bind_addr' in settings and settings['bind_addr'] is not None:
 			sp.bind_addr = ipaddress.ip_address(settings['bind_addr'])
 
@@ -67,9 +74,13 @@ class ServerProperties():
 
 		if 'bind_iface' in settings and settings['bind_iface'] is not None:
 			sp.bind_iface = settings['bind_iface']
-		
-		if sp.bind_addr.version == 6 and sp.bind_iface is None:
-			raise Exception('Interface name MUST be provided when using IPv6 bind address!')
+		else:
+			raise Exception('interface name  MUST be provided!')
+
+		if 'bind_iface_idx' in settings and settings['bind_iface_idx'] is not None:
+			sp.bind_iface_idx = settings['bind_iface_idx']
+		elif sp.bind_family == socket.AF_INET6:
+			raise Exception('bind_iface_idx name  MUST be provided for IPv6 addresses!')
 
 		if 'serverhandler' in settings and settings['serverhandler'] is not None:
 			sp.serverhandler = settings['serverhandler']
@@ -83,6 +94,8 @@ class ServerProperties():
 		else:
 			raise Exception('Server Session MUST be specified!')
 
+		if 'globalsession' in settings and settings['globalsession'] is not None:
+			sp.serverglobalsession = settings['globalsession']
 
 		if 'settings' in settings:
 			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
@@ -143,6 +156,9 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.clients = {}
 		self.server  = serverprops.serverhandler
 		self.session = serverprops.serversession
+		self.globalsession = serverprops.serverglobalsession
+		if serverprops.serverglobalsession is not None:
+			self.globalsession = serverprops.serverglobalsession(self.sprops)
 		self.logQ    = serverprops.shared_logQ
 		self.rdnsd   = serverprops.shared_rdns
 		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
@@ -152,7 +168,7 @@ class ResponderServerProcess(multiprocessing.Process):
 	def accept_client(self,client_reader, client_writer):
 		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.bind_porotcol)		
 		self.logConnection(connection, commons.ConnectionStatus.OPENED)
-		server = self.server((client_reader, client_writer), self.session(connection), self.sprops)
+		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
 		task = asyncio.Task(server.run())
 		#task = asyncio.ensure_future(server.run())
@@ -171,6 +187,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		
 
 	def setup(self):
+		print(self.sprops.getserverkwargs())
 		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
 			self.serverCoro = asyncio.start_server(self.accept_client, **self.sprops.getserverkwargs())
 		

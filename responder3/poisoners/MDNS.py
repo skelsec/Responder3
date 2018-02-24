@@ -11,6 +11,33 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 from responder3.protocols.DNS import *
 
 
+class MDNSGlobalSession():
+	def __init__(self, server_properties):
+		self.server_properties = server_properties
+		self.settings = server_properties.settings
+
+		self.spooftable = []
+		self.poisonermode = PoisonerMode.ANALYSE
+
+		self.maddr = ('224.0.0.251' , self.server_properties.bind_port)
+		if self.server_properties.bind_addr.version == 6:
+			self.maddr = ('FF02::FB' , self.server_properties.bind_port,0, self.server_properties.bind_iface_idx)
+
+		self.parse_settings()
+
+	def parse_settings(self):
+		if self.settings is None:
+			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
+		else:
+			#parse the poisoner mode
+			if isinstance(self.settings['mode'], str):
+				self.poisonermode = PoisonerMode[self.settings['mode'].upper()]
+
+			#compiling re strings to actual re objects and converting IP strings to IP objects
+			if self.poisonermode == PoisonerMode.SPOOF:
+				for exp in self.settings['spooftable']:
+					self.spooftable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
+
 class MDNSSession(ResponderServerSession):
 	pass
 
@@ -20,6 +47,8 @@ class MDNS(ResponderServer):
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
 			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			sock.bind(('0.0.0.0', server_properties.bind_port))
@@ -27,42 +56,20 @@ class MDNS(ResponderServer):
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 			
 		else:
-			ip = ipaddress.ip_address('FF02::FB')
-			interface_index = socket.if_nametoindex(server_properties.bind_iface)
+			mcast_addr = ipaddress.ip_address('FF02::FB')
 			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
 			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-			sock.bind(('::', server_properties.bind_port, 0, interface_index))
+			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
+			sock.bind(('::', server_properties.bind_port, 0, server_properties.bind_iface_idx))
 			sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
-				struct.pack('16sI', ip.packed, interface_index))
+				struct.pack('16sI', mcast_addr.packed, server_properties.bind_iface_idx))
 			
 		return sock
 
 	def init(self):
-		self.maddr = ('224.0.0.251' , 5353)
-		if self.sprops.bind_addr.version == 6:
-			interface_index = socket.if_nametoindex(self.sprops.bind_iface)
-			self.maddr = ('FF02::FB' , 5353,0, interface_index)
-		
 		self.parser = DNSPacket
-		self.spoofTable = []
-		if self.settings is None:
-			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
-			self.settings = {}
-			self.settings['mode'] = PoisonerMode.ANALYSE
-
-		else:
-			#parse the poisoner mode
-			if isinstance(self.settings['mode'], str):
-				self.settings['mode'] = PoisonerMode[self.settings['mode'].upper()]
-
-			#compiling re strings to actual re objects and converting IP strings to IP objects
-			if self.settings['mode'] == PoisonerMode.SPOOF:
-				for exp in self.settings['spooftable']:
-					if exp == 'ALL':
-						self.spoofTable.append((re.compile('.*'),ipaddress.ip_address(self.settings['spooftable'][exp])))
-						continue
-					self.spoofTable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
 	@asyncio.coroutine
 	def parse_message(self):
@@ -81,13 +88,13 @@ class MDNS(ResponderServer):
 		try:
 			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if msg.QR == DNSResponse.REQUEST:
-				if self.settings['mode'] == PoisonerMode.ANALYSE:
+				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
 						self.logPoisonResult(requestName = q.QNAME.name)
 
 				else:
 					answers = []
-					for targetRE, ip in self.spoofTable:
+					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
 							if targetRE.match(q.QNAME.name):
 								self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
@@ -106,7 +113,7 @@ class MDNS(ResponderServer):
 													 additionals = answers,
 													 questions   = msg.Questions)
 
-					yield from asyncio.wait_for(self.send_data(response.toBytes(), self.maddr), timeout=1)
+					yield from asyncio.wait_for(self.send_data(response.toBytes(), self.globalsession.maddr), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()

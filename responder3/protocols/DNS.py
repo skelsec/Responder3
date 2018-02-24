@@ -457,7 +457,7 @@ class DNSResource():
 
 		return t
 
-	def construct(self, rname, rtype, rdata, ttl = 3000, rclass = DNSClass.IN, cflush = False):
+	def construct(self, rname, rtype, rdata, ttl = 30, rclass = DNSClass.IN, cflush = False):
 		res = DNSResource()
 		res.NAME     = DNSName.construct(rname)
 		res.TYPE     = rtype

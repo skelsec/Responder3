@@ -197,6 +197,7 @@ class ServerProtocol(enum.Enum):
 #values MUST be lists!
 defaultports = {
 	"DNS"  : [(53, 'udp')],
+	"DHCP" : [(67, 'udp')],
 	"NTP"  : [(123, 'udp')],
  	"HTTP" : [(80, 'tcp')],
 	"HTTPS": [(443, 'tcp')],

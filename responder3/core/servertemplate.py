@@ -16,7 +16,7 @@ class ResponderServerSession(abc.ABC):
 		self.connection = connection
 
 class ResponderServer(abc.ABC):
-	def __init__(self, connection, session, serverprops, loop = None):
+	def __init__(self, connection, session, serverprops, globalsession = None, loop = None):
 		self.loop = loop
 		if self.loop is None:
 			self.loop = asyncio.get_event_loop()
@@ -31,6 +31,7 @@ class ResponderServer(abc.ABC):
 		self.sprops  = serverprops
 		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, self.protocol.name)
 		self.settings= copy.deepcopy(serverprops.settings)
+		self.globalsession = globalsession
 
 		self.init()
 
