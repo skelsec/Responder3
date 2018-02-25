@@ -74,7 +74,7 @@ class DHCPGlobalSession():
 
 
 		if self.settings is None:
-			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
+			self.log('No settings defined, adjusting to Analysis functionality!')
 			self.poisonermode = PoisonerMode.ANALYSE
 		
 		else:

@@ -1,1 +1,1 @@
-__all__ = ['MDNS','LLMNR','NBTNS','DHCP']
+__all__ = ['MDNS','LLMNR','NBTNS','DHCP','DNS']

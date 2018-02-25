@@ -73,6 +73,10 @@ class UDPWriter():
 		self._sock = sock
 
 	@asyncio.coroutine
+	def drain(self):
+		return
+
+	@asyncio.coroutine
 	def write(self, data, addr = None):
 		if addr is None:
 			yield from sendto(self._loop, self._sock, data, self._addr)
@@ -80,9 +84,9 @@ class UDPWriter():
 			yield from sendto(self._loop, self._sock, data, addr)
 
 class UDPClient():
-	def __init__(self, raddr, loop = None):
+	def __init__(self, raddr, loop = None, sock = None):
 		self._raddr  = raddr
-		self._socket = None
+		self._socket = sock
 		self._loop   = loop
 		self._laddr  = None
 		if loop is None:
@@ -98,7 +102,8 @@ class UDPClient():
 
 	@asyncio.coroutine
 	def run(self, data):
-		self.start_socket()
+		if self._socket is None:
+			self.start_socket()
 		writer = UDPWriter(self._loop, self._socket, self._raddr, self._laddr)
 		yield from writer.write(data)
 		data, addr = yield from recvfrom(self._loop, self._socket, 65536)

@@ -21,7 +21,7 @@ class NBTNSGlobalSession():
 
 	def parse_settings(self):
 		if self.settings is None:
-			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
+			self.log('No settings defined, adjusting to Analysis functionality!')
 		else:
 			#parse the poisoner mode
 			if isinstance(self.settings['mode'], str):
@@ -86,7 +86,7 @@ class NBTNS(ResponderServer):
 					 nmflags  = NBTSNMFlags.AUTHORATIVEANSWER | NBTSNMFlags.RECURSIONDESIRED, 
 					 answers  = answers
 				)
-				
+
 				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout =1)
 
 		except Exception as e:
