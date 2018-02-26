@@ -50,7 +50,7 @@ class MDNS(ResponderServer):
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = setup_base_socket(
 				server_properties, 
-				bind_ip_override = ipaddress.ip_address('0.0.0.0')
+				bind_ip_override = ipaddress.ip_address('0.0.0.0') if server_properties.platform == ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)
@@ -60,10 +60,13 @@ class MDNS(ResponderServer):
 			mcast_addr = ipaddress.ip_address('FF02::FB')
 			sock = setup_base_socket(
 				server_properties, 
-				bind_ip_override = ipaddress.ip_address('::')
+				bind_ip_override = ipaddress.ip_address('::') if server_properties.platform == ResponderPlatform.WINDOWS else None
 			)
-			sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
-				struct.pack('16sI', mcast_addr.packed, server_properties.bind_iface_idx))
+			sock.setsockopt(
+				41 if server_properties.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6, 
+				socket.IPV6_JOIN_GROUP,
+				struct.pack('16sI', mcast_addr.packed, server_properties.bind_iface_idx)
+			)
 			
 		return sock
 
