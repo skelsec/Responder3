@@ -65,10 +65,6 @@ def start_responder(bind_ifaces = None):
 		for serverentry in config.servers:
 			#handler = serverentry['handler']
 
-			serverentry['shared_rdns'] = rdns
-			serverentry['shared_logQ'] = logQ
-			serverentry['interfaced'] = interfaceutil.interfaced
-
 			if bind_ifaces is None:
 				ifaces = serverentry.get('bind_iface', None)
 				if ifaces is None:
@@ -102,7 +98,7 @@ def start_responder(bind_ifaces = None):
 				raise Exception('For protocol %s the port must be supplied!' % (serverentry['handler'], ))
 			if not isinstance(portspecs, list):
 				portspecs = [portspecs]
-			
+
 			for element in itertools.product(ips, portspecs):
 				serverentry['bind_addr'] = element[0][0]
 				serverentry['bind_iface'] = element[0][1]
@@ -110,8 +106,15 @@ def start_responder(bind_ifaces = None):
 				serverentry['bind_port'] = element[1][0]
 				serverentry['bind_porotcol'] = element[1][1]
 
+				temp = copy.deepcopy(serverentry)
+				temp['shared_rdns'] = rdns
+				temp['shared_logQ'] = logQ
+				temp['interfaced'] = interfaceutil.interfaced
 				#servers.append(serverprocess.ServerProperties.from_dict(serverentry))
-				servers.append(serverentry)
+				
+				#print(serverentry)
+				servers.append(temp)
+					
 
 		if len(servers) == 0:
 			raise Exception('Did not start any servers! Possible reasons: 1. config file is wrong 2. the interface you specified is not up/doesnt have any IP configured')

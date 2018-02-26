@@ -143,6 +143,23 @@ class ServerProperties():
 			'reuse_port'    : True,
 			}
 
+	def __repr__(self):
+		t  = '== ServerProperties ==\r\n'
+		t += 'bind_addr : %s \r\n' % repr(self.bind_addr)
+		t += 'bind_port : %s \r\n' % repr(self.bind_port)
+		t += 'bind_family : %s \r\n' % repr(self.bind_family)
+		t += 'bind_porotcol : %s \r\n' % repr(self.bind_porotcol)
+		t += 'bind_iface_idx : %s \r\n' % repr(self.bind_iface_idx)
+		t += 'serverhandler : %s \r\n' % repr(self.serverhandler)
+		t += 'serversession : %s \r\n' % repr(self.serversession)
+		t += 'serverglobalsession : %s \r\n' % repr(self.serverglobalsession)
+		t += 'settings : %s \r\n' % repr(self.settings)
+		t += 'sslcontext : %s \r\n' % repr(self.sslcontext)
+		t += 'shared_rdns : %s \r\n' % repr(self.shared_rdns)
+		t += 'shared_logQ : %s \r\n' % repr(self.shared_logQ)
+		#t += 'interfaced : %s \r\n' % repr(self.interfaced)
+		#t += 'platform : %s \r\n' % repr(self.platform)
+		return t
 
 class ResponderServerProcess(multiprocessing.Process):
 	"""
@@ -223,13 +240,15 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverCoro = None
 
 		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
-			self.serverCoro = asyncio.start_server(self.accept_client, **self.sprops.getserverkwargs())
+			sock = commons.setup_base_socket(self.sprops)
+			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock)
 		
 		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
-			soc = None
+			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				soc = self.sprops.serverhandler.custom_socket(self.sprops)
-			udpserver = self.udpserver(self.accept_client, self.sprops.getserverkwargs(), socket = soc)
+				sock = self.sprops.serverhandler.custom_socket(self.sprops)
+			
+			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
 			self.serverCoro = udpserver.run()
 
 		else:
@@ -237,11 +256,11 @@ class ResponderServerProcess(multiprocessing.Process):
 
 
 	def run(self):
-		self.setup()
 		try:
+			self.setup()
 			self.log('Server started!')
 			self.loop.run_until_complete(self.serverCoro)
-			#self.loop.run_forever()
+			self.loop.run_forever()
 		except KeyboardInterrupt:
 			sys.exit(0)
 		except Exception as e:

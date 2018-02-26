@@ -3,6 +3,8 @@ import socket
 import io
 import ipaddress
 
+from responder3.core import commons
+
 def recvfrom(loop, sock, n_bytes, fut=None, registed=False):
 	fd = sock.fileno()
 	if fut is None:
@@ -112,37 +114,24 @@ class UDPClient():
 
 #https://www.pythonsheets.com/notes/python-asyncio.html
 class UDPServer():
-	def __init__(self, callback, socketKwargs, loop = None, socket = None):
+	def __init__(self, callback, server_properties, loop = None, sock = None):
 		self._callback = callback
-		self._socketKwargs = socketKwargs
-		self._socket = socket
+		self._server_properties = server_properties
+		self._socket = sock
 		self._loop   = loop
-		if self._socketKwargs is None:
+		if self._server_properties is None:
 			if self._socket is None:
-				raise Exception('Either socket or socketKwargs MUST be defined!')
+				raise Exception('Either socket or server_properties MUST be defined!')
 			self._laddr  = self._socket.getsockname()
 		else:
-			self._laddr  = (self._socketKwargs['host'], self._socketKwargs['port'])
+			self._laddr  = (str(self._server_properties.bind_addr), self._server_properties.bind_port)
 		if loop is None:
 			self._loop = asyncio.get_event_loop()
-
-	def start_socket(self):
-		self._socket = socket.socket(self._socketKwargs['family'], socket.SOCK_DGRAM, 0)
-		if self._socketKwargs['reuse_address']:
-			self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-		self._socket.setblocking(False)
-		try:
-			self._socket.bind((self._socketKwargs['host'], self._socketKwargs['port']))
-		except Exception as e:
-			print(self._socketKwargs['host'])
-			print(self._socketKwargs['port'])
-			raise(e)
-
 
 	@asyncio.coroutine
 	def run(self):
 		if self._socket is None:
-			self.start_socket()
+			self._socket = commons.setup_base_socket(self._server_properties)
 		while True:
 			data, addr = yield from recvfrom(self._loop, self._socket, 65536)
 			reader = UDPReader(data, addr)

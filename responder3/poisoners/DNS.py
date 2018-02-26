@@ -43,10 +43,12 @@ class DNSGlobalSession():
 			if self.passthru_ip is None and self.passthru_iface != self.server_properties.bind_iface:
 				iface = self.server_properties.interfaced[self.passthru_iface]
 				#grabbinf the first one!
-				if ipaddress.ip_address(self.passthru_server).version == 4:
+				if self.passthru_server.version == 4:
 					self.passthru_ip = ipaddress.ip_address(iface.IPv4[0])
 				else:
 					self.passthru_ip = ipaddress.ip_address(iface.IPv6[0])
+			else:
+				self.passthru_ip = self.server_properties.bind_addr
 
 		if self.settings is None:
 			self.log('No settings defined, adjusting to Analysis functionality!')
