@@ -11,6 +11,7 @@ import importlib.util
 import asyncio
 import traceback
 import ssl
+import platform
 
 from responder3.core import commons
 
@@ -50,11 +51,9 @@ class ServerProperties():
 		self.shared_rdns   = None
 		self.shared_logQ   = None
 		self.interfaced    = None
+		self.platform      = None
 
-		##default settings
-		self.bind_addr   = ipaddress.ip_address('0.0.0.0')
-		self.bind_family = socket.AF_INET
-		self.bind_porotcol = commons.ServerProtocol.TCP
+		self.platform = commons.get_platform()
 
 	def from_dict(settings):
 
@@ -153,18 +152,18 @@ class ResponderServerProcess(multiprocessing.Process):
 	def __init__(self, serverentry):
 		multiprocessing.Process.__init__(self)
 		self.serverentry = serverentry
-		self.udpserver = None
-		self.sprops    = None
-		self.loop    = None
-		self.clients = None
-		self.server  = None
-		self.session = None
+		self.udpserver   = None
+		self.sprops      = None
+		self.loop        = None
+		self.clients     = None
+		self.server      = None
+		self.session     = None
+		self.logQ        = None
+		self.rdnsd       = None
+		self.modulename  = None
+		self.serverCoro  = None
 		self.globalsession = None
-		self.logQ    = None
-		self.rdnsd   = None
 		self.connectionFactory = None
-		self.modulename = None
-		self.serverCoro = None
 
 	def import_packages(self):
 		if self.serverentry['bind_porotcol'].upper() == 'UDP':

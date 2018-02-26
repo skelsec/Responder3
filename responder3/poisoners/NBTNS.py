@@ -41,13 +41,8 @@ class NBTNSSession(ResponderServerSession):
 
 class NBTNS(ResponderServer):
 	def custom_socket(server_properties):
-		sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-		sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
-		sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-		sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-		sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+		sock = setup_base_socket(server_properties, bind_ip_override = ipaddress.ip_address('0.0.0.0'))
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-		sock.bind(('0.0.0.0', server_properties.bind_port)) #only IPv4 is supported, because IPv6 packs it's own DHCP protocol, which is completely different
 		return sock
 
 	def init(self):

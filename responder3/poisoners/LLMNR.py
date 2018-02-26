@@ -40,28 +40,28 @@ class LLMNRSession(ResponderServerSession):
 
 class LLMNR(ResponderServer):
 	def custom_socket(server_properties):
-		if server_properties.bind_addr.version == 4:
+		if server_properties.bind_family == socket.AF_INET:
 			ip = ipaddress.ip_address('224.0.0.252')
-			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
-			sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
-			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
+			sock = setup_base_socket(
+				server_properties, 
+				bind_ip_override = ipaddress.ip_address('0.0.0.0')
+			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-			sock.bind(('0.0.0.0', server_properties.bind_port))
 			mreq = struct.pack("=4sl", ip.packed, socket.INADDR_ANY)
-			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)			
 
 		else:
 			ip = ipaddress.ip_address('FF02:0:0:0:0:0:1:3')
-			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-			sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
-			sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEPORT,1)
-			sock.bind(('::', server_properties.bind_port, 0, server_properties.bind_iface_idx))
-			sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_JOIN_GROUP,
-				struct.pack('16sI', ip.packed, server_properties.bind_iface_idx))
-			sock.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+			sock = setup_base_socket(
+				server_properties, 
+				bind_ip_override = ipaddress.ip_address('::')
+			)
+			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
+			sock.setsockopt(
+				socket.IPPROTO_IPV6, 
+				socket.IPV6_JOIN_GROUP,
+				struct.pack('16sI', ip.packed, server_properties.bind_iface_idx)
+			)
 
 		return sock
 

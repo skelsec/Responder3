@@ -8,6 +8,7 @@ import json
 import atexit
 import datetime
 import socket
+import platform
 
 from responder3.crypto.hashing import *
 
@@ -214,3 +215,96 @@ def handle_systemd(pidfile):
 		f.write(pid)
 	
 	atexit.register(byealex,pidfile)
+
+class ResponderPlatform(enum.Enum):
+	UNKNOWN = 0
+	WINDOWS = 1
+	LINUX   = 2
+	MAC     = 3
+
+def get_platform():
+	p = platform.system()
+	if p == 'Linux':
+		return ResponderPlatform.LINUX
+	elif p == 'Windows':
+		return ResponderPlatform.WINDOWS
+	elif p == 'Darwin':
+		return ResponderPlatform.MAC
+	else:
+		return ResponderPlatform.UNKNOWN
+
+def setup_base_socket(server_properties, bind_ip_override = None):
+	sock = None
+	if server_properties.bind_porotcol == ServerProtocol.UDP:
+		if server_properties.bind_family == socket.AF_INET:
+			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			if server_properties.platform == ResponderPlatform.LINUX:
+				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+			sock.setblocking(False)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+			sock.bind(
+				(
+					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
+					int(server_properties.bind_port)
+				)
+			)
+			
+		elif server_properties.bind_family == socket.AF_INET6:
+			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+			sock.setblocking(False)
+			if server_properties.platform == ResponderPlatform.LINUX:
+				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+			sock.bind(
+				(
+					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
+					int(server_properties.bind_port),
+					server_properties.bind_iface_idx
+				)
+			)
+
+		else:
+			raise Exception('Unknown IP version')
+
+	elif server_properties.bind_porotcol == ServerProtocol.TCP:
+		if server_properties.bind_family == socket.AF_INET:
+			sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
+			sock.setblocking(False)
+			if server_properties.platform == ResponderPlatform.LINUX:
+				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+			sock.bind(
+				(
+					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
+					int(server_properties.bind_port)
+				)
+			)
+
+		elif server_properties.bind_family == socket.AF_INET6:
+			sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_TCP)
+			sock.setblocking(False)
+			if server_properties.platform == ResponderPlatform.LINUX:
+				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+			sock.bind(
+				(
+					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
+					int(server_properties.bind_port),
+					server_properties.bind_iface_idx
+				)
+			)
+					
+		else:
+			raise Exception('Unknown IP version')
+	else:
+		raise Exception('Unknown protocol!')
+	
+	#if sock is not None:
+	#	sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+	#	sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+	return sock
+
