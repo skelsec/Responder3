@@ -240,9 +240,9 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 			if server_properties.platform == ResponderPlatform.LINUX:
 				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
 			sock.setblocking(False)
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
 			sock.bind(
 				(
 					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
@@ -255,8 +255,8 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			sock.setblocking(False)
 			if server_properties.platform == ResponderPlatform.LINUX:
 				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
 			sock.bind(
 				(
 					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
@@ -274,8 +274,8 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			sock.setblocking(False)
 			if server_properties.platform == ResponderPlatform.LINUX:
 				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)			
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
 			sock.bind(
 				(
 					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
@@ -288,8 +288,8 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			sock.setblocking(False)
 			if server_properties.platform == ResponderPlatform.LINUX:
 				sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
 			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-			sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
 			sock.bind(
 				(
 					str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
