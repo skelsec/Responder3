@@ -10,9 +10,10 @@ import importlib
 import multiprocessing
 from pathlib import Path
 
-from responder3.core import *
-from responder3.servers import *
-from responder3.poisoners import *
+from responder3.core import commons
+from responder3.core import interfaceutil
+from responder3.core import logprocess
+from responder3.core import serverprocess
 
 import config
 
@@ -64,14 +65,6 @@ def start_responder(bind_ifaces = None):
 		for serverentry in config.servers:
 			#handler = serverentry['handler']
 
-			handler_module = getattr(sys.modules[__name__], serverentry['handler'])
-			serverhandler  = getattr(handler_module, serverentry['handler'])
-			sessionhandler = getattr(handler_module, '%s%s' % (serverentry['handler'], 'Session'))
-			globalsessionhandler = getattr(handler_module, '%s%s' % (serverentry['handler'], 'GlobalSession'), None)
-
-			serverentry['serverhandler'] = serverhandler
-			serverentry['serversession'] = sessionhandler
-			serverentry['globalsession'] = globalsessionhandler
 			serverentry['shared_rdns'] = rdns
 			serverentry['shared_logQ'] = logQ
 			serverentry['interfaced'] = interfaceutil.interfaced
@@ -117,13 +110,14 @@ def start_responder(bind_ifaces = None):
 				serverentry['bind_port'] = element[1][0]
 				serverentry['bind_porotcol'] = element[1][1]
 
-				servers.append(serverprocess.ServerProperties.from_dict(serverentry))
+				#servers.append(serverprocess.ServerProperties.from_dict(serverentry))
+				servers.append(serverentry)
 
 		if len(servers) == 0:
 			raise Exception('Did not start any servers! Possible reasons: 1. config file is wrong 2. the interface you specified is not up/doesnt have any IP configured')
 
 		for server in servers:
-			ss = serverprocess.ResponderServerProcess(server)
+			ss = serverprocess.ResponderServerProcess.from_dict(server)
 			ss.daemon = True
 			serverProcesses.append(ss)
 			ss.start()

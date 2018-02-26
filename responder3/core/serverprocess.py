@@ -6,14 +6,13 @@ import ipaddress
 import copy
 import io
 import logging
-
+import importlib
+import importlib.util
 import asyncio
 import traceback
 import ssl
 
 from responder3.core import commons
-from responder3.core.udpwrapper import UDPServer
-
 
 sslcontexttable = {
 	#'SSLv2' : ssl.PROTOCOL_SSLv2,
@@ -58,6 +57,7 @@ class ServerProperties():
 		self.bind_porotcol = commons.ServerProtocol.TCP
 
 	def from_dict(settings):
+
 		sp = ServerProperties()
 
 		if 'interfaced' in settings and settings['interfaced'] is not None:
@@ -150,21 +150,41 @@ class ResponderServerProcess(multiprocessing.Process):
 	The main server process for each server. Handles the incoming clients, maintains a table of active connections
 	Takes a ServerProperties class as input for init
 	"""
-	def __init__(self, serverprops):
+	def __init__(self, serverentry):
 		multiprocessing.Process.__init__(self)
-		self.sprops  = serverprops
-		self.loop    = asyncio.get_event_loop()
-		self.clients = {}
-		self.server  = serverprops.serverhandler
-		self.session = serverprops.serversession
-		self.globalsession = serverprops.serverglobalsession
-		if serverprops.serverglobalsession is not None:
-			self.globalsession = serverprops.serverglobalsession(self.sprops)
-		self.logQ    = serverprops.shared_logQ
-		self.rdnsd   = serverprops.shared_rdns
-		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
-		self.modulename = '%s-%s-%d' % (serverprops.serverhandler.__name__, serverprops.bind_addr, serverprops.bind_port)
+		self.serverentry = serverentry
+		self.udpserver = None
+		self.sprops    = None
+		self.loop    = None
+		self.clients = None
+		self.server  = None
+		self.session = None
+		self.globalsession = None
+		self.logQ    = None
+		self.rdnsd   = None
+		self.connectionFactory = None
+		self.modulename = None
 		self.serverCoro = None
+
+	def import_packages(self):
+		if self.serverentry['bind_porotcol'].upper() == 'UDP':
+			self.udpserver = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
+		
+		handler_spec = importlib.util.find_spec('responder3.poisoners.%s' % self.serverentry['handler'])
+		if handler_spec is None:
+			handler_spec = importlib.util.find_spec('responder3.servers.%s' % self.serverentry['handler'])
+			if handler_spec is None:
+				raise Exception('Could not find the package for %s' % (self.serverentry['handler'],))
+			else:
+				servermodule = importlib.import_module('responder3.servers.%s' % self.serverentry['handler'])
+		else:
+			servermodule = importlib.import_module('responder3.poisoners.%s' % self.serverentry['handler'])
+
+		self.serverentry['serverhandler'] = getattr(servermodule, self.serverentry['handler'])
+		self.serverentry['serversession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'Session'))
+		self.serverentry['globalsession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'GlobalSession'), None)
+		
+
 
 	def accept_client(self,client_reader, client_writer):
 		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.bind_porotcol)		
@@ -188,6 +208,21 @@ class ResponderServerProcess(multiprocessing.Process):
 		
 
 	def setup(self):
+		self.import_packages()
+		self.sprops = ServerProperties.from_dict(self.serverentry)
+		self.loop    = asyncio.get_event_loop()
+		self.clients = {}
+		self.server  = self.sprops.serverhandler
+		self.session = self.sprops.serversession
+		self.globalsession = self.sprops.serverglobalsession
+		if self.sprops.serverglobalsession is not None:
+			self.globalsession = self.sprops.serverglobalsession(self.sprops)
+		self.logQ    = self.sprops.shared_logQ
+		self.rdnsd   = self.sprops.shared_rdns
+		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
+		self.modulename = '%s-%s-%d' % (self.sprops.serverhandler.__name__, self.sprops.bind_addr, self.sprops.bind_port)
+		self.serverCoro = None
+
 		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
 			self.serverCoro = asyncio.start_server(self.accept_client, **self.sprops.getserverkwargs())
 		
@@ -195,7 +230,7 @@ class ResponderServerProcess(multiprocessing.Process):
 			soc = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
 				soc = self.sprops.serverhandler.custom_socket(self.sprops)
-			udpserver = UDPServer(self.accept_client, self.sprops.getserverkwargs(), socket = soc)
+			udpserver = self.udpserver(self.accept_client, self.sprops.getserverkwargs(), socket = soc)
 			self.serverCoro = udpserver.run()
 
 		else:
@@ -213,6 +248,11 @@ class ResponderServerProcess(multiprocessing.Process):
 		except Exception as e:
 			traceback.print_exc()
 			self.log('Main loop exception!', logging.ERROR)
+
+	def from_dict(serverentry):
+		rsp = ResponderServerProcess(serverentry)
+		return rsp
+
 
 	def log(self, message, level = logging.INFO):
 		self.logQ.put(commons.LogEntry(level, self.modulename, message))
