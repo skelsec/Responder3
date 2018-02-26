@@ -44,7 +44,7 @@ class LLMNR(ResponderServer):
 			ip = ipaddress.ip_address('224.0.0.252')
 			sock = setup_base_socket(
 				server_properties, 
-				bind_ip_override = ipaddress.ip_address('0.0.0.0')
+				bind_ip_override = ipaddress.ip_address('0.0.0.0') if server_properties.platform != ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", ip.packed, socket.INADDR_ANY)
@@ -54,11 +54,11 @@ class LLMNR(ResponderServer):
 			ip = ipaddress.ip_address('FF02:0:0:0:0:0:1:3')
 			sock = setup_base_socket(
 				server_properties, 
-				bind_ip_override = ipaddress.ip_address('::')
+				bind_ip_override = ipaddress.ip_address('::') if server_properties.platform != ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			sock.setsockopt(
-				socket.IPPROTO_IPV6, 
+				41 if server_properties.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6, 
 				socket.IPV6_JOIN_GROUP,
 				struct.pack('16sI', ip.packed, server_properties.bind_iface_idx)
 			)
