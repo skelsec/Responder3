@@ -1,9 +1,11 @@
+import re
 import socket
 import struct
 import logging
 import asyncio
 import ipaddress
 import traceback
+import collections
 
 from responder3.core.commons import *
 from responder3.protocols.NetBIOS import * 
@@ -14,7 +16,7 @@ class NBTNSGlobalSession():
 		self.server_properties = server_properties
 		self.settings = server_properties.settings
 
-		self.spooftable = []
+		self.spooftable = collections.OrderedDict()
 		self.poisonermode = PoisonerMode.ANALYSE
 
 		self.parse_settings()
@@ -29,8 +31,10 @@ class NBTNSGlobalSession():
 
 			#compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.poisonermode == PoisonerMode.SPOOF:
-				for exp in self.settings['spooftable']:
-					self.spooftable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
+				for entry in self.settings['spooftable']:
+					for regx in entry:
+						self.spooftable[re.compile(regx)] = ipaddress.ip_address(entry[regx])
+
 
 class NBTNSSession(ResponderServerSession):
 	pass
@@ -65,18 +69,21 @@ class NBTNS(ResponderServer):
 			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					self.logPoisonResult(requestName = q.QNAME)
+					self.logPoisonResult(requestName = q.QNAME.name)
 
 			else: #poisoning
 				answers = []
-				print(self.globalsession.spooftable)
-				for targetRE, ip in self.globalsession.spooftable:
-					for q in msg.Questions:
-						if targetRE.match(q.QNAME):
-							self.logPoisonResult(requestName = q.QNAME, poisonName = str(targetRE), poisonIP = ip)
+				for q in msg.Questions:
+					for spoof_regx in self.globalsession.spooftable:
+						spoof_ip = self.globalsession.spooftable[spoof_regx]
+						if spoof_regx.match(q.QNAME.name.lower().strip()):
+							self.logPoisonResult(requestName = q.QNAME, poisonName = str(spoof_regx), poisonIP = spoof_ip)
 							res = NBResource()
-							res.construct(q.QNAME, NBRType.NB, ip)
+							res.construct(q.QNAME, NBRType.NB, spoof_ip)
 							answers.append(res)
+							break
+						else:
+							print('RE %s did not match %s' % (spoof_regx, q.QNAME.name))
 				
 				response = NBTNSPacket()
 				response.construct(

@@ -1,3 +1,4 @@
+import sys
 import abc
 import socket
 import multiprocessing
@@ -179,7 +180,7 @@ class ResponderServerProcess(multiprocessing.Process):
 			if self.sprops.bind_porotcol == commons.ServerProtocol.TCP:
 				client_writer.close()
 			else:
-				self.log('UDP task cleanup not implemented!', logging.WARNING)
+				self.log('UDP task cleanup not implemented!', logging.DEBUG)
 				pass
 				
 			self.logConnection(connection, commons.ConnectionStatus.CLOSED)
@@ -187,7 +188,6 @@ class ResponderServerProcess(multiprocessing.Process):
 		
 
 	def setup(self):
-		print(self.sprops.getserverkwargs())
 		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
 			self.serverCoro = asyncio.start_server(self.accept_client, **self.sprops.getserverkwargs())
 		
@@ -204,8 +204,15 @@ class ResponderServerProcess(multiprocessing.Process):
 
 	def run(self):
 		self.setup()
-		self.loop.run_until_complete(self.serverCoro)
-		self.loop.run_forever()
+		try:
+			self.log('Server started!')
+			self.loop.run_until_complete(self.serverCoro)
+			#self.loop.run_forever()
+		except KeyboardInterrupt:
+			sys.exit(0)
+		except Exception as e:
+			traceback.print_exc()
+			self.log('Main loop exception!', logging.ERROR)
 
 	def log(self, message, level = logging.INFO):
 		self.logQ.put(commons.LogEntry(level, self.modulename, message))

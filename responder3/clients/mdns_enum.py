@@ -4,7 +4,6 @@ import socket
 import struct
 import asyncio
 import ipaddress
-import traceback
 
 
 from responder3.core.commons import *
@@ -16,7 +15,7 @@ class MDNSClient():
 	def __init__(self, timeout = 5):
 		self._mcast_addr = ('224.0.0.251', 5353)
 		self.timeout = timeout
-		self._query_names = {}
+		self._query_TID = os.urandom(2)
 		self._soc = None
 		self._server_coro = None
 		self._query_packet = None
@@ -40,19 +39,14 @@ class MDNSClient():
 	def send_queries(self, query_names):
 		qstns = []
 		for qry in query_names:
-			for dtype in [DNSType.A, DNSType.AAAA]:
-				if qry.find('.local') == -1:
-					qry += '.local'
-				qstns.append(DNSQuestion.construct(qry, dtype, DNSClass.IN))
+			qstns.append(DNSQuestion.construct(qry, DNSType.PTR, DNSClass.IN))
 
-				tid = os.urandom(2)
-				if qry not in self._query_names: #apparently there are no transaction IDs in mdns...
-					self._query_names[qry] = 1
-				self._query_packet = DNSPacket.construct(TID = tid, 
-														 response  = DNSResponse.REQUEST, 
-														 questions = qstns)
 
-				self._soc.sendto(self._query_packet.toBytes(), self._mcast_addr)
+		self._query_packet = DNSPacket.construct(TID = self._query_TID, 
+													 response  = DNSResponse.REQUEST, 
+													 questions = qstns)
+
+		self._soc.sendto(self._query_packet.toBytes(), self._mcast_addr)
 
 	@asyncio.coroutine
 	def stop_loop(self):
@@ -85,25 +79,47 @@ class MDNSClient():
 		msg = DNSPacket.from_buffer(reader.buff)
 		if msg.QR == DNSResponse.RESPONSE:
 			for ans in msg.Answers:
+				if ans.domainname.name[0] == '_':
+					#walking the tree...
+					print('Walk the tree: %s' % ans.domainname.name)
+					qst = DNSQuestion.construct(ans.domainname.name, DNSType.PTR, DNSClass.IN)
+					qry = DNSPacket.construct(TID = os.urandom(2), 
+													 response  = DNSResponse.REQUEST, 
+													 questions = [qst])
+					self._soc.sendto(qry.toBytes(), self._mcast_addr)
+
+				#else:
+				#	print(ans.domainname)
+
+			name = None
+			for ans in msg.Additionals:
 				if ans.TYPE == DNSType.A or ans.TYPE == DNSType.AAAA:
-					if ans.NAME.name in self._query_names:
-						if ans.NAME.name not in self.result:
-							self.result[ans.NAME.name] = []
-						self.result[ans.NAME.name].append(ans.ipaddress)
+					if ans.NAME.name not in self.result:
+						self.result[ans.NAME.name] = {}
+					self.result[ans.NAME.name][ans.ipaddress] = []
+					name = ans.NAME.name
+
+			for ans in msg.Additionals:
+				if ans.TYPE == DNSType.SRV:
+					for ip in self.result[name]:
+						self.result[name][ip].append(ans.Port)
 
 
 def main():
 	import argparse
 	parser = argparse.ArgumentParser(description = 'Enumerates all devices on the network which has registered with Bonjour service')
 	parser.add_argument("-t", type=int, default = 5, help="timeout for waiting services to reply")
-	parser.add_argument("-q", nargs='+', help="DNS name")
 
 	args = parser.parse_args()
-	queries = args.q
+	queries = []
+	queries.append('_services._dns-sd._udp.local')
 
 	client = MDNSClient(args.t)
 	res = client.run(queries)
-	print(res)
+	for name in res:
+		for address in res[name]:
+			for port in res[name][address]:
+				print('%s has the address of %s, advertising port %s' % (name, str(address), port ))
 
 if __name__ == '__main__':
 	main()

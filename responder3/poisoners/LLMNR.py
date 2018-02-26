@@ -1,3 +1,4 @@
+import re
 import socket
 import struct
 import logging
@@ -49,7 +50,6 @@ class LLMNR(ResponderServer):
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			sock.bind(('0.0.0.0', server_properties.bind_port))
 			mreq = struct.pack("=4sl", ip.packed, socket.INADDR_ANY)
-			print(mreq)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
 		else:

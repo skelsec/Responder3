@@ -3,16 +3,12 @@ from abc import ABC, abstractmethod
 import threading
 import multiprocessing
 import logging.config
+import traceback
+import sys
 
 from responder3.core.commons import *
 
-"""
-logqueue = {
-	'host':'127.0.0.1',
-	'port': 50001,
-	'authkey': None,
-}
-"""
+
 
 class LogProcessor(multiprocessing.Process):
 	def __init__(self, logsettings, logQ):
@@ -24,53 +20,60 @@ class LogProcessor(multiprocessing.Process):
 		self.resultHistory = {}
 
 
-	def log(self, level, message):
+	def log(self, message, level = logging.INFO):
 		self.handleLog(LogEntry(level, self.name, message))
 
 	def setup(self):
 		import importlib
 		logging.config.dictConfig(self.logsettings['log'])
-		for handler in self.logsettings['handlers']:
-			try:
-				handlerclassname  = '%sHandler' % self.logsettings['handlers'][handler]
-				handlermodulename = 'responder3_log_%s' % handler.replace('-','_').lower()
-				handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
-				
-				self.log(logging.DEBUG,'Importing handler module: %s , %s' % (handlermodulename,handlerclassname))
-				handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
+		if 'handlers' in self.logsettings:
+			for handler in self.logsettings['handlers']:
+				try:
+					handlerclassname  = '%sHandler' % self.logsettings['handlers'][handler]
+					handlermodulename = 'responder3_log_%s' % handler.replace('-','_').lower()
+					handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
+					
+					self.log(logging.DEBUG,'Importing handler module: %s , %s' % (handlermodulename,handlerclassname))
+					handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
 
-			except Exception as e:
-				self.log(logging.ERROR,'Error importing module %s Reason: %s' % (handlermodulename, e) )
-				continue
+				except Exception as e:
+					self.log(logging.ERROR,'Error importing module %s Reason: %s' % (handlermodulename, e) )
+					continue
 
-			try:
-				tqueue = multiprocessing.Queue()
-				self.extensionsQueues.append(tqueue)
-				self.log(logging.DEBUG,'Lunching extention handler: %s' % (handlerclassname,))
-				hdl = handlerclass(tqueue, self.resultQ, self.logsettings[self.logsettings['handlers'][handler]])
-				hdl.start()
-			except Exception as e:
-				self.log(logging.ERROR,'Error creating class %s Reason: %s' % (handlerclassname, e) )
-				continue
+				try:
+					tqueue = multiprocessing.Queue()
+					self.extensionsQueues.append(tqueue)
+					self.log(logging.DEBUG,'Lunching extention handler: %s' % (handlerclassname,))
+					hdl = handlerclass(tqueue, self.resultQ, self.logsettings[self.logsettings['handlers'][handler]])
+					hdl.start()
+				except Exception as e:
+					self.log(logging.ERROR,'Error creating class %s Reason: %s' % (handlerclassname, e) )
+					continue
 	
 	def run(self):
-		self.setup()		
-		self.log(logging.INFO,'setup done')
-		#while not self.stopEvent.is_set():
-		while True:
-			resultObj = self.resultQ.get()
-			if isinstance(resultObj, Credential):
-				self.handleResult(resultObj)
-			elif isinstance(resultObj, LogEntry):
-				self.handleLog(resultObj)
-			elif isinstance(resultObj, Connection):
-				self.handleConnection(resultObj)
-			elif isinstance(resultObj, EmailEntry):
-				self.handleEmail(resultObj)
-			elif isinstance(resultObj, PoisonResult):
-				self.handlePoisonResult(resultObj)
-			else:
-				raise Exception('Unknown object in queue! Got type: %s' % type(resultObj))
+		try:
+			self.setup()		
+			self.log('setup done', logging.DEBUG)
+			#while not self.stopEvent.is_set():
+			while True:
+				resultObj = self.resultQ.get()
+				if isinstance(resultObj, Credential):
+					self.handleResult(resultObj)
+				elif isinstance(resultObj, LogEntry):
+					self.handleLog(resultObj)
+				elif isinstance(resultObj, Connection):
+					self.handleConnection(resultObj)
+				elif isinstance(resultObj, EmailEntry):
+					self.handleEmail(resultObj)
+				elif isinstance(resultObj, PoisonResult):
+					self.handlePoisonResult(resultObj)
+				else:
+					raise Exception('Unknown object in queue! Got type: %s' % type(resultObj))
+		except KeyboardInterrupt:
+			sys.exit(0)
+		except Exception as e:
+			traceback.print_exc()
+			self.log('Main loop exception!', logging.ERROR)
 
 	def handleLog(self, log):
 		logging.log(log.level, str(log))
@@ -93,7 +96,7 @@ class LogProcessor(multiprocessing.Process):
 			for tqueue in self.extensionsQueues:
 				tqueue.put(t)
 		else:
-			self.log(logging.INFO,'Duplicate result found! Filtered.')
+			self.log('Duplicate result found! Filtered.')
 
 	def handleEmail(self, email):
 		if 'writePath' in self.logsettings['email']:
@@ -103,10 +106,10 @@ class LogProcessor(multiprocessing.Process):
 			with open(str(folder.joinpath(filename).resolve()), 'wb') as f:
 				f.write(email.email.as_bytes())
 		
-		self.log(logging.INFO,'You got mail!')
+		self.log('You got mail!')
 
 	def handlePoisonResult(self, poisonResult):
-		self.log(logging.INFO,repr(poisonResult))
+		self.log(repr(poisonResult))
 
 class LoggerExtension(ABC, threading.Thread):
 	def __init__(self, resQ, logQ, config):

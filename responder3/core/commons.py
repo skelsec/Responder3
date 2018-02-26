@@ -1,30 +1,15 @@
 #!/usr/bin/env python
 import os
+import sys
 import queue
 import base64
 import enum
-import datetime
-import socket
-import errno
-import threading
-from multiprocessing import Manager
-from multiprocessing.managers import BaseManager, SyncManager
-
-
-
-import os
-import sys
-import re
-import logging
-import socket
-import time
-import datetime
 import json
-import enum
+import atexit
+import datetime
+import socket
 
 from responder3.crypto.hashing import *
-
-#class ResponderManager(BaseManager): pass
 
 
 class LogEntry():
@@ -214,3 +199,18 @@ defaultports = {
 	"MDNS" : [(5353, 'udp')],
 	"HTTPProxy":[(8080, 'tcp')],
 }
+
+def byealex(name_of_pid):
+	pidfile = str(name_of_pid)
+	os.remove(pidfile)
+
+def handle_systemd(pidfile):
+	if os.path.isfile(pidfile):
+		print ("%s already exists, exiting" % pidfile)
+		sys.exit()
+
+	pid = str(os.getpid())
+	with open(pidfile, 'w') as f:
+		f.write(pid)
+	
+	atexit.register(byealex,pidfile)

@@ -187,7 +187,6 @@ class NBTNSPacket():
 
 class NBQuestion():
 	def __init__(self):
-		self.QNAME_LEN = None
 		self.QNAME = None
 		self.QTYPE = None
 		self.QCLASS = None
@@ -197,44 +196,24 @@ class NBQuestion():
 
 	def from_buffer(buff):
 		qst = NBQuestion()
-		qst.QNAME_LEN = buff.read(1)[0]
-		qst.QNAME = ''
-		if qst.QNAME_LEN == 32:
-			qst.decode_NS(buff.read(qst.QNAME_LEN))
-			buff.read(1)
-		else:
-			qst.QNAME  = buff.read(qst.QNAME_LEN).decode()
-			buff.read(1)
-
+		qst.QNAME = NBName.from_buffer(buff)
+		print(repr(qst.QNAME))
 		qst.QTYPE  = NBQType(int.from_bytes(buff.read(2), byteorder = 'big'))
 		qst.QCLASS = NBQClass(int.from_bytes(buff.read(2), byteorder = 'big'))
 
 		return qst
 
 	def toBytes(self):
-		t  = self.QNAME_LEN.to_bytes(1, byteorder = 'big')
-		t += self.QNAME.encode() + b'\x00'
+		t  = self.QNAME.toBytes()
 		t += self.QTYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.QCLASS.value.to_bytes(2, byteorder = 'big', signed = False)
 
 		return t
 
 	def construct(self, qname, qtype, qclass):
-		self.QNAME_LEN = len(qname.encode()) + 1 #ending zero!
 		self.QNAME     = qname
 		self.QTYPE     = qtype
 		self.QCLASS    = qclass
-
-	def decode_NS(self, encoded_name):
-		#encoded http://www.ietf.org/rfc/rfc1001.txt
-		transform = [((i - 0x41)& 0x0F) for i in encoded_name]
-		i = 0
-		while i < len(transform):
-			self.QNAME += chr(transform[i] << 4 | transform[i+1] ) 
-			i+=2
-
-		#removing trailing x00 and trailing spaces
-		self.QNAME = self.QNAME.replace('\x00','').strip()
 
 	def __repr__(self):
 		t = '== NetBIOS Question ==\r\n'
@@ -245,7 +224,6 @@ class NBQuestion():
 
 class NBResource():
 	def __init__(self):
-		self.NAME_LEN = None
 		self.NAME     = None
 		self.TYPE     = None
 		self.CLASS    = None
@@ -258,8 +236,7 @@ class NBResource():
 
 	def from_buffer(buff):
 		rs = NBResource()
-		rs.NAME_LEN = buff.read(1)[0] + 1
-		rs.NAME     = buff.read(rs.NAME_LEN).decode()
+		rs.NAME     = NBName.from_buffer(buff)
 		rs.TYPE     = NBRType(int.from_bytes(buff.read(2), byteorder = 'big'))
 		rs.CLASS    = NBRClass(int.from_bytes(buff.read(2), byteorder = 'big'))
 		rs.TTL      = int.from_bytes(buff.read(4), byteorder = 'big')
@@ -275,8 +252,7 @@ class NBResource():
 
 	
 	def toBytes(self):
-		t  = self.NAME_LEN.to_bytes(1, byteorder = 'big', signed = False)
-		t += self.NAME
+		t  = self.NAME.toBytes()
 		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.CLASS.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.TTL.to_bytes(4, byteorder = 'big', signed = False)
@@ -286,11 +262,7 @@ class NBResource():
 		return t
 	
 	def construct(self, name, rtype, ip, flags = 0x0000, ttl = 3000, rclass = NBRClass.IN):
-
-		self.NAME     = b''
-		self.encode_NS(name.encode())
-		self.NAME_LEN = len(self.NAME)
-		self.NAME += b'\x00'
+		self.NAME     = name
 		self.TYPE     = rtype
 		self.CLASS    = rclass
 		self.TTL      = ttl
@@ -299,17 +271,7 @@ class NBResource():
 			self.RDATA = flags.to_bytes(2, byteorder = 'big', signed = False)
 			self.RDATA += ip.packed
 
-
 		self.RDLENGTH = len(self.RDATA)
-
-	def encode_NS(self, name):
-		#encoded http://www.ietf.org/rfc/rfc1001.txt
-		for c in name:
-			self.NAME += (((c & 0xF0) >> 4) + 0x41).to_bytes(1, byteorder = 'big', signed = False)
-			self.NAME += ((c & 0x0F) + 0x41).to_bytes(1, byteorder = 'big', signed = False)
-
-		
-	
 
 	def __repr__(self):
 		t = '== NetBIOS Resource ==\r\n'
@@ -319,4 +281,77 @@ class NBResource():
 		t+= 'TTL: %s\r\n' % self.TTL
 		t+= 'RDLENGTH: %s\r\n' % self.RDLENGTH
 		t+= 'RDATA: %s\r\n' % repr(self.RDATA)
+		return t
+
+#https://msdn.microsoft.com/en-us/library/cc224454.aspx
+class NBSuffixGroup(enum.Enum):
+	MACHINE_GROUP   = 0x00
+	MASTER_BROWSER  = 0x01
+	BROWSER_SERVICE = 0x1E
+
+class NBSuffixUnique(enum.Enum):
+	WORKSTATION   = 0x00
+	DOMAIN        = 0x1B
+	MACHINE_GROUP = 0x1D
+	SERVER        = 0x20
+
+class NBName():
+	def __init__(self):
+		self.length = None
+		self.name   = None #string
+		self.suffix = None
+
+	def from_bytes(bbuff):
+		return NBName.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		name = NBName()
+		name.length = int.from_bytes(buff.read(1), byteorder = 'big')
+		temp = NBName.decode_NS(buff.read(name.length))
+		name.name = temp[:-1].strip()
+		name.suffix = NBSuffixUnique(ord(temp[-1]))
+		zero = buff.read(1)
+		return name
+
+	def construct(name, suffix = NBSuffixUnique.WORKSTATION):
+		assert len(name) == 15, 'NBNames max size is 15 chars'
+		nbname = NBName()
+		nbname.suffix = suffix
+		nbname.name   = name
+		nbname.length = len(NBName.encode_NS(name, suffix.value))
+		return name
+
+	def toBytes(self):
+		t  = self.length.to_bytes(1, byteorder = 'big', signed = False)
+		t += NBName.encode_NS(self.name, self.suffix.value)
+		t += b'\x00'
+		return t
+
+	def encode_NS(name, suffix):
+		#encoded http://www.ietf.org/rfc/rfc1001.txt
+		name = name.encode()
+		name = name.ljust(15, b' ')
+		name = name.upper()
+		name+= suffix.to_bytes(1, byteorder = 'big', signed = False)
+		temp = b''
+		for c in name:
+			temp += (((c & 0xF0) >> 4) + 0x41).to_bytes(1, byteorder = 'big', signed = False)
+			temp += ((c & 0x0F) + 0x41).to_bytes(1, byteorder = 'big', signed = False)
+		return temp
+
+	def decode_NS(encoded_name):
+		#encoded http://www.ietf.org/rfc/rfc1001.txt
+		name_raw = ''
+		transform = [((i - 0x41)& 0x0F) for i in encoded_name]
+		i = 0
+		while i < len(transform):
+			name_raw += chr(transform[i] << 4 | transform[i+1] ) 
+			i+=2
+		return name_raw
+
+	def __repr__(self):
+		t = '== NBName ==\r\n'
+		t += 'name  : %s \r\n' % self.name
+		t += 'suffix: %s \r\n' % repr(self.suffix)
+		t += 'length: %s \r\n' % repr(self.length)
 		return t

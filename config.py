@@ -1,5 +1,5 @@
 startup = {
-	'mode' : 'STANDARD', #STANDARD or DEV or SERVICE
+	'mode' : 'DEV', #STANDARD or DEV or SERVICE
 	'settings' : {
 		'pidfile' : "/var/run/responder.pid", #must be defined if mode==SERVICE, other modes ignore this
 	},
@@ -17,11 +17,11 @@ logsettings = {
 		'handlers': {
 			'console': {
 				'class': 'logging.StreamHandler',
-				'level': 'INFO',
+				'level': 'DEBUG',
 			}
 		},
 		'root': {
-			'level': 'INFO',
+			'level': 'DEBUG',
 			'handlers': ['console']
 		}
 	}
@@ -47,8 +47,12 @@ servers = [
 					 		{'.*' : '192.168.44.23'},
 						],
 						'passthru' : {
+							#'dnsserver': '2001:4860:4860::8888:53',
 							'dnsserver': '8.8.8.8:53',
 							'bind_iface' : 'ens33',
+							#'bind_proto' : '',
+							#'bind_addr'  : '',
+
 						},
 		
 					}, 
@@ -79,6 +83,17 @@ servers = [
 	{
 		'bind_family': 4, 
 		'handler' : 'DHCP',
+		'settings': {
+						'mode': 'spoof', #mode can be either analyse or spoof
+						'subnetmask' : 'FF:FF:FF:00',
+						'leasetime'  : 199,
+						'ip_pool'    : '192.168.111.100-200',
+						'ack_options': 
+							[
+								('42',['192.168.111.1',]), 
+								('6',['192.168.111.1',])
+							]
+					}, 
 	},
 	{
 		'handler' : 'NTP',
