@@ -31,7 +31,7 @@ servers = [
 	{
 		'handler'  : 'MDNS',
 		'settings': {
-			'mode' : 'SPOOF',
+			'mode' : 'analyse',
 			'spooftable' :{
 				'.*':'127.0.0.1',
 			}
@@ -49,7 +49,7 @@ servers = [
 						'passthru' : {
 							#'dnsserver': '2001:4860:4860::8888:53',
 							'dnsserver': '8.8.8.8:53',
-							'bind_iface' : 'ens33',
+							#'bind_iface' : 'ens33',
 							#'bind_proto' : '',
 							#'bind_addr'  : '',
 

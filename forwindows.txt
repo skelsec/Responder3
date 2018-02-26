@@ -1,0 +1,6 @@
+Windows todo:
+1. stop time service (for NTP)
+2. stop workstation service (for SMB)
+3. DNS Client? not sure (for LLMNR)
+
+ohh and don't forget: CTRL+C == CTRL+BREAK in windows only the latter works :)
