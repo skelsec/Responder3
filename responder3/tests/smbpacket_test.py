@@ -5,35 +5,35 @@ import io
 import enum
 
 class NBTType(enum.Enum):
-	SESSION_MESSAGE = 0x00
+        SESSION_MESSAGE = 0x00
 
 class NetBIOS():
-	def __init__(self):
-		self.type = None
-		self.datalength = None
-		self.data = None
+        def __init__(self):
+                self.type = None
+                self.datalength = None
+                self.data = None
 
-	def from_bytes(bbuff):
-		return NetBIOS.from_buffer(io.BytesIO(bbuff))
+        def from_bytes(bbuff):
+                return NetBIOS.from_buffer(io.BytesIO(bbuff))
 
-	def from_buffer(buff):
-		packet = NetBIOS()
-		packet.type = NBTType(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
-		packet.datalength = int.from_bytes(buff.read(3), byteorder = 'big', signed = False)
-		packet.data = buff.read(packet.datalength)
-		return packet
+        def from_buffer(buff):
+                packet = NetBIOS()
+                packet.type = NBTType(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
+                packet.datalength = int.from_bytes(buff.read(3), byteorder = 'big', signed = False)
+                packet.data = buff.read(packet.datalength)
+                return packet
 
-	def construct(smbData):
-		packet = NetBIOS()
-		packet.type = NBTType.SESSION_MESSAGE
-		packet.datalength = len(smbData)
-		packet.data = smbData
+        def construct(smbData):
+                packet = NetBIOS()
+                packet.type = NBTType.SESSION_MESSAGE
+                packet.datalength = len(smbData)
+                packet.data = smbData
 
-	def toBytes(self):
-		t  = self.type.value.to_bytes(1, byteorder = 'big', signed=False)
-		t += len(data).to_bytes(3, byteorder = 'big', signed=False)
-		t += self.data
-		return t
+        def toBytes(self):
+                t  = self.type.value.to_bytes(1, byteorder = 'big', signed=False)
+                t += len(data).to_bytes(3, byteorder = 'big', signed=False)
+                t += self.data
+                return t
 
 
 smb2_negotiate_req = bytes.fromhex('000000aefe534d42400001000000000000001f0000000000000000000000000000000000fffe00000000000000000000000000000000000000000000000000000000000024000500010000007f00000005f6df9d3d05e8119c44448a5b6398b27000000002000000020210020003020311030000010026000000000001002000010055eec52e6a3718bff4ad53d7dd7bf12d3e8b48ed9f0958e681cc45f7e61bb8fd00000200060000000000020002000100')

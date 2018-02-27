@@ -8,325 +8,209 @@ import json
 import atexit
 import datetime
 import socket
-import platform
-import traceback
 
 from responder3.crypto.hashing import *
 
 
 class LogEntry():
-	"""
-	Communications object that is used to pass log information to the LogProcessor
-	"""
-	def __init__(self, level, name, msg):
-		"""
-		level: the log level, needs to be a level specified by the built-in logging module (eg. logging.INFO)
-		name : name of the source module
-		msg  : message that is to be printed in the logs 
-		"""
-		self.level = level
-		self.name  = name
-		self.msg   = msg
+        """
+        Communications object that is used to pass log information to the LogProcessor
+        """
+        def __init__(self, level, name, msg):
+                """
+                level: the log level, needs to be a level specified by the built-in logging module (eg. logging.INFO)
+                name : name of the source module
+                msg  : message that is to be printed in the logs 
+                """
+                self.level = level
+                self.name  = name
+                self.msg   = msg
 
-	def __str__(self):
-		return "[%s] %s" % (self.name, self.msg)
+        def __str__(self):
+                return "[%s] %s" % (self.name, self.msg)
 
 
 class ConnectionStatus(enum.Enum):
-	OPENED = 0
-	CLOSED = 1
-	STATELESS = 3
+        OPENED = 0
+        CLOSED = 1
+        STATELESS = 3
 
 class ConnectionFactory():
-	"""
-	Creates Connetion object from the socket input. 
-	in: rdns which is a shared dictionary to speed up the rdns lookup
-	"""
-	def __init__(self, rdnsd):
-		self.rdnsd       = rdnsd
+        """
+        Creates Connetion object from the socket input. 
+        in: rdns which is a shared dictionary to speed up the rdns lookup
+        """
+        def __init__(self, rdnsd):
+                self.rdnsd       = rdnsd
 
-	def from_streamwriter(self, writer, protocoltype):
-		con = Connection()
-		con.timestamp = datetime.datetime.utcnow()
-		if protocoltype == ServerProtocol.TCP:
-			soc = writer.get_extra_info('socket')
-			con.local_ip, con.local_port   = soc.getsockname()
-			con.remote_ip, con.remote_port = soc.getpeername()
-		
-		else:
-			con.local_ip, con.local_port   = writer._laddr[:2]
-			con.remote_ip, con.remote_port = writer._addr[:2]
-		
-		self.lookupRDNS(con)
-		return con
-		
-	def lookupRDNS(self, con):
-		"""
-		Reolves the remote host's IP address to a DNS address. 
-		First checks if the address has already been resolved by looking it up in the shared rdns dictionary
-		"""
-		#if con.remote_ip in self.rdnsd :
-		if con.remote_ip in self.rdnsd:
-			con.remote_dns = self.rdnsd[con.remote_ip]
-		
-		else:
-			try:
-				con.remote_dns = socket.gethostbyaddr(con.remote_ip)[0]
-			except Exception as e:
-				pass
+        def from_streamwriter(self, writer, protocoltype):
+                con = Connection()
+                con.timestamp = datetime.datetime.utcnow()
+                if protocoltype == ServerProtocol.TCP:
+                        soc = writer.get_extra_info('socket')
+                        con.local_ip, con.local_port   = soc.getsockname()
+                        con.remote_ip, con.remote_port = soc.getpeername()
+                
+                else:
+                        con.local_ip, con.local_port   = writer._laddr[:2]
+                        con.remote_ip, con.remote_port = writer._addr[:2]
+                
+                self.lookupRDNS(con)
+                return con
+                
+        def lookupRDNS(self, con):
+                """
+                Reolves the remote host's IP address to a DNS address. 
+                First checks if the address has already been resolved by looking it up in the shared rdns dictionary
+                """
+                #if con.remote_ip in self.rdnsd :
+                if con.remote_ip in self.rdnsd:
+                        con.remote_dns = self.rdnsd[con.remote_ip]
+                
+                else:
+                        try:
+                                con.remote_dns = socket.gethostbyaddr(con.remote_ip)[0]
+                        except Exception as e:
+                                pass
 
-			self.rdnsd[con.remote_ip] = con.remote_dns
+                        self.rdnsd[con.remote_ip] = con.remote_dns
 
 
 class Connection():
-	"""
-	Keeps all the connection related information that is used for logging and/or connection purposes
-	"""
-	def __init__(self):
-		self.remote_ip   = None
-		self.remote_dns  = None
-		self.remote_port = None
-		self.local_ip    = None
-		self.local_port  = None
-		self.timestamp   = None
+        """
+        Keeps all the connection related information that is used for logging and/or connection purposes
+        """
+        def __init__(self):
+                self.remote_ip   = None
+                self.remote_dns  = None
+                self.remote_port = None
+                self.local_ip    = None
+                self.local_port  = None
+                self.timestamp   = None
 
 
-	def getRemoteAddress(self):
-		return (self.remote_ip, self.remote_port)
+        def getRemoteAddress(self):
+                return (self.remote_ip, self.remote_port)
 
-	def toDict(self):
-		t = {}
-		t['remote_ip']   = self.remote_ip
-		t['remote_port'] = self.remote_port
-		t['remote_dns']  = self.remote_dns
-		t['local_ip']    = self.local_ip
-		t['local_port']  = self.local_port
-		t['timestamp']   = self.timestamp
-		return t
+        def toDict(self):
+                t = {}
+                t['remote_ip']   = self.remote_ip
+                t['remote_port'] = self.remote_port
+                t['remote_dns']  = self.remote_dns
+                t['local_ip']    = self.local_ip
+                t['local_port']  = self.local_port
+                t['timestamp']   = self.timestamp
+                return t
 
-	def __repr__(self):
-		return str(self)
+        def __repr__(self):
+                return str(self)
 
-	def __str__(self):
-		if self.remote_dns is not None:
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_dns, self.remote_port, self.local_ip,self.local_port )
-		else:
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_ip, self.remote_port, self.local_ip,self.local_port )
+        def __str__(self):
+                if self.remote_dns is not None:
+                        return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_dns, self.remote_port, self.local_ip,self.local_port )
+                else:
+                        return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_ip, self.remote_port, self.local_ip,self.local_port )
 
 
 class Credential():
-	def __init__(self, credtype, domain = None, username = None, password = None, data = None):
-		self.type     = credtype
-		self.domain   = domain
-		self.username = username
-		self.password = password
-		self.data     = data
-		self.module   = None
-		self.client_addr  = None
-		self.client_rdns  = None
+        def __init__(self, credtype, domain = None, username = None, password = None, data = None):
+                self.type     = credtype
+                self.domain   = domain
+                self.username = username
+                self.password = password
+                self.data     = data
+                self.module   = None
+                self.client_addr  = None
+                self.client_rdns  = None
 
 class PoisonResult():
-	def __init__(self):
-		self.module = None
-		self.target = None
-		self.request_name = None
-		self.request_type = None
-		self.poison_name = None
-		self.poison_addr = None
-		self.mode = None
+        def __init__(self):
+                self.module = None
+                self.target = None
+                self.request_name = None
+                self.request_type = None
+                self.poison_name = None
+                self.poison_addr = None
+                self.mode = None
 
-	def __repr__(self):
-		return str(self)
-		
+        def __repr__(self):
+                return str(self)
+                
 
-	def __str__(self):
-		if self.mode == PoisonerMode.ANALYSE:
-			return '[%s] Recieved request from IP: %s to resolve: %s' % (self.module, self.target, self.request_name)
-		else:
-			return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
+        def __str__(self):
+                if self.mode == PoisonerMode.ANALYSE:
+                        return '[%s] Recieved request from IP: %s to resolve: %s' % (self.module, self.target, self.request_name)
+                else:
+                        return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
 
 class EmailEntry():
-	"""
-	If the SMTP server recieved an email it's sent to the log queue for processing
-	"""
-	def __init__(self):
-		self.fromAddress = None #string
-		self.toAddress   = None #list
-		self.email       = None #email object (from the email package)
+        """
+        If the SMTP server recieved an email it's sent to the log queue for processing
+        """
+        def __init__(self):
+                self.fromAddress = None #string
+                self.toAddress   = None #list
+                self.email       = None #email object (from the email package)
 
 class UniversalEncoder(json.JSONEncoder):
-	def default(self, obj):
-		if isinstance(obj, datetime.datetime):
-			return obj.isoformat()
-		elif isinstance(obj, enum.Enum):
-			return obj.value
-		else:
-			return json.JSONEncoder.default(self, obj)
+        def default(self, obj):
+                if isinstance(obj, datetime.datetime):
+                        return obj.isoformat()
+                elif isinstance(obj, enum.Enum):
+                        return obj.value
+                else:
+                        return json.JSONEncoder.default(self, obj)
 
 def timestamp2datetime(dt):
-	us = int.from_bytes(dt, byteorder='little')/ 10.
-	return datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=us)
+        us = int.from_bytes(dt, byteorder='little')/ 10.
+        return datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=us)
 
 class PoisonerMode(enum.Enum):
-	SPOOF = enum.auto()
-	ANALYSE = enum.auto()
+        SPOOF = enum.auto()
+        ANALYSE = enum.auto()
 
 class ServerFunctionality(enum.Enum):
-	HONEYPOT = 0
-	SERVER   = 1
-	TARPIT   = 2
-	
+        HONEYPOT = 0
+        SERVER   = 1
+        TARPIT   = 2
+        
 class ServerProtocol(enum.Enum):
-	TCP = 0
-	UDP = 1
-	SSL = 2
+        TCP = 0
+        UDP = 1
+        SSL = 2
 
 #values MUST be lists!
 defaultports = {
-	"DNS"  : [(53, 'udp'),(53, 'tcp')],
-	"DHCP" : [(67, 'udp')],
-	"NTP"  : [(123, 'udp')],
- 	"HTTP" : [(80, 'tcp')],
-	"HTTPS": [(443, 'tcp')],
-	"FTP"  : [(21, 'tcp')],
-	"SMTP" : [(25, 'tcp')],
-	"POP3" : [(110, 'tcp')],
-	"POP3S": [(995, 'tcp')],
-	"IMAP" : [(143, 'tcp')],
-	"IMAPS": [(993, 'tcp')],
-	"SMB"  : [(445, 'tcp')],
-	"NBTNS": [(137, 'udp')],
-	"SOCKS5":[(1050, 'tcp')],
-	"LLMNR": [(5355, 'udp')],
-	"MDNS" : [(5353, 'udp')],
-	"HTTPProxy":[(8080, 'tcp')],
+        "DNS"  : [(53, 'udp'),(53, 'tcp')],
+        "DHCP" : [(67, 'udp')],
+        "NTP"  : [(123, 'udp')],
+         "HTTP" : [(80, 'tcp')],
+        "HTTPS": [(443, 'tcp')],
+        "FTP"  : [(21, 'tcp')],
+        "SMTP" : [(25, 'tcp')],
+        "POP3" : [(110, 'tcp')],
+        "POP3S": [(995, 'tcp')],
+        "IMAP" : [(143, 'tcp')],
+        "IMAPS": [(993, 'tcp')],
+        "SMB"  : [(445, 'tcp')],
+        "NBTNS": [(137, 'udp')],
+        "SOCKS5":[(1050, 'tcp')],
+        "LLMNR": [(5355, 'udp')],
+        "MDNS" : [(5353, 'udp')],
+        "HTTPProxy":[(8080, 'tcp')],
 }
 
 def byealex(name_of_pid):
-	pidfile = str(name_of_pid)
-	os.remove(pidfile)
+        pidfile = str(name_of_pid)
+        os.remove(pidfile)
 
 def handle_systemd(pidfile):
-	if os.path.isfile(pidfile):
-		print ("%s already exists, exiting" % pidfile)
-		sys.exit()
+        if os.path.isfile(pidfile):
+                print ("%s already exists, exiting" % pidfile)
+                sys.exit()
 
-	pid = str(os.getpid())
-	with open(pidfile, 'w') as f:
-		f.write(pid)
-	
-	atexit.register(byealex,pidfile)
-
-class ResponderPlatform(enum.Enum):
-	UNKNOWN = 0
-	WINDOWS = 1
-	LINUX   = 2
-	MAC     = 3
-
-def get_platform():
-	p = platform.system()
-	if p == 'Linux':
-		return ResponderPlatform.LINUX
-	elif p == 'Windows':
-		return ResponderPlatform.WINDOWS
-	elif p == 'Darwin':
-		return ResponderPlatform.MAC
-	else:
-		return ResponderPlatform.UNKNOWN
-
-def setup_base_socket(server_properties, bind_ip_override = None):
-	try:
-		#print(server_properties.interfaced)
-		sock = None
-		if server_properties.bind_porotcol == ServerProtocol.UDP:
-			if server_properties.bind_family == socket.AF_INET:
-				sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-				if server_properties.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
-				sock.bind(
-					(
-						str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-						int(server_properties.bind_port)
-					)
-				)
-				
-			elif server_properties.bind_family == socket.AF_INET6:
-				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-				
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-						
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port),
-							server_properties.bind_iface_idx
-						)
-					)
-				elif server_properties.platform == ResponderPlatform.WINDOWS:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port)
-						)
-					)
-
-			else:
-				raise Exception('Unknown IP version')
-
-		elif server_properties.bind_porotcol == ServerProtocol.TCP:
-			if server_properties.bind_family == socket.AF_INET:
-				sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-				sock.setblocking(False)
-				if server_properties.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
-				sock.bind(
-					(
-						str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-						int(server_properties.bind_port)
-					)
-				)
-
-			elif server_properties.bind_family == socket.AF_INET6:
-				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_TCP)
-				sock.setblocking(False)
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port),
-							server_properties.bind_iface_idx
-						)
-					)
-				elif server_properties.platform == ResponderPlatform.WINDOWS:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port)
-						)
-					)
-						
-			else:
-				raise Exception('Unknown IP version')
-		else:
-			raise Exception('Unknown protocol!')
-		
-		return sock
-	except Exception as e:
-		traceback.print_exc()
-		print('Failed to set up socket for handler %s IP %s PORT %s FAMILY %s Reason: %s' % (server_properties.serverhandler, server_properties.bind_addr, server_properties.bind_port, server_properties.bind_family, str(e)))
-		raise e
-
+        pid = str(os.getpid())
+        with open(pidfile, 'w') as f:
+                f.write(pid)
+        
+        atexit.register(byealex,pidfile)
