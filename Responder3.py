@@ -17,7 +17,7 @@ from responder3.core import serverprocess
 
 import config
 
-def start_responder(bind_ifaces = None):
+def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 	try:
 		if hasattr(config, 'startup'):
 			if 'mode' in config.startup:
@@ -75,23 +75,32 @@ def start_responder(bind_ifaces = None):
 			else:
 				ifaces = bind_ifaces
 
-			bind_family = serverentry.get('bind_family', None)
-			if bind_family is not None:
-				bind_family = int(bind_family)
+			bind_family = []
+			if bind_ipv4:
+				bind_family.append(4)
+			if bind_ipv6:
+				bind_family.append(6)
+
+			if bind_family == []:
+				bind_family_conf = serverentry.get('bind_family', None)
+				if bind_family_conf is not None:
+					if not isinstance(bind_family_conf, list):
+						bind_family.append(int(bind_family_conf))
+					else:
+						for ver in bind_family_conf:
+							bind_family.append(int(ver))
+
+			if bind_family == []:
+				raise Exception('IP version (bind_family) MUST be set either in cofig file or in command line!')
+			
 			ips = []
 			for iface in ifaces:
-				if bind_family is None:
+				if 4 in bind_family:
 					for ip in interfaceutil.interfaced[iface].IPv4:
 						ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
+				if 6 in bind_family:
 					for ip in interfaceutil.interfaced[iface].IPv6:
 						ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
-				else:
-					if bind_family == 4:
-						for ip in interfaceutil.interfaced[iface].IPv4:
-							ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
-					else:
-						for ip in interfaceutil.interfaced[iface].IPv6:
-							ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
 
 			portspecs = serverentry.get('bind_port', commons.defaultports[serverentry['handler']] if serverentry['handler'] in commons.defaultports else None)
 			if portspecs is None:
@@ -124,8 +133,9 @@ def start_responder(bind_ifaces = None):
 			ss.daemon = True
 			serverProcesses.append(ss)
 			ss.start()
-	
-		print('Started everything!')
+		
+
+		#print('Started everything!')
 		for server in serverProcesses:
 			server.join()
 		
@@ -138,9 +148,12 @@ def main(argv):
 	import argparse
 	parser = argparse.ArgumentParser(description = 'Responder3')
 	parser.add_argument("-I", action='append', help="Interface to bind to, can be multiple by providing sequential -I. Overrides bind_iface parameter in configs.")
+	parser.add_argument("-4", action='store_true', dest='ip4', help="IP version 4 to be used. Overrides config settings.")
+	parser.add_argument("-6", action='store_true', dest='ip6', help="IP version 6 to be used. Overrides config settings.")
+	
 	args = parser.parse_args()
 
-	start_responder(args.I)
+	start_responder(args.I, args.ip4, args.ip6)
 
 
 if __name__ == '__main__':

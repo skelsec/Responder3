@@ -1981,24 +1981,22 @@ class DHCPOptMESSAGE():
 		self.message = None
 
 	def from_buffer(buff):
-		opt = DHCPOptPARAMETERREQUEST()
+		opt = DHCPOptMESSAGE()
 		opt.code = int.from_bytes(buff.read(1), byteorder = 'big', signed=False)
 		opt.len = int.from_bytes(buff.read(1), byteorder = 'big', signed=False)
-		for i in len(opt.len):
-			self.optioncodes.append(int.from_bytes(buff.read(1), byteorder = 'big', signed=False))
+		opt.message = buff.read(opt.len).decode()
 		return opt
 
-	def construct(optioncodes):
-		opt = DHCPOptPARAMETERREQUEST()
-		opt.optioncodes = optioncodes
-		opt.len = lenoptioncodes
+	def construct(message):
+		opt = DHCPOptMESSAGE()
+		opt.message = message
+		opt.len = len(message.encode())
 		return opt
 
 	def toBytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
-		for optioncode in optioncodes:
-			t+= optioncode.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.message.encode()
 		return t
 
 	def __repr__(self):

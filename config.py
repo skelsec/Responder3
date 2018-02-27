@@ -1,5 +1,6 @@
+
 startup = {
-	'mode' : 'DEV', #STANDARD or DEV or SERVICE
+	'mode' : 'STANDARD', #STANDARD or DEV or SERVICE
 	'settings' : {
 		'pidfile' : "/var/run/responder.pid", #must be defined if mode==SERVICE, other modes ignore this
 	},
@@ -17,11 +18,11 @@ logsettings = {
 		'handlers': {
 			'console': {
 				'class': 'logging.StreamHandler',
-				'level': 'DEBUG',
+				'level': 'INFO',
 			}
 		},
 		'root': {
-			'level': 'DEBUG',
+			'level': 'INFO',
 			'handlers': ['console']
 		}
 	}

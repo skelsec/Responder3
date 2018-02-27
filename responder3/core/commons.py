@@ -10,6 +10,7 @@ import datetime
 import socket
 import platform
 import traceback
+import ipaddress
 
 from responder3.crypto.hashing import *
 
@@ -186,7 +187,7 @@ defaultports = {
 	"DNS"  : [(53, 'udp'),(53, 'tcp')],
 	"DHCP" : [(67, 'udp')],
 	"NTP"  : [(123, 'udp')],
- 	"HTTP" : [(80, 'tcp')],
+	"HTTP" : [(80, 'tcp')],
 	"HTTPS": [(443, 'tcp')],
 	"FTP"  : [(21, 'tcp')],
 	"SMTP" : [(25, 'tcp')],
@@ -236,7 +237,6 @@ def get_platform():
 
 def setup_base_socket(server_properties, bind_ip_override = None):
 	try:
-		#print(server_properties.interfaced)
 		sock = None
 		if server_properties.bind_porotcol == ServerProtocol.UDP:
 			if server_properties.bind_family == socket.AF_INET:
@@ -254,6 +254,10 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 				)
 				
 			elif server_properties.bind_family == socket.AF_INET6:
+				if not socket.has_ipv6:
+					raise Exception('IPv6 is NOT supported on this platform')
+				if str(bind_ip_override) == '0.0.0.0':
+					bind_ip_override = ipaddress.ip_address('::')
 				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 				sock.setblocking(False)
 				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
@@ -297,7 +301,11 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 				)
 
 			elif server_properties.bind_family == socket.AF_INET6:
-				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_TCP)
+				if not socket.has_ipv6:
+					raise Exception('IPv6 is NOT supported on this platform')
+				if str(bind_ip_override) == '0.0.0.0':
+					bind_ip_override = ipaddress.ip_address('::')
+				sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP)
 				sock.setblocking(False)
 				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
 					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
@@ -326,7 +334,10 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 		
 		return sock
 	except Exception as e:
-		traceback.print_exc()
-		print('Failed to set up socket for handler %s IP %s PORT %s FAMILY %s Reason: %s' % (server_properties.serverhandler, server_properties.bind_addr, server_properties.bind_port, server_properties.bind_family, str(e)))
-		raise e
-
+		raise type(e)(str(e) +
+				'Failed to set up socket for handler %s IP %s PORT %s FAMILY %s' % (\
+						server_properties.serverhandler, \
+						server_properties.bind_addr, \
+						server_properties.bind_port, \
+						server_properties.bind_family)\
+				, sys.exc_info()[2]).with_traceback(sys.exc_info()[2])

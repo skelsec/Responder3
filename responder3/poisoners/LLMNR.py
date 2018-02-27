@@ -108,8 +108,6 @@ class LLMNR(ResponderServer):
 				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
-			traceback.print_exc()
-			self.log('Exception! %s' % (str(e),))
-			pass
+			raise e
 
 

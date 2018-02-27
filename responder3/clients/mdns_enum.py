@@ -27,13 +27,14 @@ class MDNSClient():
 		self._soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 		self._soc.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
 		self._soc.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
+		self._soc.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 		self._soc.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
-		self._soc.bind(self._mcast_addr)
+		self._soc.bind(('', 5353))
 		mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)
 		self._soc.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
 
 	def create_server(self):
-		self._server = UDPServer(self.listen_responses, None, socket = self._soc)
+		self._server = UDPServer(self.listen_responses, None, sock = self._soc)
 		self._server_coro = self._server.run()
 
 	def send_queries(self, query_names):

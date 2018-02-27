@@ -264,13 +264,25 @@ class ResponderServerProcess(multiprocessing.Process):
 		except KeyboardInterrupt:
 			sys.exit(0)
 		except Exception as e:
-			traceback.print_exc()
-			self.log('Main loop exception!', logging.ERROR)
+			self.logexception('Server is closing because of error!')
+			pass
 
 	def from_dict(serverentry):
 		rsp = ResponderServerProcess(serverentry)
 		return rsp
 
+	def logexception(self, message = None):
+		sio = io.StringIO()
+		ei = sys.exc_info()
+		tb = ei[2]
+		traceback.print_exception(ei[0], ei[1], tb, None, sio)
+		msg = sio.getvalue()
+		if msg[-1] == '\n':
+			msg = msg[:-1]
+		sio.close()
+		if message is not None:
+			msg = message + msg
+		self.log(msg, level=logging.ERROR)
 
 	def log(self, message, level = logging.INFO):
 		self.logQ.put(commons.LogEntry(level, self.modulename, message))

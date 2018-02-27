@@ -29,7 +29,7 @@ class DHCPClient():
 
 
 	def create_server(self):
-		self._server = UDPServer(self.listen_responses, None, socket = self._soc)
+		self._server = UDPServer(self.listen_responses, None, sock = self._soc)
 		self._server_coro = self._server.run()
 
 	def send_discover(self, options_extra = None):
@@ -90,7 +90,7 @@ class DHCPClient():
 		if request_options_extra is not None:
 			options += request_options_extra
 		options.append(DHCPOptEND.construct())
-		dhcprequest = DHCPMessage.construct(self._query_TID, DHCPOpcode.BOOTREQUEST, options)
+		dhcprequest = DHCPMessage.construct(self._query_TID, DHCPOpcode.BOOTREQUEST, options, yiaddr=offer.yiaddr, siaddr=offer.siaddr)
 		self._soc.sendto(dhcprequest.toBytes(), ('255.255.255.255', 67))
 
 

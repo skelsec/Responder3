@@ -243,7 +243,7 @@ class NBResource():
 		rs.RDLENGTH = int.from_bytes(buff.read(2), byteorder = 'big')
 		trdata      = buff.read(rs.RDLENGTH)
 
-		if rs.TYPE == DNSType.A and rs.QCLASS == NBRClass.IN:
+		if rs.TYPE == NBRType.A and rs.QCLASS == NBRClass.IN:
 			rs.RDATA = ipaddress.IPv4Address(trdata)
 
 		#TODO for other types :)

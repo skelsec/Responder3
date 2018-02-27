@@ -105,6 +105,8 @@ class DHCPSession(ResponderServerSession):
 
 class DHCP(ResponderServer):
 	def custom_socket(server_properties):
+		if server_properties.bind_family == socket.AF_INET6:
+			raise Exception('DHCP server should not be run on IPv6 (requires a different protocol)')
 		sock = setup_base_socket(server_properties, bind_ip_override = ipaddress.ip_address('0.0.0.0'))
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 		return sock
@@ -237,8 +239,6 @@ class DHCP(ResponderServer):
 					#print('Unknown message! %s' % repr(msg))
 
 		except Exception as e:
-			traceback.print_exc()
-			self.log('Exception! %s' % (str(e),))
-			pass
+			raise e
 
 

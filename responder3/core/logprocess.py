@@ -2,13 +2,13 @@ import os
 from abc import ABC, abstractmethod
 import threading
 import multiprocessing
+import logging
 import logging.config
 import traceback
 import sys
+import importlib
 
 from responder3.core.commons import *
-
-
 
 class LogProcessor(multiprocessing.Process):
 	def __init__(self, logsettings, logQ):
@@ -24,8 +24,10 @@ class LogProcessor(multiprocessing.Process):
 		self.handleLog(LogEntry(level, self.name, message))
 
 	def setup(self):
-		import importlib
 		logging.config.dictConfig(self.logsettings['log'])
+		self.logger = logging.getLogger('Responder3')
+		
+
 		if 'handlers' in self.logsettings:
 			for handler in self.logsettings['handlers']:
 				try:
@@ -76,10 +78,10 @@ class LogProcessor(multiprocessing.Process):
 			self.log('Main loop exception!', logging.ERROR)
 
 	def handleLog(self, log):
-		logging.log(log.level, str(log))
+		self.logger.log(log.level, str(log))
 
 	def handleConnection(self, con):
-		logging.log(logging.INFO, str(con))
+		self.logger.log(log.level, str(con))
 		t = {}
 		t['type'] = 'Connection'
 		t['data'] = con.toDict()
