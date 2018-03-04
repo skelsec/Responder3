@@ -60,7 +60,7 @@ class LogProcessor(multiprocessing.Process):
 			while True:
 				resultObj = self.resultQ.get()
 				if isinstance(resultObj, Credential):
-					self.handleResult(resultObj)
+					self.handleCredential(resultObj)
 				elif isinstance(resultObj, LogEntry):
 					self.handleLog(resultObj)
 				elif isinstance(resultObj, Connection):

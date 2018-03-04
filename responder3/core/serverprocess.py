@@ -221,7 +221,6 @@ class ResponderServerProcess(multiprocessing.Process):
 				
 			self.logConnection(connection, commons.ConnectionStatus.CLOSED)
 		task.add_done_callback(client_done)
-		
 
 	def setup(self):
 		self.import_packages()
@@ -240,7 +239,12 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverCoro = None
 
 		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
-			sock = commons.setup_base_socket(self.sprops)
+			sock = None
+			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
+				sock = self.sprops.serverhandler.custom_socket(self.sprops)
+			else:
+				sock = commons.setup_base_socket(self.sprops)
+			
 			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock)
 		
 		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
@@ -297,3 +301,46 @@ class ResponderServerProcess(multiprocessing.Process):
 			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
 		elif status == commons.ConnectionStatus.CLOSED:
 			self.log('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
+
+
+"""
+@asyncio.coroutine
+	def handle_tcp_socket(self, sock):
+		sock.setblocking(False)
+		sock.listen(200)
+		while True:
+			conn, addr = yield from self.loop.sock_accept(sock)
+			self.loop.create_task(asyncio.start_server(self.accept_client, sock = conn))
+
+	def setup(self):
+		self.import_packages()
+		self.sprops = ServerProperties.from_dict(self.serverentry)
+		self.loop    = asyncio.get_event_loop()
+		self.clients = {}
+		self.server  = self.sprops.serverhandler
+		self.session = self.sprops.serversession
+		self.globalsession = self.sprops.serverglobalsession
+		if self.sprops.serverglobalsession is not None:
+			self.globalsession = self.sprops.serverglobalsession(self.sprops)
+		self.logQ    = self.sprops.shared_logQ
+		self.rdnsd   = self.sprops.shared_rdns
+		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
+		self.modulename = '%s-%s-%d' % (self.sprops.serverhandler.__name__, self.sprops.bind_addr, self.sprops.bind_port)
+		self.serverCoro = None
+
+		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
+			sock = commons.setup_base_socket(self.sprops)
+			print(sock)
+			self.serverCoro = self.handle_tcp_socket(sock)
+		
+		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
+			sock = None
+			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
+				sock = self.sprops.serverhandler.custom_socket(self.sprops)
+			
+			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
+			self.serverCoro = udpserver.run()
+
+		else:
+			raise Exception('Unknown protocol type!')
+"""

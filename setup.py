@@ -9,7 +9,7 @@ setup(
 
 	# Application author details:
 	author="Tamas Jos",
-	author_email="info@skelsec.com",
+	author_email="responder3@skelsec.com",
 
 	# Packages
 	packages=["responder3"],

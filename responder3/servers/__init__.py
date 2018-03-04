@@ -1,1 +1,1 @@
-__all__ = ['GenericProxy','NTP']
+__all__ = ['GenericProxy','NTP','HTTP']

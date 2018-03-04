@@ -197,7 +197,7 @@ class NBQuestion():
 	def from_buffer(buff):
 		qst = NBQuestion()
 		qst.QNAME = NBName.from_buffer(buff)
-		print(repr(qst.QNAME))
+		#print(repr(qst.QNAME))
 		qst.QTYPE  = NBQType(int.from_bytes(buff.read(2), byteorder = 'big'))
 		qst.QCLASS = NBQClass(int.from_bytes(buff.read(2), byteorder = 'big'))
 
@@ -289,11 +289,22 @@ class NBSuffixGroup(enum.Enum):
 	MASTER_BROWSER  = 0x01
 	BROWSER_SERVICE = 0x1E
 
+	@classmethod
+	def has_value(cls, value):
+		return any(value == item.value for item in cls)
+
 class NBSuffixUnique(enum.Enum):
 	WORKSTATION   = 0x00
 	DOMAIN        = 0x1B
 	MACHINE_GROUP = 0x1D
 	SERVER        = 0x20
+	DOMAIN_CONTROLLER = 0x1C #guess from wireshark
+	UNKNOWN_1     = 0x19
+	UNKNOWN_2     = 0x48
+
+	@classmethod
+	def has_value(cls, value):
+		return any(value == item.value for item in cls)
 
 class NBName():
 	def __init__(self):
@@ -307,10 +318,27 @@ class NBName():
 	def from_buffer(buff):
 		name = NBName()
 		name.length = int.from_bytes(buff.read(1), byteorder = 'big')
-		temp = NBName.decode_NS(buff.read(name.length))
+		if name.length == 0x20: #compressed_name
+			temp = NBName.decode_NS(buff.read(name.length))
+		else: #pointer, most likely
+			ptr = int.from_bytes(buff.read(1), byteorder = 'big')
+			pos = buff.tell()
+			buff.seek(ptr, io.SEEK_SET)
+			tlen = int.from_bytes(buff.read(1), byteorder = 'big')
+			temp = NBName.decode_NS(buff.read(tlen))
+			buff.seek(pos, io.SEEK_SET)
+			#debug
+			#pos = buff.tell()
+			#print(buff.read().hex())
+			#buff.seek(pos, io.SEEK_SET)
+
 		name.name = temp[:-1].strip()
-		name.suffix = NBSuffixUnique(ord(temp[-1]))
-		zero = buff.read(1)
+		if NBSuffixUnique.has_value(ord(temp[-1])):
+			name.suffix = NBSuffixUnique(ord(temp[-1]))
+		else:
+			name.suffix = NBSuffixGroup(ord(temp[-1]))
+		if name.length == 0x20:
+			zero = buff.read(1)
 		return name
 
 	def construct(name, suffix = NBSuffixUnique.WORKSTATION):

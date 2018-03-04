@@ -6,7 +6,7 @@ import collections
 import hmac
 from responder3.crypto.DES import *
 from responder3.crypto.hashing import *
-from responder3.utils import timestamp2datetime
+from responder3.core.commons import timestamp2datetime, Credential
 
 #https://msdn.microsoft.com/en-us/library/cc236650.aspx
 class NegotiateFlags(enum.IntFlag):
@@ -716,7 +716,6 @@ class NTLMAUTHHandler():
 		if self.ntlmNegotiate is None:
 			###parse client NTLMNegotiate message
 			self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
-			print(self.serverTemplateName)
 			self.ntlmChallenge = NTLMChallenge.construct_from_template(self.serverTemplateName, challenge = self.challenge, ess = self.use_Extended_security)
 			return (NTLMAuthStatus.FAIL, self.ntlmChallenge.toBytes(), None)
 
@@ -803,13 +802,11 @@ class netlm():
 		self.ClientResponse = None
 
 	def toResult(self):
-		res = {
-			'type'     : 'netLM', 
-			'user'     : self.username,
-			'fullhash' : '%s:$NETLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
-			#username:$NETLM$1122334455667788$0836F085B124F33895875FB1951905DD2F85252CC731BB25
-		}
-		return res
+		cred = Credential('netLM',
+							username = self.username, 
+							fullhash = '%s:$NETLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
+						)
+		return cred
 
 	def verify(self, creds):
 		if creds is None:
@@ -839,13 +836,12 @@ class netlmv2():
 		self.ChallengeFromClinet = None
 
 	def toResult(self):
-		res = {
-			'type'     : 'netLMv2', 
-			'user'     : self.username,
-			'fullhash' : '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
-			#NETLMv2$USER1$1122334455667788$B1D163EA5881504F3963DC50FCDC26C1$EB4D9E8138149E20:::::::
-		}
-		return res
+		cred = Credential('netLMv2',
+							username = self.username, 
+							fullhash = '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+						)
+		return cred
+
 
 class netntlm_ess():
 	def __init__(self):
@@ -860,13 +856,11 @@ class netntlm_ess():
 		self.ChallengeFromClinet = None
 
 	def toResult(self):
-		res = {
-			'type'     : 'netNTLMv1-ESS', 
-			'user'     : self.username,
-			'fullhash' : '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
-			
-		}
-		return res
+		cred = Credential('netNTLMv1-ESS',
+							username = self.username, 
+							fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
+						)
+		return cred
 		#u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c 
 		#print('%s::%s:%s:%s:%s' % (a.UserName, a.Workstation, a.LMBytes.hex(), a.NTBytes.hex(), session.HTTPAtuhentication.ServerChallenge))
 
@@ -883,13 +877,11 @@ class netntlm():
 		self.ClientResponse = None
 
 	def toResult(self):
-		res = {
-			'type'     : 'netNTLMv1', 
-			'user'     : self.username,
-			'fullhash' : '%s:$NETNTLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
-			
-		}
-		return res
+		cred = Credential('netNTLMv1',
+							username = self.username, 
+							fullhash = '%s:$NETNTLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
+						)
+		return cred
 		#username:$NETNTLM$1122334455667788$B2B2220790F40C88BCFF347C652F67A7C4A70D3BEBD70233
 
 class netntlmv2():
@@ -905,13 +897,12 @@ class netntlmv2():
 		self.ChallengeFromClinet = None
 
 	def toResult(self):
-		res = {
-			'type'     : 'netNTLMv2', 
-			'user'     : self.username,
-			'domain'   : self.domain,
-			'fullhash' : '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
-		}
-		return res
+		cred = Credential('netNTLMv2',
+							username = self.username, 
+							domain = self.domain,
+							fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+						)
+		return cred
 
 def genLMHash(password):
 	LM_SECRET = b'KGS!@#$%'

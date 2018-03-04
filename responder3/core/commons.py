@@ -116,15 +116,31 @@ class Connection():
 
 
 class Credential():
-	def __init__(self, credtype, domain = None, username = None, password = None, data = None):
+	def __init__(self, credtype, domain = None, username = None, password = None, fullhash = None):
 		self.type     = credtype
 		self.domain   = domain
 		self.username = username
 		self.password = password
-		self.data     = data
+		self.fullhash     = fullhash
 		self.module   = None
 		self.client_addr  = None
 		self.client_rdns  = None
+		self.fingerprint = None
+
+	def toDict(self):
+		t = {}
+		t['type'] = self.type
+		t['domain'] = self.domain
+		t['username'] = self.username
+		t['password'] = self.password
+		t['fullhash'] = self.fullhash
+		t['module'] = self.module
+		t['client_addr'] = self.client_addr
+		t['client_rdns'] = self.client_rdns
+		return t
+
+	def __str__(self):
+		return '%s %s %s' % (self.type, self.domain, self.fullhash)
 
 class PoisonResult():
 	def __init__(self):

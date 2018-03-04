@@ -6,6 +6,7 @@ import datetime
 import enum
 import socket
 import os
+import io
 import traceback
 import copy
 
@@ -58,8 +59,8 @@ class ResponderServer(abc.ABC):
 		Create a Result message and send it to the LogProcessor for procsesing
 		"""
 		credential.module = self.modulename
-		credential.client_addr = session.connection.remote_ip
-		credential.client_rdns = session.connection.remote_ip
+		credential.client_addr = self.session.connection.remote_ip
+		credential.client_rdns = self.session.connection.remote_ip
 		self.logQ.put(credential)
 
 	
@@ -95,3 +96,16 @@ class ResponderServer(abc.ABC):
 	def logProxy(self, data, laddr, raddr, level = logging.INFO):
 		message = '[%s -> %s] %s' % (laddr, raddr, data)
 		self.logQ.put(LogEntry(level, self.modulename, message))
+
+	def logexception(self, message = None):
+		sio = io.StringIO()
+		ei = sys.exc_info()
+		tb = ei[2]
+		traceback.print_exception(ei[0], ei[1], tb, None, sio)
+		msg = sio.getvalue()
+		if msg[-1] == '\n':
+			msg = msg[:-1]
+		sio.close()
+		if message is not None:
+			msg = message + msg
+		self.log(msg, level=logging.ERROR)
