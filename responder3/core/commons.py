@@ -11,6 +11,7 @@ import socket
 import platform
 import traceback
 import ipaddress
+import asyncio
 
 from responder3.crypto.hashing import *
 
@@ -93,7 +94,10 @@ class Connection():
 
 
 	def getRemoteAddress(self):
-		return (self.remote_ip, self.remote_port)
+		return (str(self.remote_ip), int(self.remote_port))
+
+	def getLocalAddress(self):
+		return (str(self.local_ip), int(self.local_port))
 
 	def toDict(self):
 		t = {}
@@ -357,3 +361,54 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 						server_properties.bind_port, \
 						server_properties.bind_family)\
 				, sys.exc_info()[2]).with_traceback(sys.exc_info()[2])
+
+
+class ConnectionClosed(Exception):
+    pass
+
+@asyncio.coroutine
+def read_or_exc(reader, n, timeout = None):
+	try:
+		data = yield from asyncio.wait_for(reader.read(n), timeout = timeout)
+	except:
+		raise ConnectionClosed()
+
+	if data == b'':
+		if reader.at_eof():
+			raise ConnectionClosed()
+
+	return data
+
+@asyncio.coroutine
+def readuntil_or_exc(reader, pattern, timeout = None):
+	try:
+		data = yield from asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
+	except:
+		raise ConnectionClosed()
+
+	if data == b'':
+		if reader.at_eof():
+			raise ConnectionClosed()
+
+	return data
+
+@asyncio.coroutine
+def readline_or_exc(reader, timeout = None):
+	try:
+		data = yield from asyncio.wait_for(reader.readline(), timeout = timeout)
+	except:
+		raise ConnectionClosed()
+
+	if data == b'':
+		if reader.at_eof():
+			raise ConnectionClosed()
+
+	return data
+
+@asyncio.coroutine
+def sendall(writer, data):
+	try:
+		writer.write(data)
+		yield from writer.drain()
+	except:
+		raise ConnectionClosed()

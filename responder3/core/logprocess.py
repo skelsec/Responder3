@@ -89,8 +89,8 @@ class LogProcessor(multiprocessing.Process):
 			tqueue.put(t)
 
 	def handleCredential(self, result):
-		logging.log(logging.INFO, str(result.toDict()))
 		if result.fingerprint not in self.resultHistory:
+			logging.log(logging.INFO, str(result.toDict()))
 			self.resultHistory[result.fingerprint] = result
 			t = {}
 			t['type'] = 'Credential'

@@ -7,7 +7,7 @@ import base64
 import asyncio
 import collections
 
-from responder3.core.commons import Credential
+from responder3.core.commons import *
 from responder3.protocols.NTLM import NTLMAUTHHandler, NTLMAuthStatus
 
 class HTTPVersion(enum.Enum):
@@ -75,6 +75,70 @@ HTTPResponseReasons = {
 
 }
 
+def decompress_body(req_resp, modify_internal = False):
+	if req_resp.headers[req_resp.cenc] == HTTPContentEncoding.IDENTITY:
+		if modify_internal:
+			req_resp.body = req_resp.body
+		else:
+			return req_resp.body
+	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.GZIP:
+		if modify_internal:
+			req_resp.body = gzip.decompress(req_resp.body)
+		else:
+			return gzip.decompress(req_resp.body)
+
+		#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
+
+	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.COMPRESS:
+		raise Exception('Not Implemented!')
+
+	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.DEFLATE:
+		if modify_internal:
+			req_resp.body = zlib.decompress(req_resp.body)
+		else:
+			return zlib.decompress(req_resp.body)
+		
+	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.BR:
+		raise Exception('Not Implemented!')
+	else:
+		raise Exception('Encoding format not recognized!')
+		
+
+def compress_body(req_resp, modify_internal = False):
+	if req_resp.cenc is not None:
+		if req_resp.headers[req_resp.cenc] == HTTPContentEncoding.IDENTITY:
+			if modify_internal:
+				req_resp.body = req_resp.body
+			else:
+				return req_resp.body.encode()
+			
+		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.GZIP:
+			if modify_internal:
+				req_resp.body = gzip.compress(req_resp.body)
+			else:
+				return gzip.compress(req_resp.body,  compresslevel=1)
+
+		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.COMPRESS:
+			raise Exception('COMPRESS Not Implemented!')
+
+		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.DEFLATE:
+			if modify_internal:
+				req_resp.body = zlib.compress(req_resp.body)
+			else:
+				return zlib.compress(req_resp.body)
+
+		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.BR:
+			raise Exception('BR Not Implemented!')
+		else:
+			raise Exception('Encoding format not recognized!')
+
+	else:
+		if modify_internal:
+			req_resp.body = req_resp.body
+		else:
+			return req_resp.body
+	
+
 class HTTPRequest():
 	def __init__(self):
 		self.method  = None
@@ -86,64 +150,96 @@ class HTTPRequest():
 		#helper variables
 		self.clen = None
 		self.cenc = None
+		self.ccon = None
 
+	def construct(method, uri, headers, body = None, version = HTTPVersion.HTTP11):
+		req = HTTPRequest()
+		req.method = method
+		req.uri = uri
+		req.version = version
+		req.headers = headers
+		req.body = body #this will be bytes!
+		return req
+
+	def toBytes(self):
+		for hdr in self.headers:
+			if hdr.lower() == 'content-encoding':
+				self.cenc = hdr
+			elif hdr.lower() == 'content-length':
+				self.clen = hdr
+
+		if self.clen is None:
+			self.clen = 'Content-Length'
+
+		t_body = self.body
+		if self.body is not None:
+			if self.cenc in self.headers:
+				t_body = compress_body(self)
+			else:
+				t_body = self.body
+			self.headers[self.clen] = int(len(t_body))
+
+		t = '%s %s %s%s' % (self.method, self.uri, self.version.value, '\r\n')
+		for hdr in self.headers:
+			t+= '%s: %s\r\n' % (hdr, self.headers[hdr])
+
+		t+= '\r\n'
+		t = t.encode('ascii')
+		#now to deal with the body
+		if self.body is not None:
+			t+= t_body
+		return t
+		
 	@asyncio.coroutine
 	def from_streamreader(reader):
-		req = HTTPRequest()
-		firstline = yield from reader.readline()
 		try:
-			req.method, req.uri, req.version = firstline.decode('ascii').strip().split(' ')
-		except Exception as e:
-			print(firstline)
-			raise e
+			req = HTTPRequest()
+			firstline = yield from readline_or_exc(reader)
+			try:
+				req.method, req.uri, t = firstline.decode('ascii').strip().split(' ')
+				req.version = HTTPVersion(t.upper())
+			except Exception as e:
+				raise e
 
-		hdrs = yield from reader.readuntil(b'\r\n\r\n')
-		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
-		for hdr in hdrs:
-			marker = hdr.find(': ')
-			key   = hdr[:marker]
-			value = hdr[marker+2:]
-			if key.lower() == 'content-encoding':
-				#TODO
-				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				req.headers[key] = ContentEncoding[value]
-				req.cenc = key
-			elif key.lower() == 'content-length':
-				req.headers[key] = int(value)
-				req.clen = key
-			
+			hdrs = yield from readuntil_or_exc(reader, b'\r\n\r\n')
+			hdrs = hdrs[:-4].decode('ascii').split('\r\n')
+			for hdr in hdrs:
+				marker = hdr.find(': ')
+				key   = hdr[:marker]
+				value = hdr[marker+2:]
+				if key.lower() == 'content-encoding':
+					#TODO
+					#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
+					req.headers[key] = HTTPContentEncoding[value.upper()]
+					req.cenc = key
+				elif key.lower() == 'content-length':
+					req.headers[key] = int(value)
+					req.clen = key
+
+				elif key.lower() == 'connection':
+					req.headers[key] = value
+					req.ccon = key
+				
+				else:
+					req.headers[key] = value
+
+			#this 'guessing' is needed to keep the original header names, you never know what might crash
+			if req.clen is None or req.headers[req.clen] == 0:
+				#at this point the request did not have a content-length field
+				return req
+
 			else:
-				req.headers[key] = value
-
-		#this 'guessing' is needed to keep the original header names
-		if req.clen is None or req.headers[req.clen] == 0:
-			#at this point the request did not have a content-length field
+				req.body = yield from read_or_exc(reader, int(req.headers[req.clen]))
+				if req.cenc is not None:
+					decompress_body(req, modify_internal=True)
 			return req
 
-		else:
-			if req.cenc is not None:
-				bdata = yield from reader.read()
-				if req.headers[req.cenc] == ContentEncoding.IDENTITY:
-					req.body = bdata.decode()
-				
-				elif req.headers[req.cenc] == ContentEncoding.GZIP:
-					req.body = gzip.decompress(bdata).decode()
-					#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
 
-				elif req.headers[req.cenc] == ContentEncoding.COMPRESS:
-					raise Exception('Not Implemented!')
+		except Exception as e:
+			if isinstance(e, ConnectionClosed):
+				return
+			raise e
 
-				elif req.headers[req.cenc] == ContentEncoding.DEFLATE:
-					#not tested!
-					req.body = zlib.decompress(bdata).decode()
-
-				elif req.headers[req.cenc] == ContentEncoding.BR:
-					raise Exception('Not Implemented!')
-				else:
-					raise Exception('Encoding format not recognized!')
-
-			else:
-				req.body = bdata.decode()
 
 	def from_bytes(bbuff):
 		HTTPRequest.from_buffer(io.BytesIO(bbuff))
@@ -151,7 +247,8 @@ class HTTPRequest():
 	def from_buffer(buff):
 		#not tested, the actively used code is in from_streamreader!!!
 		req = HTTPRequest()
-		req.method, req.uri, req.version = buff.readline().strip().decode('ascii').split(b' ')
+		req.method, req.uri, t = buff.readline().strip().decode('ascii').split(b' ')
+		req.version = HTTPVersion(t.upper())
 		
 		#end = False
 		while True:
@@ -169,11 +266,16 @@ class HTTPRequest():
 			if key.lower() == 'content-encoding':
 				#TODO
 				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				req.headers[key] = ContentEncoding[value]
+				req.headers[key] = HTTPContentEncoding[value.upper()]
 				req.cenc = key
 			elif key.lower() == 'content-length':
 				req.headers[key] = int(value)
 				req.clen = key
+
+			elif key.lower() == 'connection':
+					req.headers[key] = value
+					req.ccon = key
+				
 			
 			else:
 				req.headers[key] = value
@@ -184,38 +286,17 @@ class HTTPRequest():
 			return req
 
 		else:
+			req.body = yield from reader.read(int(req.headers[req.clen]))
 			if req.cenc is not None:
-				if req.headers[req.cenc] == ContentEncoding.IDENTITY:
-					req.body = buff.read(req.headers[req.clen]).decode()
-				
-				elif req.headers[req.cenc] == ContentEncoding.GZIP:
-					req.body = gzip.decompress(buff.read(req.headers[req.clen])).decode()
-					#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
-
-				elif req.headers[req.cenc] == ContentEncoding.COMPRESS:
-					raise Exception('Not Implemented!')
-
-				elif req.headers[req.cenc] == ContentEncoding.DEFLATE:
-					#not tested!
-					req.body = zlib.decompress(buff.read(req.headers[req.clen])).decode()
-
-				elif req.headers[req.cenc] == ContentEncoding.BR:
-					raise Exception('Not Implemented!')
-				else:
-					raise Exception('Encoding format not recognized!')
-
-			else:
-				req.body = body.decode()
-
-
+				decompress_body(req, modify_internal=True)
+		return req
 
 	def __repr__(self):
 		t  = '== HTTP Request ==\r\n'
-		t += 'FIRST  : %s\r\n' %' '.join([self.method, self.uri, self.version])
+		t += 'FIRST  : %s\r\n' %' '.join([self.method, self.uri, self.version.value])
 		t += 'HEADERS: %s\r\n' % repr(self.headers)
 		t += 'BODY   : \r\n %s\r\n' % repr(self.body)
 		return t
-
 
 class HTTPResponse():
 	def __init__(self):
@@ -226,13 +307,118 @@ class HTTPResponse():
 		self.headers = None
 
 		#helper variables
-		self.clen = 'Content-Length'
-		self.cenc = 'Content-Encoding'
+		self.clen = None
+		self.cenc = None
+		self.ccon = None
+
+	@asyncio.coroutine
+	def from_streamreader(reader):
+		resp = HTTPResponse()
+		t = yield from readuntil_or_exc(reader, b' ')
+		resp.version = HTTPVersion(t.decode().upper().strip())
+		t = yield from readuntil_or_exc(reader, b' ')
+		resp.code = int(t.decode().strip())
+		t = yield from readline_or_exc(reader)
+		resp.reason = t.decode().strip()
+
+		resp.headers = collections.OrderedDict()
+		hdrs = yield from reader.readuntil(b'\r\n\r\n')
+		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
+		for hdr in hdrs:
+			marker = hdr.find(': ')
+			key   = hdr[:marker]
+			value = hdr[marker+2:]
+			if key.lower() == 'content-encoding':
+				#TODO
+				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
+				resp.headers[key] = HTTPContentEncoding[value.upper()]
+				resp.cenc = key
+			elif key.lower() == 'content-length':
+				resp.headers[key] = int(value)
+				resp.clen = key
+			elif key.lower() == 'connection':
+				resp.headers[key] = value
+				resp.ccon = key
+			
+			else:
+				resp.headers[key] = value
+
+		#this 'guessing' is needed to keep the original header names
+		if resp.clen is None or resp.headers[resp.clen] == 0:
+			#at this point the request did not have a content-length field
+			return resp
+
+		else:
+			resp.body = yield from reader.read(int(resp.headers[resp.clen]))
+			if resp.cenc is not None:
+				decompress_body(resp, modify_internal=True)
+		return resp
+
+	def from_bytes(bbuff):
+		return HTTPResponse.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		resp = HTTPResponse()
+		firstline = buff.readline().decode().strip()
+		m = firstline.find(' ')
+		assert m != -1
+		resp.version = HTTPVersion(firstline[:m].strip())
+		firstline = firstline[m+1:]
+		m = firstline.find(' ')
+		assert m != -1
+		resp.code = int(firstline[:m].strip())
+		resp.reason = firstline[m+1:].strip()
+
+		resp.headers = collections.OrderedDict()
+		
+		while True:
+			hdrline = buff.readline().decode('ascii').strip()
+			if hdrline == '':
+				break
+			marker = hdrline.find(': ')
+			key   = hdrline[:marker]
+			value = hdrline[marker+2:]
+			if key.lower() == 'content-encoding':
+				#TODO
+				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
+				resp.headers[key] = HTTPContentEncoding[value.upper()]
+				resp.cenc = key
+			elif key.lower() == 'content-length':
+				resp.headers[key] = int(value)
+				resp.clen = key
+			
+			else:
+				resp.headers[key] = value
+			
+
+		#this 'guessing' is needed to keep the original header names
+		if resp.clen is None or resp.headers[resp.clen] == 0:
+			#at this point the request did not have a content-length field
+			return resp
+
+		else:
+			resp.body = buff.read(int(resp.headers[resp.clen]))
+			if resp.cenc is not None:
+				decompress_body(resp, modify_internal=True)
+		return resp
+
+	def __repr__(self):
+		t  = '== HTTPResponse ==\r\n'
+		t += 'version: %s \r\n' % self.version.value
+		t += 'code: %s \r\n' % self.code
+		t += 'reason: %s \r\n' % self.reason
+		t += 'headers: %s \r\n' % self.headers
+		t += 'body: %s \r\n' % repr(self.body)
+		return t
+
+
+	def __str__(self):
+		return self.__repr__()
 
 	def construct(code, body = None, httpversion = HTTPVersion.HTTP11, headers = collections.OrderedDict(), reason = None):
 		resp = HTTPResponse()
 		resp.version = httpversion
-		resp.code    = str(code)
+		resp.code    = int(code)
 		if reason is None:
 			resp.reason = HTTPResponseReasons[code] if code in HTTPResponseReasons else 'Pink kittens'
 		else:
@@ -240,6 +426,8 @@ class HTTPResponse():
 		
 		resp.body    = body
 		resp.headers = headers
+
+		return resp
 		
 		"""
 		'Content-Type'  : 'text/html',
@@ -253,30 +441,10 @@ class HTTPResponse():
 		## TODO!!! use specific encoding + compression when needed!!!
 
 		#calculating body by applying sepcific ancoding and compression
+		self.code    = int(self.code)
 		t_body = None
-		if self.body is not None:
-			if self.cenc in self.headers:
-				if self.headers[self.cenc] == ContentEncoding.IDENTITY:
-					t_body = self.body.encode()
-				
-				elif self.headers[self.cenc] == ContentEncoding.GZIP:
-					t_body = gzip.compress(self.body)
-
-				elif self.headers[self.cenc] == ContentEncoding.COMPRESS:
-					raise Exception('COMPRESS Not Implemented!')
-
-				elif self.headers[self.cenc] == ContentEncoding.DEFLATE:
-					t_body = zlib.compress(self.body)
-
-				elif self.headers[self.cenc] == ContentEncoding.BR:
-					raise Exception('BR Not Implemented!')
-				else:
-					raise Exception('Encoding format not recognized!')
-			else:
-				t_body = self.body.encode()
-
-
-
+		if self.body is not None and self.body != '':
+			t_body = compress_body(self)
 
 		#updating content-length field
 		if t_body is None:
@@ -284,17 +452,21 @@ class HTTPResponse():
 		else:
 			self.headers['Content-Length'] = str(len(t_body))
 
+		
 		if self.reason is None:
-			self.reason = HTTPResponseReasons[code] if self.code in HTTPResponseReasons else 'Pink kittens'
+			self.reason = HTTPResponseReasons[self.code] if self.code in HTTPResponseReasons else 'Pink kittens'
 
 
 		t  = '%s %s %s\r\n' % (self.version.value, self.code, self.reason)
 		for key, value in self.headers.items():
-			t += key + ': ' + self.headers[key] + '\r\n'
+			if isinstance(value,enum.Enum):
+				t += '%s: %s\r\n' % (key,self.headers[key].name.lower())
+			else:
+				t += '%s: %s\r\n' % (key,self.headers[key])
 		t += '\r\n'
 		t = t.encode('ascii')
 
-		if self.body is not None:
+		if t_body is not None:
 			t += t_body
 		
 		return t
@@ -333,8 +505,8 @@ class HTTP400Resp(HTTPResponse):
 		self.headers = headers
 
 class HTTP401Resp(HTTPResponse):
-	def __init__(self, authType,authChallenge = None, isProxy = False,
-						body = None, httpversion = HTTPVersion.HTTP11, 
+	def __init__(self, authType,authChallenge = None, body = None, 
+						httpversion = HTTPVersion.HTTP11, 
 						headers = collections.OrderedDict(), reason = None):
 		HTTPResponse.__init__(self)
 		self.version = httpversion
@@ -343,16 +515,10 @@ class HTTP401Resp(HTTPResponse):
 		self.body    = body
 		self.headers = headers
 
-		if isProxy:
-			if authChallenge is not None:
-				self.headers['Proxy-Authenticate'] = '%s %s' % (authType, authChallenge)
-			else:
-				self.headers['Proxy-Authenticate'] = '%s' % authType
+		if authChallenge is not None:
+			self.headers['WWW-Authenticate'] = '%s %s' % (authType, authChallenge)
 		else:
-			if authChallenge is not None:
-				self.headers['WWW-Authenticate'] = '%s %s' % (authType, authChallenge)
-			else:
-				self.headers['WWW-Authenticate'] = '%s' % authType
+			self.headers['WWW-Authenticate'] = '%s' % authType
 
 class HTTP403Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
@@ -363,6 +529,21 @@ class HTTP403Resp(HTTPResponse):
 		self.reason  = reason
 		self.body    = body
 		self.headers = headers
+
+class HTTP407Resp(HTTPResponse):
+	def __init__(self, authType,authChallenge = None, body = None, httpversion = HTTPVersion.HTTP11, 
+						headers = collections.OrderedDict(), reason = None):
+		HTTPResponse.__init__(self)
+		self.version = httpversion
+		self.code    = '407'
+		self.reason  = reason
+		self.body    = body
+		self.headers = headers
+
+		if authChallenge is not None:
+			self.headers['Proxy-Authenticate'] = '%s %s' % (authType, authChallenge)
+		else:
+			self.headers['Proxy-Authenticate'] = '%s' % authType
 
 
 class HTTPBasicAuth():
@@ -404,7 +585,10 @@ class HTTPBasicAuth():
 			httpserver.logCredential(self.userCreds.toResult())
 
 		else:
-			a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic', isProxy = self.isProxy).toBytes()), timeout = 1)
+			if self.isProxy:
+				a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').toBytes()), timeout = 1)
+			else:
+				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').toBytes()), timeout = 1)
 			return
 
 	def verify(self):
@@ -453,7 +637,10 @@ class HTTPNTLMAuth():
 			authStatus, ntlmMessage, creds = self.hander.do_AUTH(base64.b64decode(httpRequest.headers[authHdr][5:]))
 			if self.status == 0 and authStatus == NTLMAuthStatus.FAIL:
 				self.status += 1
-				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii'), isProxy = self.isProxy).toBytes()), timeout =1 )
+				if self.isProxy:
+					a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
+				else:
+					a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
 				return
 			
 			elif self.status == 1 and authStatus == NTLMAuthStatus.FAIL:
@@ -469,7 +656,10 @@ class HTTPNTLMAuth():
 			else:
 				raise Exception('Unexpected status')
 		else:
-			a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM', isProxy = self.isProxy).toBytes()), timeout = 1)
+			if self.isProxy:
+				a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').toBytes()), timeout = 1)
+			else:
+				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').toBytes()), timeout = 1)
 			return
 
 """
@@ -492,7 +682,7 @@ class HTTPRequestParser():
 			if key == 'content-encoding':
 				#TODO
 				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				self.httprequest.headers[key] = ContentEncoding[value]
+				self.httprequest.headers[key] = HTTPContentEncoding[value]
 			else:
 				self.httprequest.headers[key] = value
 
@@ -516,20 +706,20 @@ class HTTPRequestParser():
 			return t
 
 						if 'content-encoding' in self.httprequest.headers:
-				if self.httprequest.headers['content-encoding'] == ContentEncoding.IDENTITY:
+				if self.httprequest.headers['content-encoding'] == HTTPContentEncoding.IDENTITY:
 					decompressed_buff = buff
 				
-				elif self.httprequest.headers['content-encoding'] == ContentEncoding.GZIP:
+				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.GZIP:
 					raise Exception('Not Implemented!')
 					#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
 
-				elif self.httprequest.headers['content-encoding'] == ContentEncoding.COMPRESS:
+				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.COMPRESS:
 					raise Exception('Not Implemented!')
 
-				elif self.httprequest.headers['content-encoding'] == ContentEncoding.DEFLATE:
+				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.DEFLATE:
 					raise Exception('Not Implemented!')
 
-				elif self.httprequest.headers['content-encoding'] == ContentEncoding.BR:
+				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.BR:
 					raise Exception('Not Implemented!')
 				else:
 					raise Exception('Encofding format not recognized!')

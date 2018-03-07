@@ -730,7 +730,8 @@ class NTLMAUTHHandler():
 			#self.calc_SessionBaseKey()
 			#self.calc_KeyExchangeKey()
 
-			return (NTLMAuthStatus.FAIL, None, creds)
+			#return (NTLMAuthStatus.FAIL, None, creds)
+			return (NTLMAuthStatus.OK, None, creds) #this setting must be removed when actual ntlm authentication is implemented!
 
 		else:
 			raise Exception('Too many calls to do_AUTH function!')
