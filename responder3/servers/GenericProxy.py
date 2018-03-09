@@ -14,6 +14,7 @@ class GenericProxy(ResponderServer):
 		self.proxy_reader = None
 		self.proxy_writer = None
 		self.proxy_closed = asyncio.Event()
+		self.proxy_sslctx = None
 
 		#defaults
 		self.timeout = 1
@@ -24,7 +25,10 @@ class GenericProxy(ResponderServer):
 			raise Exception('remote_host MUST be defined!')
 		if 'remote_port' not in self.settings:
 			raise Exception('remote_port MUST be defined!')
-		
+
+		if 'remote_sslctx' in self.settings:
+			self.proxy_sslctx = SSLContextBuilder.from_dict(self.settings['remote_sslctx'])
+	
 		if 'timeout' in self.settings:
 			self.timeout = int(self.settings['timeout'])
 
@@ -70,7 +74,8 @@ class GenericProxy(ResponderServer):
 				break
 			
 
-			self.logProxy('original data: %s' % repr(data), laddr, raddr)
+			self.logProxy('original data: %s' % data.hex(), laddr, raddr)
+			self.logProxyData(data, laddr, raddr, False, ProxyDataType.BINARY)
 			modified_data = yield from self.modify_data(data)
 			if modified_data != data:
 				self.logProxy('modified data: %s' % repr(modified_data),laddr, raddr)
@@ -87,8 +92,8 @@ class GenericProxy(ResponderServer):
 
 	@asyncio.coroutine
 	def udp_proxy(self):
-		laddr = '%s:%d' % (self.creader._addr[0], self.creader._addr[1])
-		raddr = '%s:%d' % (self.remote_host, self.remote_port)
+		laddr = (self.creader._addr[0], self.creader._addr[1])
+		raddr = (self.remote_host, self.remote_port)
 		data = yield from self.creader.read()
 		
 		self.logProxy('original data: %s' % repr(data), laddr, raddr)
@@ -109,10 +114,10 @@ class GenericProxy(ResponderServer):
 		loop = asyncio.get_event_loop()
 		
 		if self.sprops.bind_porotcol == ServerProtocol.TCP:
-			self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port), timeout=self.timeout)
+			self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port, ssl=self.proxy_sslctx), timeout=self.timeout)
 			self.log('Connected!', logging.DEBUG)
-			loop.create_task(self.proxy_forwarder(self.proxy_reader, self.cwriter, '%s:%d' % (self.remote_host,int(self.remote_port)), self.caddr))
-			loop.create_task(self.proxy_forwarder(self.creader, self.proxy_writer, self.caddr, '%s:%d' % (self.remote_host,int(self.remote_port))))
+			loop.create_task(self.proxy_forwarder(self.proxy_reader, self.cwriter, (self.remote_host,int(self.remote_port)), self.caddr))
+			loop.create_task(self.proxy_forwarder(self.creader, self.proxy_writer, self.caddr, (self.remote_host,int(self.remote_port))))
 			
 			yield from asyncio.wait_for(self.proxy_closed.wait(), timeout = None)
 

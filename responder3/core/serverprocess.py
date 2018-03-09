@@ -15,16 +15,6 @@ import platform
 
 from responder3.core import commons
 
-sslcontexttable = {
-	#'SSLv2' : ssl.PROTOCOL_SSLv2,
-	#'SSLv3' : ssl.PROTOCOL_SSLv3,
-	'SSLv23': ssl.PROTOCOL_SSLv23,
-	'TLS' : ssl.PROTOCOL_TLS,
-	'TLSv1' : ssl.PROTOCOL_TLSv1,
-	'TLSv11' : ssl.PROTOCOL_TLSv1_1,
-	'TLSv12' : ssl.PROTOCOL_TLSv1_2,
-}
-
 #TODO: enable additional fine-tuning of the SSL context from config file
 class ServerProperties():
 	"""
@@ -106,7 +96,7 @@ class ServerProperties():
 			
 
 			if 'protocol' in settings['sslsettings']:
-				sslprotocol = sslcontexttable[settings['sslsettings']['protocol']]
+				sslprotocol = commons.sslcontexttable[settings['sslsettings']['protocol']]
 
 			self.sslcontext = ssl.SSLContext(sslprotocol)
 			self.sslcontext.load_cert_chain(certfile=settings['sslsettings']['certfile'], keyfile=settings['sslsettings']['keyfile'])
@@ -301,46 +291,3 @@ class ResponderServerProcess(multiprocessing.Process):
 			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
 		elif status == commons.ConnectionStatus.CLOSED:
 			self.log('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
-
-
-"""
-@asyncio.coroutine
-	def handle_tcp_socket(self, sock):
-		sock.setblocking(False)
-		sock.listen(200)
-		while True:
-			conn, addr = yield from self.loop.sock_accept(sock)
-			self.loop.create_task(asyncio.start_server(self.accept_client, sock = conn))
-
-	def setup(self):
-		self.import_packages()
-		self.sprops = ServerProperties.from_dict(self.serverentry)
-		self.loop    = asyncio.get_event_loop()
-		self.clients = {}
-		self.server  = self.sprops.serverhandler
-		self.session = self.sprops.serversession
-		self.globalsession = self.sprops.serverglobalsession
-		if self.sprops.serverglobalsession is not None:
-			self.globalsession = self.sprops.serverglobalsession(self.sprops)
-		self.logQ    = self.sprops.shared_logQ
-		self.rdnsd   = self.sprops.shared_rdns
-		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
-		self.modulename = '%s-%s-%d' % (self.sprops.serverhandler.__name__, self.sprops.bind_addr, self.sprops.bind_port)
-		self.serverCoro = None
-
-		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
-			sock = commons.setup_base_socket(self.sprops)
-			print(sock)
-			self.serverCoro = self.handle_tcp_socket(sock)
-		
-		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
-			sock = None
-			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops)
-			
-			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
-			self.serverCoro = udpserver.run()
-
-		else:
-			raise Exception('Unknown protocol type!')
-"""

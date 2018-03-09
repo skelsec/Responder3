@@ -22,8 +22,8 @@ class ResponderServer(abc.ABC):
 		if self.loop is None:
 			self.loop = asyncio.get_event_loop()
 		self.session = session
-		self.caddr   = '%s:%d' % (session.connection.remote_ip, 
-									session.connection.remote_port)
+		self.caddr   = (session.connection.remote_ip, 
+						session.connection.remote_port)
 		self.creader = connection[0]
 		self.cwriter = connection[1]
 		self.logQ    = serverprops.shared_logQ
@@ -94,8 +94,19 @@ class ResponderServer(abc.ABC):
 		self.logQ.put(emailEntry)
 
 	def logProxy(self, data, laddr, raddr, level = logging.INFO):
-		message = '[%s -> %s] %s' % (laddr, raddr, data)
+		message = '[%s -> %s] %s' % ('%s:%d' % laddr, '%s:%d' % raddr, data)
 		self.logQ.put(LogEntry(level, self.modulename, message))
+
+	def logProxyData(self, data, laddr, raddr, isSSL, datatype):
+		pd = ProxyData()
+		pd.src_addr  = laddr
+		pd.dst_addr  = raddr
+		pd.proto     = self.protocol
+		pd.isSSL     = isSSL
+		pd.data_type = datatype
+		pd.data      = data
+
+		self.logQ.put(pd)
 
 	def logexception(self, message = None):
 		sio = io.StringIO()

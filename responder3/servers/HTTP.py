@@ -74,9 +74,6 @@ class HTTP(ResponderServer):
 			return req
 		except asyncio.TimeoutError:
 			self.log('Timeout!', logging.DEBUG)
-		
-		
-
 
 	@asyncio.coroutine
 	def send_data(self, data):

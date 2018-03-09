@@ -30,6 +30,22 @@ logsettings = {
 
 servers = [
 	{
+		'handler'  : 'GenericProxy',
+		'bind_port': [(5555, 'tcp')],
+		'bind_iface': 'lo',
+		'bind_family': 4,
+		'settings': {
+			'remote_sslctx': {
+				'protocols':'PROTOCOL_SSLv23',
+				'options':'OP_CIPHER_SERVER_PREFERENCE',
+				'verify_mode':'CERT_NONE',
+				'ciphers':'ALL',
+			},
+			'remote_host'  : '127.0.0.1',
+			'remote_port'  : '443', 
+		},
+	},
+	{
 		'handler'  : 'MDNS',
 		'settings': {
 			'mode' : 'analyse',
@@ -42,7 +58,7 @@ servers = [
 		'handler' : 'DNS',
 		'bind_family': 4,
 		'settings': {
-						'mode': 'spoof', #mode can be either analyse or spoof
+						'mode': 'analyse', #mode can be either analyse or spoof
 						'spooftable': [
 					 		{'github.com' : '::1'},
 					 		{'.*' : '192.168.44.23'},
@@ -61,7 +77,7 @@ servers = [
 	{
 		'handler'  : 'LLMNR',
 		'settings': {
-			'mode' : 'SPOOF',
+			'mode' : 'analyse',
 			'spooftable' :{
 				'.*':'192.168.30.11',
 			}
@@ -73,7 +89,7 @@ servers = [
 		'bind_family': 4, #no point in ipv6, it's not supported by design (but it works with it regardless :P)
 		'settings': 
 			{
-				'mode': 'spoof', #mode can be either analyse or spoof
+				'mode': 'analyse', #mode can be either analyse or spoof
 				'spooftable': [
 				 		{'github.com' : '127.0.0.2'},
 				 		{'.*' : '192.168.44.23'},
@@ -85,7 +101,7 @@ servers = [
 		'bind_family': 4, 
 		'handler' : 'DHCP',
 		'settings': {
-						'mode': 'spoof', #mode can be either analyse or spoof
+						'mode': 'analyse', #mode can be either analyse or spoof
 						'subnetmask' : 'FF:FF:FF:00',
 						'leasetime'  : 199,
 						'ip_pool'    : '192.168.111.100-200',

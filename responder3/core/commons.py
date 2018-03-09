@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import os
 import sys
+import ssl
 import queue
 import base64
 import enum
@@ -15,6 +16,72 @@ import asyncio
 
 from responder3.crypto.hashing import *
 
+sslcontexttable = {
+	#'SSLv2': ssl.PROTOCOL_SSLv2,
+	#'SSLv3': ssl.PROTOCOL_SSLv3,
+	'SSLv23': ssl.PROTOCOL_SSLv23,
+	'TLS'   : ssl.PROTOCOL_TLS,
+	'TLSv1' : ssl.PROTOCOL_TLSv1,
+	'TLSv11': ssl.PROTOCOL_TLSv1_1,
+	'TLSv12': ssl.PROTOCOL_TLSv1_2,
+}
+
+class SSLContextBuilder():
+	def __init__(self):
+		pass
+
+	def from_dict(sslsettings):
+		protocols = [ssl.PROTOCOL_SSLv23]
+		options = []
+		verify_mode = ssl.CERT_NONE
+		ciphers = 'ALL'
+		server_side = False
+		"""
+		protocols or ('PROTOCOL_SSLv3','PROTOCOL_TLSv1',
+								  'PROTOCOL_TLSv1_1','PROTOCOL_TLSv1_2')
+
+				options = options or ('OP_CIPHER_SERVER_PREFERENCE','OP_SINGLE_DH_USE',
+							  'OP_SINGLE_ECDH_USE','OP_NO_COMPRESSION')
+		"""
+		if 'protocols' in sslsettings:
+			protocols = []
+			if isinstance(sslsettings['protocols'], list):
+				for proto in sslsettings['protocols']:
+					protocols.append(getattr(ssl, proto, 0))
+			else:
+				protocols.append(getattr(ssl, sslsettings['protocols'], 0))
+
+		if 'options' in sslsettings:
+			options = []
+			if isinstance(sslsettings['options'], list):
+				for option in sslsettings['options']:
+					options.append(getattr(ssl, proto, 0))
+			else:
+				options.append(getattr(ssl, sslsettings['options'], 0))
+
+		if 'verify_mode' in sslsettings:
+			verify_mode = getattr(ssl, sslsettings['verify_mode'], 0)
+
+		if 'ciphers' in sslsettings:
+			ciphers = sslsettings['ciphers']
+		if 'server_side' in sslsettings:
+			server_side = sslsettings['server_side']
+
+		print(protocols)
+		context = ssl.SSLContext(protocols[0])
+		context.verify_mode = verify_mode
+		if server_side or 'certfile' in sslsettings: #server_side>you need certs, if you are a client, you might need certs
+			context.load_cert_chain(certfile=sslsettings['certfile'], 
+									keyfile=sslsettings['keyfile'])
+
+		context.protocol = 0
+		context.options = 0
+		for p in protocols:
+			context.protocol |= p
+		for o in options:
+			context.options |= o
+		context.set_ciphers(ciphers)
+		return context 
 
 class LogEntry():
 	"""
@@ -79,6 +146,67 @@ class ConnectionFactory():
 
 			self.rdnsd[con.remote_ip] = con.remote_dns
 
+class ProxyDataType(enum.Enum):
+	BINARY = 0
+	HTTP   = 1
+	SOCKS5 = 2
+	SOCKS4 = 3
+	FTP    = 4
+	SMTP   = 5
+
+
+class ProxyData():
+	def __init__(self):
+		self.src_addr  = None
+		self.dst_addr  = None
+		self.proto     = None
+		self.isSSL     = None
+		self.timestamp = datetime.datetime.utcnow()
+		self.data_type = None
+		self.data      = None
+
+	def toDict(self):
+		t = {}
+		t['src_addr'] = [str(self.src_addr[0]), int(self.src_addr[1])]
+		t['dst_addr'] = [str(self.dst_addr[0]), int(self.dst_addr[1])]
+		t['proto'] = self.proto.value
+		t['isSSL'] = self.isSSL
+		t['timestamp'] = self.timestamp
+		t['data_type'] = self.data_type.value
+		if self.data_type == ProxyDataType.BINARY:
+			t['data'] = self.data.hex()
+		else:
+			raise Exception('Data type %s not implemented!' % (self.data_type))
+		return t
+	
+	def fromDict(d):
+		pd = ProxyData()
+		pd.src_addr  = (ipaddress.ip_address(d['src_addr'][0]), int(d['src_addr'][1]))
+		pd.dst_addr  = (ipaddress.ip_address(d['dst_addr'][0]), int(d['dst_addr'][1]))
+		pd.proto     = ServerProtocol(d['proto'])
+		pd.isSSL     = bool(d['isSSL'])
+		pd.timestamp = isoformat2dt(d['timestamp'])
+		pd.data_type = ProxyDataType(d['data_type'])
+		
+		if pd.data_type == ProxyDataType.BINARY:
+			pd.data = bytes.fromhex(d['data'])
+		else:
+			raise Exception('Data type %s not implemented!' % (pd.data_type))
+
+		return pd
+
+	def toJSON(self):
+		return json.dumps(self.toDict(), cls=UniversalEncoder)
+
+	def fromJSON(s):
+		return ProxyData.fromDict(json.loads(s))
+
+	def __str__(self):
+		if self.data_type == ProxyDataType.BINARY:
+			return '[%s] [%s -> %s]\r\n%s' % (self.timestamp.isoformat(), '%s:%d' % self.src_addr, '%s:%d' % self.dst_addr, hexdump(self.data))
+		else:
+			raise Exception('Data type %s not implemented!' % (self.data_type))
+		
 
 class Connection():
 	"""
@@ -364,7 +492,7 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 
 
 class ConnectionClosed(Exception):
-    pass
+	pass
 
 @asyncio.coroutine
 def read_or_exc(reader, n, timeout = None):
@@ -412,3 +540,59 @@ def sendall(writer, data):
 		yield from writer.drain()
 	except:
 		raise ConnectionClosed()
+
+#thank you Python developers who after A FUCKING DECADE
+#could not figure out a way to make your datetime.datetime
+#object in a format that is reversible
+#now it's either this bullshit "solution" OR installing a 3rd party
+#lib that have to GUESS YOUR SHITTY FORMAT
+#PS: "isoformat" doesn't even conforming to the ISO standard..
+def isoformat2dt(isostr):
+	dt, _, us= isostr.partition(".")
+	dt= datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S")
+	us= int(us.rstrip("Z"), 10)
+	return dt + datetime.timedelta(microseconds=us)
+
+#https://gist.github.com/ImmortalPC/c340564823f283fe530b
+def hexdump( src, length=16, sep='.' ):
+	'''
+	@brief Return {src} in hex dump.
+	@param[in] length	{Int} Nb Bytes by row.
+	@param[in] sep		{Char} For the text part, {sep} will be used for non ASCII char.
+	@return {Str} The hexdump
+	@note Full support for python2 and python3 !
+	'''
+	result = [];
+
+	# Python3 support
+	try:
+		xrange(0,1);
+	except NameError:
+		xrange = range;
+
+	for i in xrange(0, len(src), length):
+		subSrc = src[i:i+length];
+		hexa = '';
+		isMiddle = False;
+		for h in xrange(0,len(subSrc)):
+			if h == length/2:
+				hexa += ' ';
+			h = subSrc[h];
+			if not isinstance(h, int):
+				h = ord(h);
+			h = hex(h).replace('0x','');
+			if len(h) == 1:
+				h = '0'+h;
+			hexa += h+' ';
+		hexa = hexa.strip(' ');
+		text = '';
+		for c in subSrc:
+			if not isinstance(c, int):
+				c = ord(c);
+			if 0x20 <= c < 0x7F:
+				text += chr(c);
+			else:
+				text += sep;
+		result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text));
+
+	return '\n'.join(result);

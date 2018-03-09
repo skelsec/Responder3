@@ -18,6 +18,7 @@ class LogProcessor(multiprocessing.Process):
 		self.logger      = None
 		self.extensionsQueues = []
 		self.resultHistory = {}
+		self.proxyfilehandler = None
 
 
 	def log(self, message, level = logging.INFO):
@@ -26,6 +27,9 @@ class LogProcessor(multiprocessing.Process):
 	def setup(self):
 		logging.config.dictConfig(self.logsettings['log'])
 		self.logger = logging.getLogger('Responder3')
+
+		if 'logproxydata' in self.logsettings:
+			self.proxyfilehandler = open(self.logsettings['logproxydata']['filepath'], 'a')
 		
 
 		if 'handlers' in self.logsettings:
@@ -69,6 +73,8 @@ class LogProcessor(multiprocessing.Process):
 					self.handleEmail(resultObj)
 				elif isinstance(resultObj, PoisonResult):
 					self.handlePoisonResult(resultObj)
+				elif isinstance(resultObj, ProxyData):
+					self.handleProxyData(resultObj)
 				else:
 					raise Exception('Unknown object in queue! Got type: %s' % type(resultObj))
 		except KeyboardInterrupt:
@@ -76,6 +82,12 @@ class LogProcessor(multiprocessing.Process):
 		except Exception as e:
 			traceback.print_exc()
 			self.log('Main loop exception!', logging.ERROR)
+		finally:
+			if self.proxyfilehandler is not None:
+				try:
+					self.proxyfilehandler.close()
+				except:
+					pass
 
 	def handleLog(self, log):
 		self.logger.log(log.level, str(log))
@@ -112,6 +124,28 @@ class LogProcessor(multiprocessing.Process):
 
 	def handlePoisonResult(self, poisonResult):
 		self.log(repr(poisonResult))
+
+	def handleProxyData(self, proxydata):
+		if self.proxyfilehandler is not None:
+			try:
+				self.proxyfilehandler.write(proxydata.toJSON() + '\r\n')
+			except Exception as e:
+				self.logexception('Error writing proxy data to file!')
+				return
+
+	#this function is a duplicate, clean it up!
+	def logexception(self, message = None):
+		sio = io.StringIO()
+		ei = sys.exc_info()
+		tb = ei[2]
+		traceback.print_exception(ei[0], ei[1], tb, None, sio)
+		msg = sio.getvalue()
+		if msg[-1] == '\n':
+			msg = msg[:-1]
+		sio.close()
+		if message is not None:
+			msg = message + msg
+		self.log(msg, level=logging.ERROR)
 
 class LoggerExtension(ABC, threading.Thread):
 	def __init__(self, resQ, logQ, config):
