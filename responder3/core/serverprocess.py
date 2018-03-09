@@ -90,21 +90,9 @@ class ServerProperties():
 		if 'settings' in settings:
 			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
 
-		if 'sslsettings' in settings:
+		if 'sslctx' in settings:
 			sp.bind_porotcol = commons.ServerProtocol.SSL
-			sslprotocol = ssl.PROTOCOL_TLSv1_2
-			
-
-			if 'protocol' in settings['sslsettings']:
-				sslprotocol = commons.sslcontexttable[settings['sslsettings']['protocol']]
-
-			self.sslcontext = ssl.SSLContext(sslprotocol)
-			self.sslcontext.load_cert_chain(certfile=settings['sslsettings']['certfile'], keyfile=settings['sslsettings']['keyfile'])
-			
-			#ssl_context.options |= (ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1 | ssl.OP_NO_COMPRESSION)
-			#ssl_context.set_ciphers(self.server.settings['SSL']['ciphers'])
-			
-			#ssl_context.set_alpn_protocols(['http/1.1'])
+			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['sslctx'], server_side= True)
 
 		if 'shared_rdns' in settings and settings['shared_rdns'] is not None:
 			sp.shared_rdns = settings['shared_rdns']
@@ -203,7 +191,7 @@ class ResponderServerProcess(multiprocessing.Process):
 
 		def client_done(task):
 			del self.clients[task]
-			if self.sprops.bind_porotcol == commons.ServerProtocol.TCP:
+			if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP,commons.ServerProtocol.SSL]:
 				client_writer.close()
 			else:
 				self.log('UDP task cleanup not implemented!', logging.DEBUG)
@@ -235,7 +223,7 @@ class ResponderServerProcess(multiprocessing.Process):
 			else:
 				sock = commons.setup_base_socket(self.sprops)
 			
-			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock)
+			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.sprops.sslcontext)
 		
 		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
 			sock = None

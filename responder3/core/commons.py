@@ -30,7 +30,7 @@ class SSLContextBuilder():
 	def __init__(self):
 		pass
 
-	def from_dict(sslsettings):
+	def from_dict(sslsettings, server_side = None):
 		protocols = [ssl.PROTOCOL_SSLv23]
 		options = []
 		verify_mode = ssl.CERT_NONE
@@ -64,8 +64,12 @@ class SSLContextBuilder():
 
 		if 'ciphers' in sslsettings:
 			ciphers = sslsettings['ciphers']
-		if 'server_side' in sslsettings:
-			server_side = sslsettings['server_side']
+
+		if server_side is None:
+			if 'server_side' in sslsettings:
+				server_side = sslsettings['server_side']
+		else:
+			server_side = server_side
 
 		print(protocols)
 		context = ssl.SSLContext(protocols[0])
@@ -117,7 +121,7 @@ class ConnectionFactory():
 	def from_streamwriter(self, writer, protocoltype):
 		con = Connection()
 		con.timestamp = datetime.datetime.utcnow()
-		if protocoltype == ServerProtocol.TCP:
+		if protocoltype in [ServerProtocol.TCP,ServerProtocol.SSL]:
 			soc = writer.get_extra_info('socket')
 			con.local_ip, con.local_port   = soc.getsockname()
 			con.remote_ip, con.remote_port = soc.getpeername()
@@ -433,7 +437,7 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			else:
 				raise Exception('Unknown IP version')
 
-		elif server_properties.bind_porotcol == ServerProtocol.TCP:
+		elif server_properties.bind_porotcol in [ServerProtocol.TCP,ServerProtocol.SSL]:
 			if server_properties.bind_family == socket.AF_INET:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
 				sock.setblocking(False)

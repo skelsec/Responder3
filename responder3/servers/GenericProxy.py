@@ -17,7 +17,7 @@ class GenericProxy(ResponderServer):
 		self.proxy_sslctx = None
 
 		#defaults
-		self.timeout = 1
+		self.timeout = None
 		#parse settings
 		if self.settings is None:
 			raise Exception('settings MUST be defined!')
@@ -31,6 +31,8 @@ class GenericProxy(ResponderServer):
 	
 		if 'timeout' in self.settings:
 			self.timeout = int(self.settings['timeout'])
+			if self.timeout == -1:
+				self.timeout = None
 
 		self.remote_host = self.settings['remote_host']
 		self.remote_port = int(self.settings['remote_port'])
@@ -113,7 +115,7 @@ class GenericProxy(ResponderServer):
 		self.log('Setting up remote connection!', logging.DEBUG)
 		loop = asyncio.get_event_loop()
 		
-		if self.sprops.bind_porotcol == ServerProtocol.TCP:
+		if self.sprops.bind_porotcol in [ServerProtocol.TCP,ServerProtocol.SSL]:
 			self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port, ssl=self.proxy_sslctx), timeout=self.timeout)
 			self.log('Connected!', logging.DEBUG)
 			loop.create_task(self.proxy_forwarder(self.proxy_reader, self.cwriter, (self.remote_host,int(self.remote_port)), self.caddr))

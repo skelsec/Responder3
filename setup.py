@@ -30,7 +30,9 @@ setup(
 
 	#Dependent packages (distributions)
 	install_requires=[
-		"asn1crypto"
+		"asn1crypto",
+		"oscrypto",
+		"certbuilder",
 	],
 
 	python_requires='>=3.6',

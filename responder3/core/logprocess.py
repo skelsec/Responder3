@@ -29,7 +29,7 @@ class LogProcessor(multiprocessing.Process):
 		self.logger = logging.getLogger('Responder3')
 
 		if 'logproxydata' in self.logsettings:
-			self.proxyfilehandler = open(self.logsettings['logproxydata']['filepath'], 'a')
+			self.proxyfilehandler = open(self.logsettings['logproxydata']['filepath'], 'ab')
 		
 
 		if 'handlers' in self.logsettings:
@@ -126,9 +126,13 @@ class LogProcessor(multiprocessing.Process):
 		self.log(repr(poisonResult))
 
 	def handleProxyData(self, proxydata):
+		#TODO: currently it flushes everything on each line, this is not good (slow)
+		#need to write a better scheduler for outout, timer maybe?
 		if self.proxyfilehandler is not None:
 			try:
-				self.proxyfilehandler.write(proxydata.toJSON() + '\r\n')
+				self.proxyfilehandler.write(proxydata.toJSON().encode() + b'\r\n')
+				self.proxyfilehandler.flush()
+				os.fsync(self.proxyfilehandler.fileno())
 			except Exception as e:
 				self.logexception('Error writing proxy data to file!')
 				return
