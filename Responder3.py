@@ -146,13 +146,19 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 
 def main(argv):
 	import argparse
+	import pprint
 	parser = argparse.ArgumentParser(description = 'Responder3')
 	parser.add_argument("-I", action='append', help="Interface to bind to, can be multiple by providing sequential -I. Overrides bind_iface parameter in configs.")
 	parser.add_argument("-4", action='store_true', dest='ip4', help="IP version 4 to be used. Overrides config settings.")
 	parser.add_argument("-6", action='store_true', dest='ip6', help="IP version 6 to be used. Overrides config settings.")
+	parser.add_argument("-L", action='store_true', dest='list_interfaces', help="List all interfaces with assigned IPv4 and IPv6 addresses then exit.")
 	
 	args = parser.parse_args()
 
+	if args.list_interfaces:
+		for iface in interfaceutil.interfaced:
+			print(interfaceutil.interfaced[iface])
+		sys.exit()
 	start_responder(args.I, args.ip4, args.ip6)
 
 
