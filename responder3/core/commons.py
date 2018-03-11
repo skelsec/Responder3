@@ -71,7 +71,6 @@ class SSLContextBuilder():
 		else:
 			server_side = server_side
 
-		print(protocols)
 		context = ssl.SSLContext(protocols[0])
 		context.verify_mode = verify_mode
 		if server_side or 'certfile' in sslsettings: #server_side>you need certs, if you are a client, you might need certs

@@ -267,8 +267,10 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.log(msg, level=logging.ERROR)
 
 	def log(self, message, level = logging.INFO):
-		self.logQ.put(commons.LogEntry(level, self.modulename, message))
-
+		if self.logQ is not None:
+			self.logQ.put(commons.LogEntry(level, self.modulename, message))
+		else:
+			print(str(commons.LogEntry(level, self.modulename, message)))
 	def logConnection(self, connection, status):
 		"""
 		Create a Connection message and send it to the LogProcessor for procsesing
