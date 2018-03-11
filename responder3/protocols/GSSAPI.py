@@ -131,12 +131,16 @@ class GSSAPIAuthHandler():
 		self.negTokenResp = None
 		self.app = None
 
-	def do_AUTH(self, asn1_blob = None):
+	def do_AUTH(self, asn1_blob = None, smbv1 = False):
 
 		if asn1_blob is None:
 			self.negTokenInit = {}
 			self.negTokenInit['mechTypes'] = [MechType('1.3.6.1.4.1.311.2.2.10')]
-			self.negTokenInit['negHints']  = NegHints({'hintName': 'alma', 'hintAddress':b'bela'})
+			
+			if not smbv1:
+				self.negTokenInit['negHints']  = NegHints({'hintName': 'testserver@testdomain.local', 'hintAddress':b'bela'})
+			else:
+				self.negTokenInit['negHints']  = NegHints({'hintName': 'testserver@testdomain.local'})
 
 			self.aaa = NegotiationToken({'NegTokenInit2':self.negTokenInit})
 
@@ -145,14 +149,14 @@ class GSSAPIAuthHandler():
 			self.app = GSSAPI({'type': GSSType('1.3.6.1.5.5.2'), 'value':spnego})
 			
 			self.app.debug()
-			pprint.pprint(self.app)
+			#pprint.pprint(self.app)
 			return (None, self.app.dump(), None)
 		
 		else:
 			if self.negTokenResp_server is None:
 				self.app = GSSAPI.load(asn1_blob)
-				print(self.app.native['value']['NegotiationToken']['mechTypes'][0])
-				print(self.app.native['value']['NegotiationToken']['mechTypes'])
+				#print(self.app.native['value']['NegotiationToken']['mechTypes'][0])
+				#print(self.app.native['value']['NegotiationToken']['mechTypes'])
 
 				if self.app.native['value']['NegotiationToken']['mechTypes'][0] == 'NTLMSSP - Microsoft NTLM Security Support Provider':
 					self.authHandler = NTLMAUTHHandler()

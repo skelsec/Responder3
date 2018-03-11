@@ -1,3 +1,4 @@
+import io
 import enum
 import binascii
 import sys
@@ -21,6 +22,9 @@ class SMBHeader():
 		self.UID      = None
 		self.MID      = None
 
+	def from_bytes(bbuff):
+		return SMBHeader.from_buffer(io.BytesIO(bbuff))
+
 	def from_buffer(buff):
 		hdr = SMBHeader()
 		hdr.Protocol = buff.read(4)
@@ -43,28 +47,50 @@ class SMBHeader():
 		hdr.MID      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
 		return hdr
 
+	def construct(command, status, flags, flags2, uid = 0, mid = 0, tid = 0, securityfeatures = None, signature = None, pidhigh = 0, pidlow = 0):
+		hdr = SMBHeader()
+		hdr.Protocol = b'\xFFSMB'
+		hdr.Command  = command
+		hdr.Status   = status
+		hdr.Flags    = flags
+		hdr.Flags2   = flags2
+		hdr.PIDHigh  = pidhigh
 
-	"""
-	def toBytes(self):
-		buff = b''
-		buff += self.Protocol
-		buff += self.Command.value.to_bytes(1, byteorder = 'little')
-		buff += self.Status.value.to_bytes(4, byteorder = 'little')
-		buff += self.Flags.value.to_bytes(1, byteorder = 'little')
-		buff += self.Flags2.value.to_bytes(2, byteorder = 'little')
-		buff += self.PIDHigh.to_bytes(2, byteorder = 'little')
-		if self.isSigning:
-			buff += self.SecurityFeatures
+		if SMBHeaderFlags2Enum.SMB_FLAGS2_SMB_SECURITY_SIGNATURE in hdr.Flags2:
+			if securityfeatures is None:
+				raise Exception('SMB_FLAGS2_SMB_SECURITY_SIGNATURE is present but SecurityFeatures was not supplied!')
+			hdr.SecurityFeatures = securityfeatures
 		else:
-			buff += self.Signature
-		buff += self.Reserved.to_bytes(2, byteorder = 'little')
-		buff += self.TID.to_bytes(2, byteorder = 'little')
-		buff += self.PIDLow.to_bytes(2, byteorder = 'little')
-		buff += self.UID.to_bytes(2, byteorder = 'little')
-		buff += self.MID.to_bytes(2, byteorder = 'little')
+			if signature is not None:
+				hdr.Signature = signature
 
-		return buff
-	"""
+		hdr.Reserved = 0
+		hdr.TID      = tid
+		hdr.PIDLow   = pidlow
+		hdr.UID      = uid
+		hdr.MID      = mid
+
+		return hdr
+
+	def toBytes(self):
+		t  = self.Protocol
+		t += self.Command.value.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.Status.value.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.Flags.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.Flags2.value.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.PIDHigh.to_bytes(2, byteorder = 'little', signed=False)
+		if self.SecurityFeatures is not None:
+			t += self.SecurityFeatures
+		elif self.Signature is not None:
+			t += self.Signature
+		else:
+			t += b'\x00'*8
+		t += self.Reserved.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.TID.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.PIDLow.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.UID.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.MID.to_bytes(2, byteorder = 'little', signed=False)
+		return t
 
 	def __repr__(self):
 		t = '===SMBHeader===\r\n'
@@ -81,11 +107,11 @@ class SMBHeader():
 		return t
 
 #https://msdn.microsoft.com/en-us/library/ee441946.aspx
-class SMB_COM_NEGOTIATE_REPLY_PARAMS():
-	def __init__(self, data = None):
-		self.WordCount     = None
-		
-		self.DialectIndex  = None
+class SMB_COM_NEGOTIATE_REPLY():
+	def __init__(self):
+		##### SMB_Parameters #####
+		self.WordCount = None
+		self.DialectIndex = None #this is for really really old protocol dialects
 		self.SecurityMode  = None
 		self.MaxMpxCount   = None
 		self.MaxNumberVcs  = None
@@ -96,33 +122,84 @@ class SMB_COM_NEGOTIATE_REPLY_PARAMS():
 		self.SystemTime    = None
 		self.ServerTimeZone = None
 		self.ChallengeLength= None
+		##### SMB_Data #####
+		self.ByteCount  = None
+		self.Challenge  = None
+		self.DomainName = None
 
-		if data is not None:
-			self.parse(data)
+		self.uuid = None
+		self.secblob = None
+		
 
-	def parse(self, data):
-		self.WordCount       = data[0]
-		self.DialectIndex    = int.from_bytes(data[1:3], byteorder='little')
-		self.SecurityMode    = SMBSecurityMode(data[4])
-		self.MaxMpxCount     = int.from_bytes(data[5:6], byteorder='little')
-		self.MaxNumberVcs    = int.from_bytes(data[6:8], byteorder='little')
-		self.MaxBufferSize   = int.from_bytes(data[8:12], byteorder='little')
-		self.MaxRawSize      = int.from_bytes(data[12:16], byteorder='little')
-		self.SessionKey      = data[16:20]
+	def from_bytes(bbuff):
+		return SMB_COM_NEGOTIATE_REPLY.from_buffer(io.BytesIO(bbuff))
 
-		self.Capabilities    = SMBCapabilities(int.from_bytes(data[20:24], byteorder='little'))
-		self.SystemTime      = wintime2datetime(int.from_bytes(data[24:32], byteorder='little'))
-		self.ServerTimeZone  = int.from_bytes(data[32:34], byteorder='little')
-		self.ChallengeLength = data[34]
+	def from_buffer(buff):
+		msg = SMB_COM_NEGOTIATE_REPLY()
+		msg.WordCount       = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		msg.DialectIndex    = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		msg.SecurityMode    = SMBSecurityMode(buff.read(1))
+		msg.MaxMpxCount     = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		msg.MaxNumberVcs    = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		msg.MaxBufferSize   = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.MaxRawSize      = int.from_bytes(buff.read(4), byteorder='little', signed = False)
+		msg.SessionKey      = buff.read(4)
+
+		msg.Capabilities    = SMBCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
+		msg.SystemTime      = wintime2datetime(int.from_bytes(buff.read(8), byteorder='little', signed = False))
+		msg.ServerTimeZone  = int.from_bytes(buff.read(2), byteorder='little', signed = True)
+		msg.ChallengeLength = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+
+		msg.ByteCount       = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		msg.Challenge       = buff.read(msg.ChallengeLength)
+		msg.DomainName      = buff.read().deocde()
+		return msg
+
+	def construct(dialectindex, securitymode, sessionkey, capabilities, uuid, secblob, systemtime = datetime.datetime.utcnow()):
+		msg = SMB_COM_NEGOTIATE_REPLY()
+		msg.WordCount       = 0x11
+		msg.DialectIndex    = dialectindex
+		msg.SecurityMode    = securitymode
+		msg.MaxMpxCount     = 50
+		msg.MaxNumberVcs    = 1
+		msg.MaxBufferSize   = 16644
+		msg.MaxRawSize      = 65536
+		msg.SessionKey      = sessionkey
+
+		msg.Capabilities    = capabilities
+		msg.SystemTime      = systemtime
+		msg.ServerTimeZone  = 0
+		msg.ChallengeLength = 0
+
+		msg.ByteCount       = len(uuid.bytes_le) + len(secblob)
+		msg.uuid = uuid
+		msg.secblob = secblob
+
+		return msg
 
 	def toBytes(self):
-		####TODO
-		buff = b''
+		t  = b''
+		t += self.WordCount.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.DialectIndex.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityMode.value.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.MaxMpxCount.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.MaxNumberVcs.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.MaxBufferSize.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.MaxRawSize.to_bytes(4, byteorder = 'little', signed=False)
+		t += self.SessionKey
+		t += self.Capabilities.to_bytes(4, byteorder = 'little', signed=False)
+		t += dt2wt(self.SystemTime).to_bytes(8, byteorder = 'little', signed=False)
+		t += self.ServerTimeZone.to_bytes(2, byteorder = 'little', signed=True)
+		t += self.ChallengeLength.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.ByteCount.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.uuid.bytes_le
+		t += self.secblob
 
-		return buff
+		return t
+
 
 	def __repr__(self):
-		t = '===SMB_COM_NEGOTIATE_REPLY_PARAMS===\r\n'
+		t = '=== SMB_COM_NEGOTIATE_REPLY ===\r\n'
 		t += 'WordCount:     %d\r\n' % self.WordCount
 		t += 'DialectIndex:  %d\r\n' % self.DialectIndex
 		t += 'SecurityMode:  %s\r\n' % repr(self.SecurityMode)
@@ -138,95 +215,31 @@ class SMB_COM_NEGOTIATE_REPLY_PARAMS():
 
 		return t
 
-#https://msdn.microsoft.com/en-us/library/ee441946.aspx
-class SMB_COM_NEGOTIATE_REPLY_DATA():
-	def __init__(self, data = None):
-		self.ByteCount     = None
-		self.data = None
-
-		if data is not None:
-			self.parse(data)
-
-	def parse(self, data):
-		self.ByteCount       = int.from_bytes(data[0:2], byteorder='little')
-		self.data = data[2:2+self.ByteCount]
-
-	def __repr__(self):
-		t = '== SMB_COM_NEGOTIATE_REPLY_DATA ==\r\n'
-		t += 'ByteCount:     %d\r\n' % self.ByteCount
-		t += 'data:     %s\r\n' % self.data.hex()
-		return t
-
-class SMB_COM_NEGOTIATE_REPLY():
+#https://msdn.microsoft.com/en-us/library/ee441913.aspx
+class SMB_COM_NEGOTIATE_REQ():
 	def __init__(self):
-		self.params = SMB_COM_NEGOTIATE_REPLY_PARAMS()
-		self.data   = SMB_COM_NEGOTIATE_REPLY_DATA()
-
-	def __repr__(self):
-		t = '===SMB_COM_NEGOTIATE_REPLY===\r\n'
-		t += repr(self.params)
-		t += repr(self.data)	
-		return t
-
-
-class SMB_COM_NEGOTIATE_REQ_DATA():
-	def __init__(self):
+		##### parameters ####
+		self.WordCount = None
+		##### SMB_Data ###
 		self.ByteCount = None
 		self.Dialects  = None
 
-	def from_buffer(buff):
-		data = SMB_COM_NEGOTIATE_REQ_DATA()
-		data.ByteCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		data.Dialects  = []
-		for raw in buff.read(data.ByteCount).split(b'\x00'):
-			if raw == b'':
-				continue
-			data.Dialects.append(SMB_Dialect(raw))
-			
-
-		return data
-
-	def parse(self, data):
-		self.ByteCount = int.from_bytes(data[0:2], byteorder='little')
-		for raw in data[2:].split(b'\x00'):
-			if raw == b'':
-				continue
-			self.Dialects.append(SMB_Dialect(raw))
-
-
-	def __repr__(self):
-		t  = 'ByteCount: %d\r\n' % self.ByteCount
-		t += 'Dialects:\r\n'
-		for dialect in self.Dialects:
-			t += '\t%s\r\n' % repr(dialect)
-		
-		return t
-
-
-#https://msdn.microsoft.com/en-us/library/ee441913.aspx
-class SMB_COM_NEGOTIATE_REQ_PARAMS():
-	def __init__(self):
-		self.WordCount = None
-
-	def from_buffer(buff):
-		param = SMB_COM_NEGOTIATE_REQ_PARAMS()
-		param.WordCount = int.from_bytes(buff.read(1), byteorder='little', signed = False)
-		return param
-		
-	def __repr__(self):
-		t = ''
-		t += 'WordCount: %d\r\n' % self.WordCount		
-		return t
-
-class SMB_COM_NEGOTIATE_REQ():
-	def __init__(self):
-		self.params = None
-		self.data   = None
+	def from_bytes(bbuff):
+		return SMB_COM_NEGOTIATE_REQ.from_buffer(io.BytesIO(bbuff))
 
 	def from_buffer(buff):
 		cmd = SMB_COM_NEGOTIATE_REQ()
-		cmd.params = SMB_COM_NEGOTIATE_REQ_PARAMS.from_buffer(buff)
-		cmd.data   = SMB_COM_NEGOTIATE_REQ_DATA.from_buffer(buff)
+		cmd.WordCount = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		if cmd.WordCount > 0:
+			cmd.DialectIndex = []
+			for i in range(cmd.WordCount):
+				cmd.DialectIndex.append(int.from_bytes(buff.read(1), byteorder='little', signed = False))
+		cmd.ByteCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.Dialects  = []
+		for raw in buff.read(cmd.ByteCount).split(b'\x00'):
+			if raw == b'':
+				continue
+			cmd.Dialects.append(SMB_Dialect(raw))
 		return cmd
 
 	def __repr__(self):
@@ -234,6 +247,162 @@ class SMB_COM_NEGOTIATE_REQ():
 		t += repr(self.params)
 		t += repr(self.data)	
 		return t
+
+#https://msdn.microsoft.com/en-us/library/ee441849.aspx
+class SMB_COM_SESSION_SETUP_ANDX_REQ():
+	def __init__(self):
+		##### parameters ####
+		self.WordCount     = None
+		self.AndXCommand   = None
+		self.AndXReserved  = None
+		self.AndXOffset    = None
+		self.MaxBufferSize = None
+		self.MaxMpxCount   = None
+		self.VcNumber      = None
+		self.SessionKey    = None
+		self.SecurityBlobLen = None
+		self.Reserved      = None
+		self.Capabilities  = None
+		##### SMB_Data ###
+		self.ByteCount     = None
+		self.SecurityBlob  = None
+		self.NativeOS      = None
+		self.NativeLanMan  = None
+
+	def from_bytes(bbuff):
+		return SMB_COM_SESSION_SETUP_ANDX_REQ.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		cmd = SMB_COM_SESSION_SETUP_ANDX_REQ()
+		cmd.WordCount     = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXCommand   = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXReserved  = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXOffset    = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.MaxBufferSize = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.MaxMpxCount   = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.VcNumber      = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.SessionKey    = buff.read(4)
+		cmd.SecurityBlobLen = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.Reserved      = buff.read(4)
+		cmd.Capabilities  = SMBCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
+		cmd.ByteCount     = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.SecurityBlob  = buff.read(cmd.SecurityBlobLen)
+		#be careful of padding at this point, a padding byte of \x00 might be inserted to keep the strings on a 16 byte alignment
+		pos = buff.tell()
+		if pos %2 != 0:
+			buff.read(1)
+
+		#this parsing is disgusting, but i have no better idea...
+		t =  buff.read()
+		print(t)
+		print(t.decode('utf-16-le'))
+		print(t.split(b'\x00\x00\x00'))
+		t1, t2, *aaa = t.split(b'\x00\x00\x00')
+		cmd.NativeOS      = (t1+b'\x00').decode('utf-16-le')
+		cmd.NativeLanMan  = (t2+b'\x00').decode('utf-16-le')
+
+		return cmd
+
+
+	def __repr__(self):
+		t = '===SMB_COM_SESSION_SETUP_AND_X_REQ===\r\n'
+		t += repr(self.params)
+		t += repr(self.data)	
+		return t
+
+#https://msdn.microsoft.com/en-us/library/ee442143.aspx
+class SMB_COM_SESSION_SETUP_ANDX_REPLY():
+	def __init__(self):
+		##### parameters ####
+		self.WordCount     = None
+		self.AndXCommand   = None
+		self.AndXReserved  = None
+		self.AndXOffset    = None
+		self.Action        = None
+		self.SecurityBlobLen = None
+		##### SMB_Data ###
+		self.ByteCount     = None
+		self.SecurityBlob  = None
+		self.NativeOS      = None
+		self.NativeLanMan  = None
+
+	def from_bytes(bbuff):
+		return SMB_COM_SESSION_SETUP_ANDX_REPLY.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		cmd = SMB_COM_SESSION_SETUP_ANDX_REPLY()
+		cmd.WordCount     = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXCommand   = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXReserved  = int.from_bytes(buff.read(1), byteorder='little', signed = False)
+		cmd.AndXOffset    = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.Action        = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.SecurityBlobLen = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.ByteCount     = int.from_bytes(buff.read(2), byteorder='little', signed = False)
+		cmd.SecurityBlob  = buff.read(cmd.SecurityBlobLen)
+		#be careful of padding at this point, a padding byte of \x00 might be inserted to keep the strings on a 16 byte alignment
+		pos = buff.tell()
+		if pos %2 != 0:
+			buff.read(1)
+
+		#this parsing is disgusting, but i have no better idea...
+		t =  buff.read()
+		t1, t2, *aaa = t.split(b'\x00\x00\x00')
+		cmd.NativeOS      = t1.decode('utf16-le')
+		cmd.NativeLanMan  = t2.decode('utf16-le')
+
+		return cmd
+
+	def construct(secblob, nativeos, nativelanman):
+		cmd = SMB_COM_SESSION_SETUP_ANDX_REPLY()
+		cmd.WordCount     = 4
+		cmd.AndXCommand   = 0xff
+		cmd.AndXReserved  = 0
+		cmd.AndXOffset    = 0
+		cmd.Action        = 0
+		cmd.SecurityBlobLen = len(secblob)
+		cmd.ByteCount     = None #to be set when toBytes is invoked
+		cmd.SecurityBlob  = secblob
+		cmd.NativeOS      = nativeos
+		cmd.NativeLanMan  = nativelanman
+		return cmd
+
+	def toBytes(self):
+		t  = self.WordCount.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.AndXCommand.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.AndXReserved.to_bytes(1, byteorder = 'little', signed=False)
+		t += self.AndXOffset.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.Action.to_bytes(2, byteorder = 'little', signed=False)
+		t += self.SecurityBlobLen.to_bytes(2, byteorder = 'little', signed=False)
+
+		
+		nativeos = (self.NativeOS + '\x00').encode('utf-16-le')
+		nativelanman = (self.NativeLanMan + '\x00').encode('utf-16-le')
+		tlen = 2 + self.SecurityBlobLen + len(t)
+		padneeded = tlen %2 != 0
+
+		if padneeded:
+			tlen += 1
+
+		t += tlen.to_bytes(2, byteorder = 'little', signed=False) #this is he bytecount
+		t += self.SecurityBlob
+		if padneeded:
+			t += b'\x00'
+		t += nativeos
+		t += nativelanman
+
+		return t
+
+
+
+	def __repr__(self):
+		t = '===SMB_COM_SESSION_SETUP_AND_X_REQ===\r\n'
+		t += repr(self.params)
+		t += repr(self.data)	
+		return t
+
+class SMBSetupAction(enum.Enum):
+	SMB_SETUP_GUEST = 0x0001
+	SMB_SETUP_USE_LANMAN_KEY = 0x0002
 
 #https://msdn.microsoft.com/en-us/library/ee441616.aspx
 class SMBCommand(enum.Enum): #SMB_COM
@@ -289,6 +458,7 @@ class SMBHeaderFlags2Enum(enum.IntFlag):
 	SMB_FLAGS2_EAS = 0x0002
 	SMB_FLAGS2_SMB_SECURITY_SIGNATURE = 0x0004
 	SMB_FLAGS2_IS_LONG_NAME = 0x0040
+	SMB_FLAGS2_EXTENDED_SECURITY = 0x0800
 	SMB_FLAGS2_DFS = 0x1000
 	SMB_FLAGS2_PAGING_IO = 0x2000
 	SMB_FLAGS2_NT_STATUS = 0x4000
@@ -317,6 +487,7 @@ class SMBCapabilities(enum.IntFlag):
 	CAP_DFS              = 0x00001000
 	CAP_QUADWORD_ALIGNED = 0x00002000
 	CAP_LARGE_READX      = 0x00004000
+	CAP_NT_EXTENDED_SECURITY = 0x80000000
 
 class SMB_Dialect():
 	def __init__(self, data = None):
@@ -326,6 +497,16 @@ class SMB_Dialect():
 		if data is not None:
 			self.parse(data)
 
+	""" TODO!!!
+	def from_bytes(bbuff):
+		return SMB_Dialect.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(buff):
+		cmd = SMB_Dialect()
+		cmd.BufferFormat  = buff.read(1)
+		cmd.DialectString = SMB_COM_NEGOTIATE_REQ_DATA.from_buffer(buff)
+		return cmd
+	"""
 	def parse(self, data):
 		self.BufferFormat  = data[0]
 		self.DialectString = data[1:].decode('ascii')
@@ -341,6 +522,9 @@ class SMBMessage():
 		self.header    = None
 		self.command   = None
 
+	def from_bytes(bbuff):
+		return SMBMessage.from_buffer(io.BytesIO(bbuff))
+
 	def from_buffer(buff):
 		msg = SMBMessage()
 		msg.header = SMBHeader.from_buffer(buff)
@@ -353,6 +537,11 @@ class SMBMessage():
 		msg.command = class_.from_buffer(buff)
 		
 		return msg
+
+	def toBytes(self):
+		t  = self.header.toBytes()
+		t += self.command.toBytes() 
+		return t
 
 	def __repr__(self):
 		t = '== SMBMessage ==\r\n'

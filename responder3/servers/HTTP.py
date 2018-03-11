@@ -164,11 +164,6 @@ class HTTP(ResponderServer):
 		
 		else:
 			while not self.session.close_session.is_set():
-				#req = yield from asyncio.wait_for(self.parse_message(), timeout = 10)
-				#print('=== proxyying request ====')
-				#print(req)
-				#repacking the proxy request into a normal request
-
 				o = urlparse(req.uri)
 				if o.netloc.find(':') != -1:
 					rhost, rport = o.netloc.split(':')
