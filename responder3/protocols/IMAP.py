@@ -2,6 +2,17 @@
 #https://tools.ietf.org/html/rfc3501
 import io
 import enum
+import asyncio
+from responder3.protocols import ProtocolBase
+from responder3.core.commons import readline_or_exc, read_element, Credential
+
+class IMAPVersion(enum.Enum):
+	IMAP    = 'IMAP'
+	IMAPv4    = 'IMAPv4'
+	IMAP4rev1 = 'IMAP4rev1'
+
+class IMAPAuthMethod(enum.Enum):
+	PLAIN = enum.auto()
 
 class IMAPState(enum.Enum):
 	NOTAUTHENTICATED = enum.auto()
@@ -9,7 +20,7 @@ class IMAPState(enum.Enum):
 	SELECTED         = enum.auto()
 	LOGOUT           = enum.auto()
 
-class IMAPResponseCode(enum.Enum):
+class IMAPResponse(enum.Enum):
 	OK         = enum.auto()
 	NO         = enum.auto()
 	BAD        = enum.auto()
@@ -55,32 +66,7 @@ class IMAPCommand(enum.Enum):
 	UID          = enum.auto()
 	XXXX         = enum.auto()
 
-"""
-IMAPResponseGroup = {
-	'STATUS' : [IMAPServerResponse.OK,
-				IMAPServerResponse.NO,
-				IMAPServerResponse.BAD,
-				IMAPServerResponse.PREAUTH,
-	],
-	
-	'MBSTATUS':[ IMAPServerResponse.CAPABILITY,
-				IMAPServerResponse.LIST,
-				IMAPServerResponse.LSUB,
-				IMAPServerResponse.STATUS,
-				IMAPServerResponse.SEARCH,
-				IMAPServerResponse.FLAGS,
-	],
 
-	'MBSIZE':[  IMAPServerResponse.EXISTS,
-				IMAPServerResponse.RECENT,
-	],
-	'MSGSTAT':[  IMAPServerResponse.EXPUNGE,
-				 IMAPServerResponse.FETCH,
-	],
-	#'CMDCONTRQ':[
-	#],
-}
-"""
 
 class IMAPCommandParser():
 	#def __init__(self, strict = False, encoding = self.encoding):
@@ -88,209 +74,647 @@ class IMAPCommandParser():
 		self.imapcommand = None
 		self.strict      = strict
 		self.encoding    = encoding
+		self.timeout     = 10
 
-	def parse(self, buff):
-		raw = buff.readline()
+	@asyncio.coroutine
+	def from_streamreader(self, reader):
+		cmd = yield from readline_or_exc(reader, timeout = self.timeout)
+		return self.from_bytes(cmd)
+
+	def from_bytes(self, bbuff):
+		return self.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(self, buff):
+		line = buff.readline()
 		try:
-			tag, command, *params = raw[:-2].decode(self.encoding).split(' ')
-			command = IMAPCommand[command]
-			if command == IMAPCommand.CAPABILITY:
-				self.imapcommand = IMAPCAPABILITYCommand(tag)
-			elif command == IMAPCommand.NOOP:
-				self.imapcommand = IMAPNOOPCommand(tag)
-			elif command == IMAPCommand.LOGOUT:
-				self.imapcommand = IMAPLOGOUTCommand(tag)
-			elif command == IMAPCommand.STARTTLS:
-				self.imapcommand = IMAPSTARTTLSCommand(tag)
-			elif command == IMAPCommand.AUTHENTICATE:
-				self.imapcommand = IMAPAUTHENTICATECommand(tag)
-			elif command == IMAPCommand.LOGIN:
-				self.imapcommand = IMAPLOGINCommand(tag, username= params[0], password= params[1])
-			elif command == IMAPCommand.SELECT:
-				self.imapcommand = IMAPSELECTCommand(tag)
-			elif command == IMAPCommand.EXAMINE:
-				self.imapcommand = IMAPEXAMINECommand(tag)
-			elif command == IMAPCommand.CREATE:
-				self.imapcommand = IMAPCREATECommand(tag)
-			elif command == IMAPCommand.DELETE:
-				self.imapcommand = IMAPDELETECommand(tag)
-			elif command == IMAPCommand.RENAME:
-				self.imapcommand = IMAPRENAMECommand(tag)
-
-
-
+			tag, command, *params = line.strip().decode(self.encoding).split(' ')
+			if command in IMAPCommand.__members__:
+				cmd = IMAPCMD[IMAPCommand[command]].from_bytes(line)
 			else:
-				self.imapcommand = IMAPXXXXCommand()
-				self.imapcommand.raw_data = raw
-
-			return  self.imapcommand
+				cmd = IMAPXXX.from_bytes(line)
+			return cmd
 
 		except Exception as e:
 			print(str(e))
-			self.imapcommand = IMAPXXXXCommand()
-			self.imapcommand.raw_data = raw
+			return IMAPXXX.from_bytes(line)
 
 
-class IMAPCommandBASE():
-	def __init__(self, tag):
-		self.tag     = tag
-		self.command = None
-		self.params  = None
+class IMAPResponseParser():
+	def __init__(self, strict = False, encoding = 'utf-7'):
+		self.imapcommand = None
+		self.strict      = strict
+		self.encoding    = encoding
+		self.timeout     = 10
 
-	def toBytes(self):
-		#This function can be optionally overridden in the classes inheriting this class.
-		#currently only providing functionality for strings, not taking ciommand-specific "ABNF" niotation into account
-		if self.args != []:
-			return b' '.join([self.tag.encode(self.encoding),self.command.name.encode(self.encoding),b' '.join([arg.encode(self.encoding) for arg in self.args])]) + b'\r\n'
-		else:
-			return b' '.join([self.tag.encode(self.encoding),self.command.name.encode(self.encoding)])+ b'\r\n'
+	@asyncio.coroutine
+	def from_streamreader(self, reader):
+		resp = yield from readline_or_exc(reader, timeout = self.timeout)
+		return self.from_bytes(resp)
 
-	def __repr__(self):
-		t  = '== IMAP Command ==\r\n' 
-		t += 'TAG     : %s\r\n' % self.tag
-		t += 'Command : %s\r\n' % self.command.name
-		t += 'ARGS    : %s\r\n' % (' '.join(self.params) if self.params is not None else 'NONE')
-		return t
+	def from_bytes(self, bbuff):
+		return self.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(self, buff):
+		line = buff.readline()
+		try:
+			tag, *params = line.strip().decode(self.encoding).split(' ')
+			if tag == '*':
+				command = params[0]
+				if command in IMAPResponse.__members__:
+					resp = IMAPRESP[IMAPResponse[command]].from_bytes(line)
+				else:
+					resp = IMAPXXX.from_bytes(line)
+			else:
+				if params[0] == 'OK':
+					resp = IMAPOKResp.from_bytes(line)
+				elif params[0] == 'BAD':
+					resp = IMAPBADResp.from_bytes(line)
+				elif params[0] == 'NO':
+					resp = IMAPNOResp.from_bytes(line)
+				else:
+					resp = IMAPXXX.from_bytes(line)
+
+			return resp
+
+		except Exception as e:
+			print(str(e))
+			return IMAPXXX.from_bytes(line)
 
 
-class IMAPCAPABILITYCommand(IMAPCommandBASE):
-	#no args
-	def __init__(self, tag):
-		IMAPCommandBASE.__init__(self, tag)
+def read_list(line):
+	temp = read_element(line, marker = '(', marker_end = ')')
+	return temp[1:-1].split(' ')
+
+
+class IMAPXXX():
+	def __init__(self):
+		self.data = None
+
+	def from_bytes(bbuff):
+		cmd = IMAPXXX()
+		cmd.data = bbuff
+		return cmd
+
+	def __str__(self):
+		return '%s' % self.data
+
+class IMAPCAPABILITYCmd():
+	# Arguments:  none
+	# Responses:  REQUIRED untagged response: CAPABILITY
+	# Result: [OK, BAD]
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.CAPABILITY
-		self.params  = None
 
-class IMAPNOOPCommand(IMAPCommandBASE):
-	#no args
-	def __init__(self, tag = '*'):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPCAPABILITYCmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPCAPABILITYCmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[bbuff]
+		return cmd
+
+	def construct(tag):
+		cmd = IMAPCAPABILITYCmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+	def __str__(self):
+		return '%s %s\r\n' % (self.tag, self.command.name)
+
+class IMAPCAPABILITYResp():
+	#must be untagged!
+	def __init__(self):
+		self.tag     = '*'
+		self.command = IMAPCommand.CAPABILITY
+		self.capabilities = []
+
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPCAPABILITYResp.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		resp = IMAPCAPABILITYResp()
+		resp.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		resp.command = IMAPCommand[t]
+		resp.capabilities = bbuff.split(' ')
+
+		return resp
+
+	def construct(supported_versions, supported_auth_types, additional_capabilities, tag = '*'):
+		resp = IMAPCAPABILITYResp()
+		resp.tag = tag
+		for cap in supported_versions:
+			resp.capabilities.append(cap.name)
+		for cap in additional_capabilities:
+			resp.capabilities.append(cap.name)
+		for auth in supported_auth_types:
+			resp.capabilities.append('AUTH=%s' % auth)
+
+		return resp
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % (self.tag, self.command.name, ' '.join(self.capabilities))).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, ' '.join(self.capabilities))
+
+
+class IMAPNOOPCmd():
+	#Arguments:  none
+	#Responses:  no specific responses for this command (but see below)
+	#Result:     OK,BAD 
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.NOOP
-		self.params  = None
 
-class IMAPLOGOUTCommand(IMAPCommandBASE):
-	#no args
-	def __init__(self, tag = '*'):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPNOOPCmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPNOOPCmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[bbuff]
+		return cmd
+
+	def construct(tag):
+		cmd = IMAPNOOPCmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+	def __str__(self):
+		return '%s %s\r\n' % (self.tag, self.command.name)
+
+class IMAPLOGOUTCmd():
+	#Arguments:  none
+	#Responses:  REQUIRED untagged response: BYE
+	#Result:     OK,BAD - command unknown or arguments invalid
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.NOOP
-		self.params  = None
 
-class IMAPSTARTTLSCommand(IMAPCommandBASE):
-	#tag mandatory
-	def __init__(self, tag):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPLOGOUTCmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPLOGOUTCmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[bbuff]
+		return cmd
+
+	def construct(tag):
+		cmd = IMAPLOGOUTCmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+	def __str__(self):
+		return '%s %s\r\n' % (self.tag, self.command.name)
+
+class IMAPSTARTTLSCmd():
+	#Arguments:  none
+	#Responses:  no specific response for this command
+	# Result:     OK, BAD
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.STARTTLS
-		self.params  = None
 
-class IMAPAUTHENTICATECommand(IMAPCommandBASE):
-	#tag mandatory
-	#auth mechanism mandatory
-	def __init__(self, tag, authMecha):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPSTARTTLSCmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPSTARTTLSCmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[bbuff]
+		return cmd
+
+	def construct(tag):
+		cmd = IMAPSTARTTLSCmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+	def __str__(self):
+		return '%s %s\r\n' % (self.tag, self.command.name)
+
+class IMAPAUTHENTICATECmd():
+	#Arguments:  authentication mechanism name
+	#Responses:  continuation data can be requested
+	#Result:     OK,NO,BAD 
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.AUTHENTICATE
-		self.params  = [authMecha]
+		self.authmecha = None
 
-class IMAPLOGINCommand(IMAPCommandBASE):
-	#tag mandatory
-	#username mandatory
-	#password mandatory
-	def __init__(self, tag, username, password):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPAUTHENTICATECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		print('Here!')
+		try:
+			bbuff = bbuff.decode(encoding).strip()
+			cmd = IMAPAUTHENTICATECmd()
+			cmd.tag, bbuff = read_element(bbuff)
+			t, bbuff = read_element(bbuff)
+			cmd.command = IMAPCommand[t]
+			cmd.authmecha = bbuff
+			return cmd
+		except Exception as e:
+			print(str(e))
+			raise e
+
+	def construct(tag, authmecha):
+		cmd = IMAPAUTHENTICATECmd()
+		cmd.tag = tag
+		cmd.authmecha = authmecha
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s \r\n' % self.tag, self.command.value, self.authmecha).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.authmecha)
+
+class IMAPLOGINCmd():
+	#Arguments:  user name,password
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.LOGIN
-		self.params  = [username, password]
+		self.username = None
+		self.password = None
 
-class IMAPSELECTCommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPLOGINCmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPLOGINCmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.username, bbuff = read_element(bbuff)
+		cmd.password = bbuff
+		return cmd
+		
+
+	def construct(tag, username, password):
+		cmd = IMAPLOGINCmd()
+		cmd.tag = tag
+		cmd.username = username
+		cmd.password = password
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.username, self.password).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s %s\r\n' % (self.tag, self.command.name, self.username, self.password)
+
+class IMAPSELECTCmd():
+	#Arguments:  mailbox name
+	#Responses:  REQUIRED untagged responses: FLAGS, EXISTS, RECENT
+    #            REQUIRED OK untagged responses:  UNSEEN,  PERMANENTFLAGS,
+    #            UIDNEXT, UIDVALIDITY
+	#Result:     OK,NO,BAD - command unknown or arguments invalid
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.SELECT
-		self.params  = [mailboxName]
+		self.mailboxname = None
 
-class IMAPSELECTCommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
-		self.command = IMAPCommand.SELECT
-		self.params  = [mailboxName]
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPSELECTCmd.from_bytes(buff.readline(),encoding)
 
-class IMAPEXAMINECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		print('Here!')
+		try:
+			bbuff = bbuff.decode(encoding).strip()
+			cmd = IMAPSELECTCmd()
+			cmd.tag, bbuff = read_element(bbuff)
+			t, bbuff = read_element(bbuff)
+			cmd.command = IMAPCommand[t]
+			cmd.mailboxname = bbuff
+			return cmd
+		except Exception as e:
+			print(str(e))
+			raise e
+
+	def construct(tag, mailboxname):
+		cmd = IMAPSELECTCmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+
+class IMAPEXAMINECmd():
+	#Arguments:  mailbox name
+	#Responses:  REQUIRED untagged responses: FLAGS, EXISTS, RECENT
+	#            REQUIRED OK untagged responses:  UNSEEN,  PERMANENTFLAGS,
+	#            UIDNEXT, UIDVALIDITY
+	#Result:     OK,NO,BAD - command unknown or arguments invalid
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.EXAMINE
-		self.params  = [mailboxName]
+		self.mailboxname = None
 
-class IMAPCREATECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPEXAMINECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPEXAMINECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+
+	def construct(tag, mailboxname):
+		cmd = IMAPEXAMINECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+class IMAPCREATECmd():
+	#Arguments:  mailbox name
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD - command unknown or arguments invalid
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.CREATE
-		self.params  = [mailboxName]
+		self.mailboxname = None
 
-class IMAPDELETECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPCREATECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPCREATECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+
+	def construct(tag, mailboxname):
+		cmd = IMAPCREATECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+class IMAPDELETECmd():
+	#Arguments:  mailbox name
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.DELETE
-		self.params  = [mailboxName]
+		self.mailboxname = None
 
-class IMAPRENAMECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	#newMailboxName mandatory
-	def __init__(self, tag, mailboxName, newMailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPDELETECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPDELETECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+
+
+	def construct(tag, mailboxname):
+		cmd = IMAPDELETECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+class IMAPRENAMECmd():
+	#Arguments:  existing mailbox name
+	#           new mailbox name
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.RENAME
-		self.params  = [mailboxName, newMailboxName]
+		self.mailboxname = None
+		self.newmailboxname = None
 
-class IMAPSUBSCRIBECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPRENAMECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPRENAMECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+	def construct(tag, mailboxname,newmailboxname):
+		cmd = IMAPRENAMECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		cmd.newmailboxname = newmailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.mailboxname, self.newmailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname, self.newmailboxname)
+
+class IMAPSUBSCRIBECmd():
+	#Arguments:  mailbox	
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.SUBSCRIBE
-		self.params  = [mailboxName]
+		self.mailboxname = None
 
-class IMAPUNSUBSCRIBECommand(IMAPCommandBASE):
-	#tag mandatory
-	#mailboxName mandatory
-	def __init__(self, tag, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
-		self.command = IMAPCommand.USUBSCRIBE
-		self.params  = [mailboxName]
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPSUBSCRIBECmd.from_bytes(buff.readline(),encoding)
 
-class IMAPLISTCommand(IMAPCommandBASE):
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPSUBSCRIBECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+
+	def construct(tag, mailboxname):
+		cmd = IMAPSUBSCRIBECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+class IMAPUNSUBSCRIBECmd():
+	#Arguments:  mailbox	
+	#Responses:  no specific responses for this command
+	#Result:     OK,NO,BAD
+	def __init__(self):
+		self.tag     = None
+		self.command = IMAPCommand.UNSUBSCRIBE
+		self.mailboxname = None
+
+	def from_buffer(buff, encoding = 'utf-7'):
+		return IMAPUNSUBSCRIBECmd.from_bytes(buff.readline(),encoding)
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = IMAPUNSUBSCRIBECmd()
+		cmd.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff)
+		cmd.command = IMAPCommand[t]
+		cmd.mailboxname = bbuff
+		return cmd
+
+	def construct(tag, mailboxname):
+		cmd = IMAPUNSUBSCRIBECmd()
+		cmd.tag = tag
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s\r\n' % self.tag, self.command.value, self.mailboxname).encode(encoding)
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.mailboxname)
+
+class IMAPLISTCmd():
 	#tag mandatory
 	#reference name mandatory
 	#mailboxName mandatory
-	def __init__(self, tag, refName, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
-		self.command = IMAPCommand.LIST
-		self.params  = [refName, mailboxName]
+	def __init__(self):
+		self.tag     = None
+		self.command      = IMAPCommand.LIST
+		self.refname      = None
+		self.mailboxname  = None
 
-class IMAPLSUBCommand(IMAPCommandBASE):
+	def construct(refname,mailboxname, tag = '*'):
+		cmd = IMAPLISTCmd()
+		cmd.refname = refname
+		cmd.mailboxname = mailboxname
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPLISTCmd()
+		cmd.tag = tag
+		cmd.refname = params[0]
+		cmd.mailboxname = params[1]
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.refname, self.mailboxname).encode(encoding)
+
+class IMAPLSUBCmd():
 	#tag mandatory
 	#reference name mandatory
 	#mailboxName mandatory
-	def __init__(self, tag, refName, mailboxName):
-		IMAPCommandBASE.__init__(self, tag)
-		self.command = IMAPCommand.LSUB
-		self.params  = [refName, mailboxName]
+	def __init__(self):
+		self.tag     = None
+		self.command      = IMAPCommand.LSUB
+		self.refname      = None
+		self.mailboxname  = None
 
-class IMAPSTATUSCommand(IMAPCommandBASE):
+	def construct(refname,mailboxname, tag = '*'):
+		cmd = IMAPLSUBCmd()
+		cmd.refname = refname
+		cmd.mailboxname = mailboxname
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPLSUBCmd()
+		cmd.tag = tag
+		cmd.refname = params[0]
+		cmd.mailboxname = params[1]
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.refname, self.mailboxname).encode(encoding)
+
+"""TODO
+class IMAPSTATUSCmd():
 	#tag mandatory
 	#mailboxName mandatory
 	#status data item names
-	def __init__(self, tag, mailboxName, statusData):
-		IMAPCommandBASE.__init__(self, tag)
-		self.command = IMAPCommand.STATUS
-		self.params  = [mailboxName, statusData]
+	def __init__(self):
+		self.tag     = None
+		self.command      = IMAPCommand.LSUB
+		self.refname      = None
+		self.mailboxname  = None
 
-"""TODO
+	def construct(refname,mailboxname, tag = '*'):
+		cmd = IMAPLSUBCmd()
+		cmd.refname = refname
+		cmd.mailboxname = mailboxname
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPLSUBCmd()
+		cmd.tag = tag
+		cmd.refname = params[0]
+		cmd.mailboxname = params[1]
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.refname, self.mailboxname).encode(encoding)
+
+
 class IMAPAPPENDCommand(IMAPCommandBASE):
 	#tag mandatory
 	#mailboxName mandatory
@@ -303,62 +727,263 @@ class IMAPAPPENDCommand(IMAPCommandBASE):
 		self.params  = [mailboxName, statusData]
 """
 
-class IMAPCHECKCommand(IMAPCommandBASE):
-	#tag mandatory
-	def __init__(self, tag):
-		IMAPCommandBASE.__init__(self, tag)
+class IMAPCHECKCmd():
+	#no args
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.CHECK
-		self.params  = None
 
-class IMAPCLOSECommand(IMAPCommandBASE):
-	#tag mandatory
-	def __init__(self, tag):
-		IMAPCommandBASE.__init__(self, tag)
+	def construct(tag = '*'):
+		cmd = IMAPCHECKCmd()
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPCHECKCmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+class IMAPCLOSECmd():
+	#no args
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.CLOSE
-		self.params  = None
 
-class IMAPEXPUNGECommand(IMAPCommandBASE):
-	#tag mandatory
-	def __init__(self, tag):
-		IMAPCommandBASE.__init__(self, tag)
+	def construct(tag = '*'):
+		cmd = IMAPCLOSECmd()
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPCLOSECmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
+
+class IMAPEXPUNGECmd():
+	#no args
+	def __init__(self):
+		self.tag     = None
 		self.command = IMAPCommand.EXPUNGE
-		self.params  = None
+
+	def construct(tag = '*'):
+		cmd = IMAPEXPUNGECmd()
+		cmd.tag = tag
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPEXPUNGECmd()
+		cmd.tag = tag
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s\r\n' % self.tag, self.command.value).encode(encoding)
 
 """TODO
-class IMAPSEARCHCommand(IMAPCommandBASE):
+class IMAPSEARCHCommand():
 	#tag mandatory
 	def __init__(self, tag):
 		self.tag     = tag
 		self.command = IMAPCommand.SEARCH
 		self.params  = None	
 
-class IMAPFETCHCommand(IMAPCommandBASE):
+class IMAPFETCHCommand():
 	#tag mandatory
 	def __init__(self, tag):
 		self.tag     = tag
 		self.command = IMAPCommand.FETCH
 		self.params  = None
 
-class IMAPSTORECommand(IMAPCommandBASE):
+class IMAPSTORECommand():
 	#tag mandatory
 	def __init__(self, tag):
 		self.tag     = tag
 		self.command = IMAPCommand.STORE
 		self.params  = None
+"""
 
-class IMAPCOPYCommand(IMAPCommandBASE):
+class IMAPCOPYCmd():
+	#tag mandatory
+	def __init__(self):
+		self.tag     = None
+		self.command = IMAPCommand.COPY
+		self.sequence    = None
+		self.mailboxname = None
+
+	def construct(sequence, mailboxname,tag = '*'):
+		cmd = IMAPCOPYCmd()
+		cmd.tag = tag
+		cmd.sequence = sequence
+		cmd.mailboxname = mailboxname
+		return cmd
+
+	def from_params(tag = '*', params = None):
+		cmd = IMAPCOPYCmd()
+		cmd.tag = tag
+		cmd.sequence = params[0]
+		cmd.mailboxname = params[1]
+		return cmd
+
+	def to_bytes(self, encoding = 'utf-7'):
+		return ('%s %s %s %s\r\n' % self.tag, self.command.value, self.sequence, self.mailboxname).encode(encoding)
+
+"""TODO
+class IMAPUIDCommand():
 	#tag mandatory
 	def __init__(self, tag):
 		self.tag     = tag
 		self.command = IMAPCommand.COPY
 		self.params  = None
+"""
 
-class IMAPUIDCommand(IMAPCommandBASE):
-	#tag mandatory
-	def __init__(self, tag):
-		self.tag     = tag
-		self.command = IMAPCommand.COPY
-		self.params  = None
+class IMAPOKResp():
+	#tag optional
+	#args optional
+	def __init__(self):
+		self.tag = '*'
+		self.status = IMAPResponse.OK
+		self.args = []
+
+	def construct(args, tag = '*'):
+		resp = IMAPOKResp()
+		resp.tag = tag
+		if isinstance(args, list):
+			resp.args = args
+		else:
+			resp.args = [args]
+		return resp
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		resp = IMAPOKResp()
+		resp.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff, toend = True)
+		resp.status = IMAPResponse[t]
+		if bbuff != '':
+			resp.args = bbuff.split(' ')
+
+		return resp
+
+	def to_bytes(self):
+		return ('%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')).encode('utf-7')
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
+
+class IMAPBYEResp():
+	#tag optional
+	#args optional
+	def __init__(self):
+		self.tag = '*'
+		self.status = IMAPResponse.BYE
+		self.args = []
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		resp = IMAPBYEResp()
+		resp.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff, toend = True)
+		resp.status = IMAPResponse[t]
+		if bbuff != '':
+			resp.args = bbuff.split(' ')
+
+		return resp
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
+
+class IMAPBADResp():
+	#tag optional
+	#args optional
+	def __init__(self):
+		self.tag = '*'
+		self.status = IMAPResponse.BAD
+		self.args = []
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		resp = IMAPBADResp()
+		resp.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff, toend = True)
+		resp.status = IMAPResponse[t]
+		if bbuff != '':
+			resp.args = bbuff.split(' ')
+
+		return resp
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
+
+class IMAPNOResp():
+	#tag optional
+	#args optional
+	def __init__(self):
+		self.tag = '*'
+		self.status = IMAPResponse.NO
+		self.args = []
+
+	def from_bytes(bbuff, encoding = 'utf-7'):
+		bbuff = bbuff.decode(encoding).strip()
+		resp = IMAPNOResp()
+		resp.tag, bbuff = read_element(bbuff)
+		t, bbuff = read_element(bbuff, toend = True)
+		resp.status = IMAPResponse[t]
+		if bbuff != '':
+			resp.args = bbuff.split(' ')
+
+		return resp
+
+	def __str__(self):
+		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
+
+
+class IMAPAuthHandler:
+	def __init__(self, authtype = IMAPAuthMethod.PLAIN, creds = None):
+		if authtype == IMAPAuthMethod.PLAIN:
+			self.authenticator = IMAPPlainAuth(creds)
+		else:
+			raise NotImplementedError
+
+	def do_AUTH(self, cmd):
+		return self.authenticator.verify_creds(cmd)
+
+
+class IMAPPlainAuth:
+	def __init__(self, creds):
+		self.creds = creds
+
+	def verify_creds(self, cmd):
+		c = IMAPPlainCred(cmd.username, cmd.password)
+		if self.creds is None:
+			return True, c.toCredential()
+		else:
+			if c.username in self.creds:
+				if self.creds[c.username] == c.passwrod:
+					return True, c.toCredential()
+
+			else:
+				return False, c.toCredential()
+
+		return False, c.toCredential()
+
+
+class IMAPPlainCred:
+	def __init__(self, username, password):
+		self.username = username
+		self.password = password
+
+	def toCredential(self):
+		return Credential('PLAIN', 
+			username = self.username,
+			password = self.password,
+			fullhash = '%s:%s' % (self.username, self.password)
+		)
+
 """
 class IMAPResponse():
 	def __init__(self, tag, encoding = 'utf-7'):
@@ -367,7 +992,7 @@ class IMAPResponse():
 		self.status = None
 		self.params = None
 
-	def toBytes(self):
+	def to_bytes(self):
 		if self.tag is None: 
 			self.tag = '*'
 
@@ -384,32 +1009,6 @@ class IMAPResponse():
 
 
 
-
-class IMAPOKResp(IMAPResponse):
-	#tag optional
-	#args optional
-	def __init__(self, tag = None, msg = None):
-		IMAPResponse.__init__(self, tag)
-		self.status = IMAPResponseCode.OK
-		self.params = [msg] if msg is not None else msg
-
-class IMAPNOResp(IMAPResponse):
-	#tag optional
-	#args optional
-	def __init__(self, tag = None, msg = None):
-		IMAPResponse.__init__(self, tag)
-		self.tag = tag
-		self.status = IMAPResponseCode.NO
-		self.params = [msg] if msg is not None else msg
-
-class IMAPBADResp(IMAPResponse):
-	#tag optional
-	#args optional
-	def __init__(self, tag = None, msg = None):
-		IMAPResponse.__init__(self, tag)
-		self.tag = tag
-		self.status = IMAPResponseCode.BAD
-		self.params = [msg] if msg is not None else msg
 
 class IMAPPREAUTHResp(IMAPResponse):
 	#always untagged
@@ -436,22 +1035,11 @@ class IMAPCAPABILITYResp(IMAPResponse):
 		self.status = IMAPResponseCode.CAPABILITY
 		self.params = [str(capabilities)]
 
-"""
-class IMAPLISTResp():
-	#tag optional
-	#capabilities is an IMAPCapabilities object!
-	def __init__(self, tag, capabilities):
-		self.tag = tag
-		self.status = IMAPResponseCode.LIST
-		self.params = [str(capabilities)]
 
-
-"""
 class IMAPCapabilities():
 	def __init__(self, authMethods):
 		self.authMethods  = authMethods
 		self.capabilities = []
-
 
 	def __str__(self):
 		return ' '.join(self.capabilities) + ' ' + str(self.authMethods)
@@ -462,46 +1050,41 @@ class IMAPAuthMethods():
 
 	def __str__(self):
 		return ' AUTH='.join(['']+self.methods).strip()
-
-
-
-"""
-class IMAPResponse():
-	def __init__(self, buff = None):
-		self.tag    = None
-		self.status = None
-		self.args   = None
-
-		if buff is not None:
-			self.parse(buff)
-
-	def parse(self,buff):
-		temp = buff.readline()[:-2].decode(self.encoding).split(' ')
-		self.tag = temp[0]
-		self.status = IMAPServerResponse[temp[1]]
-		self.args   = temp[2:]
-		while True:
-			temp = buff.read(1).decode(self.encoding)
-			if temp != '.':
-				buff.seek(-1, io.SEEK_CUR)
-				break
-			else:
-				self.args += buff.readline()[:-2].decode(self.encoding)
-
-	def toBytes(self):
-		if self.args != []:
-			return b' '.join([self.tag.encode(self.encoding), self.status.name.encode(self.encoding),  b' '.join([arg.encode(self.encoding) for arg in self.args])]) + b'\r\n'
-		else:
-			return b' '.join([self.tag.encode(self.encoding), self.status.name.encode(self.encoding)]) + b'\r\n'
-
-	def construct(self, tag, status, args):
-		self.tag    = tag
-		self.status = status
-		if isinstance(args, str):
-			self.args = [args]
-		else:
-			self.args = args
-
 """
 
+IMAPRESP = {
+	IMAPResponse.CAPABILITY   : IMAPCAPABILITYResp,
+	IMAPResponse.BYE   : IMAPBYEResp,
+	IMAPResponse.OK   : IMAPOKResp,
+	IMAPResponse.BAD   : IMAPBADResp,
+}
 
+
+IMAPCMD = {
+	IMAPCommand.CAPABILITY   : IMAPCAPABILITYCmd,
+	IMAPCommand.NOOP         : IMAPNOOPCmd,
+	IMAPCommand.LOGOUT       : IMAPLOGOUTCmd,
+	IMAPCommand.STARTTLS     : IMAPSTARTTLSCmd,
+	IMAPCommand.AUTHENTICATE : IMAPAUTHENTICATECmd,
+	IMAPCommand.LOGIN        : IMAPLOGINCmd,
+	IMAPCommand.SELECT       : IMAPSELECTCmd,
+	IMAPCommand.EXAMINE      : IMAPEXAMINECmd,
+	IMAPCommand.CREATE       : IMAPCREATECmd,
+	IMAPCommand.DELETE       : IMAPDELETECmd,
+	IMAPCommand.RENAME       : IMAPRENAMECmd,
+	IMAPCommand.SUBSCRIBE    : IMAPSUBSCRIBECmd,
+	IMAPCommand.UNSUBSCRIBE  : IMAPUNSUBSCRIBECmd,
+	IMAPCommand.LIST         : IMAPLISTCmd,
+	IMAPCommand.LSUB         : IMAPLSUBCmd,
+	#IMAPCommand.STATUS       : IMAPSTATUSCmd,
+	#IMAPCommand.APPEND       : IMAPAPPENDCmd,
+	#IMAPCommand.CLIENT       : IMAPCLIENTCmd,
+	#IMAPCommand.CHECK        : IMAPCHECKCmd,
+	#IMAPCommand.CLOSE        : IMAPCLOSECmd,
+	#IMAPCommand.EXPUNGE      : IMAPEXPUNGECmd,
+	#IMAPCommand.SEARCH       : IMAPSEARCHCmd,
+	#IMAPCommand.FETCH        : IMAPFETCHCmd,
+	#IMAPCommand.STORE        : IMAPSTORECmd,
+	#IMAPCommand.COPY         : IMAPCOPYCmd,
+	#IMAPCommand.UID          : IMAPUIDCmd,
+}

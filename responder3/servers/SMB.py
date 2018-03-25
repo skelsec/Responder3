@@ -23,7 +23,7 @@ class SMBSession(ResponderServerSession):
 		self.SMBdialect   = ['NT LM 0.12']
 		self.commondialect = None
 
-		self.currentState = SMB2ServerState.UNAUTHENTICATED
+		self.current_state = SMB2ServerState.UNAUTHENTICATED
 		self.gssapihandler = GSSAPIAuthHandler()
 		self.serverUUID = uuid.UUID(bytes=os.urandom(16))
 		self.SMBSessionID = os.urandom(8)
@@ -32,14 +32,15 @@ class SMBSession(ResponderServerSession):
 
 
 	def __repr__(self):
-		t  = '== HTTPSession ==\r\n'
-		t += 'HTTPVersion:      %s\r\n' % repr(self.HTTPVersion)
-		t += 'HTTPContentEncoding: %s\r\n' % repr(self.HTTPContentEncoding)
-		t += 'HTTPConectentCharset: %s\r\n' % repr(self.HTTPConectentCharset)
-		t += 'HTTPAtuhentication: %s\r\n' % repr(self.HTTPAtuhentication)
-		t += 'HTTPCookie:       %s\r\n' % repr(self.HTTPCookie)
-		t += 'HTTPServerBanner: %s\r\n' % repr(self.HTTPServerBanner)
-		t += 'currentState:     %s\r\n' % repr(self.currentState)
+		t  = '== SMBSession ==\r\n'
+		t += 'SMBprotocol:      %s\r\n' % repr(self.HTTPVersion)
+		t += 'SMBdialect: %s\r\n' % repr(self.HTTPContentEncoding)
+		t += 'commondialect: %s\r\n' % repr(self.HTTPConectentCharset)
+		t += 'current_state: %s\r\n' % repr(self.HTTPAtuhentication)
+		t += 'gssapihandler:       %s\r\n' % repr(self.HTTPCookie)
+		t += 'serverUUID: %s\r\n' % repr(self.HTTPServerBanner)
+		t += 'SMBSessionID:     %s\r\n' % repr(self.current_state)
+		t += 'SMBMessageCnt:     %s\r\n' % repr(self.current_state)
 		return t
 
 class SMB(ResponderServer):
@@ -95,11 +96,15 @@ class SMB(ResponderServer):
 		yield from self.cwriter.drain()
 
 	@asyncio.coroutine
+	def send_authfailed(self, smbmessage):
+		return
+
+	@asyncio.coroutine
 	def run(self):
 		try:
 			while True:
 				msg = yield from asyncio.wait_for(self.parse_message(None), timeout = None)
-				if self.session.currentState == SMB2ServerState.UNAUTHENTICATED:
+				if self.session.current_state == SMB2ServerState.UNAUTHENTICATED:
 					#this could be SMB/NegotiateProtocol or SMB2/NegotiateProtocol or SMB2/SessionSetup
 					if msg.type == 1:
 						if msg.header.Command == SMBCommand.SMB_COM_NEGOTIATE:
@@ -121,7 +126,7 @@ class SMB(ResponderServer):
 								else:
 									continue
 								break
-							#now, for smbv1 we need to get the index of the dialect... 
+							#now, for smbv1 we need to get the index of the selected dialect... 
 							preferred_dialect_idx = 0
 							for dialect in [dialect.DialectString for dialect in msg.command.Dialects]:
 								if dialect == preferred_dialect:
@@ -175,14 +180,9 @@ class SMB(ResponderServer):
 						else:
 							if msg.header.Command == SMBCommand.SMB_COM_SESSION_SETUP_ANDX:
 								status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.SecurityBlob)
-								if creds is not None:
-									if isinstance(creds, list):
-										for cred in creds:
-											print(cred.toResult())
-									else:
-										print(creds.toResult())
-									return
-								resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
+								
+								if status == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
+									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_MORE_PROCESSING_REQUIRED, 
 																	
 																	SMBHeaderFlagsEnum.SMB_FLAGS_REPLY|
@@ -196,9 +196,64 @@ class SMB(ResponderServer):
 																	pidhigh = msg.header.PIDHigh,
 																	pidlow = msg.header.PIDLow,
 																)
-								resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(data, 'Windows 2003', 'blabla')
-								a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
-								continue
+									resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(secblob = data, 
+																							  nativeos = 'Windows 2003', 
+																							  nativelanman = 'blabla'
+																							)
+									a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+									continue
+
+								elif status == NTStatus.STATUS_ACCOUNT_DISABLED:
+									if creds is not None:
+										for cred in creds:
+											self.logCredential(cred.toCredential())
+									
+									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
+																	NTStatus.STATUS_ACCOUNT_DISABLED, 
+																	
+																	SMBHeaderFlagsEnum.SMB_FLAGS_REPLY|
+																	SMBHeaderFlagsEnum.SMB_FLAGS_CASE_INSENSITIVE, 
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_EXTENDED_SECURITY|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_NT_STATUS|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_LONG_NAMES,
+																	uid = msg.header.UID,
+																	mid = msg.header.MID,
+																	pidhigh = msg.header.PIDHigh,
+																	pidlow = msg.header.PIDLow,
+																)
+									resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(secblob = data, 
+																							  nativeos = 'Windows 2003', 
+																							  nativelanman = 'blabla'
+																							)
+									a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+									continue
+								
+								elif status == NTStatus.STATUS_SUCCESS:
+									if creds is not None:
+										for cred in creds:
+											self.logCredential(cred.toCredential())
+									self.session.current_state = SMB2ServerState.AUTHENTICATED
+									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
+																	NTStatus.STATUS_SUCCESS, 
+																	
+																	SMBHeaderFlagsEnum.SMB_FLAGS_REPLY|
+																	SMBHeaderFlagsEnum.SMB_FLAGS_CASE_INSENSITIVE, 
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_UNICODE|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_EXTENDED_SECURITY|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_NT_STATUS|
+																	SMBHeaderFlags2Enum.SMB_FLAGS2_LONG_NAMES,
+																	uid = msg.header.UID,
+																	mid = msg.header.MID,
+																	pidhigh = msg.header.PIDHigh,
+																	pidlow = msg.header.PIDLow,
+																)
+									resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(secblob = data, 
+																							  nativeos = 'Windows 2003', 
+																							  nativelanman = 'blabla'
+																							)
+
+								
 							else:
 								raise Exception('not implemented!')
 
@@ -216,11 +271,9 @@ class SMB(ResponderServer):
 						elif msg.header.Command == SMB2Command.SESSION_SETUP:
 							status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.Buffer)
 							if creds is not None:
-								if isinstance(creds, list):
-									for cred in creds:
-										print(cred.toResult())
-								else:
-									print(creds.toResult())
+								for cred in creds:
+									self.logCredential(cred.toCredential())
+								return
 							
 							resp = SMB2Message()
 							resp.header = SMB2Header_ASYNC.construct(SMB2Command.SESSION_SETUP, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, 1 ,status = NTStatus.STATUS_MORE_PROCESSING_REQUIRED,
@@ -231,7 +284,7 @@ class SMB(ResponderServer):
 						else:
 							raise Exception('Dunno!')
 
-				if self.session.currentState == SMB2ServerState.AUTHENTICATED:
+				if self.session.current_state == SMB2ServerState.AUTHENTICATED:
 					raise Exception('Dunno what to do now that authentication was sucsessfull')
 
 

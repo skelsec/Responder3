@@ -46,7 +46,6 @@ class ServerProperties():
 		self.platform = commons.get_platform()
 
 	def from_dict(settings):
-
 		sp = ServerProperties()
 
 		if 'interfaced' in settings and settings['interfaced'] is not None:
@@ -90,9 +89,10 @@ class ServerProperties():
 		if 'settings' in settings:
 			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
 
-		if 'sslctx' in settings:
+		if 'bind_sslctx' in settings:
 			sp.bind_porotcol = commons.ServerProtocol.SSL
-			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['sslctx'], server_side= True)
+			sslctx = settings['bind_sslctx'] if isinstance(settings['bind_sslctx'], dict) else settings['bind_sslctx'][0] #sometimes deepcpy creates a touple insted of dict here
+			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['bind_sslctx'], server_side= True)
 
 		if 'shared_rdns' in settings and settings['shared_rdns'] is not None:
 			sp.shared_rdns = settings['shared_rdns']

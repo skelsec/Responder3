@@ -30,12 +30,11 @@ class SSLContextBuilder():
 	def __init__(self):
 		pass
 
-	def from_dict(sslsettings, server_side = None):
+	def from_dict(sslsettings, server_side = False):
 		protocols = [ssl.PROTOCOL_SSLv23]
 		options = []
 		verify_mode = ssl.CERT_NONE
 		ciphers = 'ALL'
-		server_side = False
 		"""
 		protocols or ('PROTOCOL_SSLv3','PROTOCOL_TLSv1',
 								  'PROTOCOL_TLSv1_1','PROTOCOL_TLSv1_2')
@@ -68,8 +67,6 @@ class SSLContextBuilder():
 		if server_side is None:
 			if 'server_side' in sslsettings:
 				server_side = sslsettings['server_side']
-		else:
-			server_side = server_side
 
 		context = ssl.SSLContext(protocols[0])
 		context.verify_mode = verify_mode
@@ -599,3 +596,59 @@ def hexdump( src, length=16, sep='.' ):
 		result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text));
 
 	return '\n'.join(result);
+
+
+def get_mutual_preference(preference, offered):
+	# this is a commonly used algo when we need to determine the mutual option
+	# which is both supported by the client and the server, in order of the
+	# server's preference
+	"""
+	preference: (list) server's preferred option in order of preference (DESC)
+	offered: (list) the options the client support, we don't care about the client's preferences so it can be in any order
+	"""
+	clinet_supp = set(offered)
+	server_supp = set(preference)
+	common_supp = server_supp.intersection(clinet_supp)
+	if common_supp is None:
+		return None, None
+	
+	preferred_opt = None
+	for srv_option in preference:
+		for common_option in common_supp:
+			if common_option == srv_option:
+				preferred_opt = srv_option
+				break
+		else:
+			continue
+		break
+	
+	#getting index of the preferred option... 
+	preferred_opt_idx = 0
+	for option in offered:
+		if option == preferred_opt:
+		#preferred_dialect_idx += 1
+			break
+		preferred_opt_idx += 1
+
+	return (preferred_opt, preferred_opt_idx)
+
+
+def read_element(line, marker = ' ', marker_end = None, toend = False):
+	if marker_end is None:
+		m = line.find(marker)
+		if m == -1:
+			if toend:
+				return line, ''
+			print(line)
+			raise Exception('Marker not found!')
+		element = line[:m]
+		line = line[m+len(marker):]
+		return element, line
+	else:
+		start = line.find(marker)
+		end   = line.find(marker_end)
+		if start == -1 or end == -1 or end <= start:
+			raise Exception('Marker not found!')
+		element = line[start:end]
+		line = line[end:]
+		return element, line

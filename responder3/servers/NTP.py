@@ -41,7 +41,7 @@ class NTPSession(ResponderServerSession):
 
 class NTP(ResponderServer):
 	def init(self):
-		self.parser = NTPPacket
+		self.parser = NTPmsg
 
 	@asyncio.coroutine
 	def parse_message(self):
@@ -57,7 +57,7 @@ class NTP(ResponderServer):
 		try:
 			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			self.log('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
-			response = NTPPacket.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
+			response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
 			
 			yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 

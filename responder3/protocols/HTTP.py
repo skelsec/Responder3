@@ -8,7 +8,8 @@ import asyncio
 import collections
 
 from responder3.core.commons import *
-from responder3.protocols.NTLM import NTLMAUTHHandler, NTLMAuthStatus
+from responder3.protocols.NTLM import NTLMAUTHHandler
+from responder3.protocols.SMB.ntstatus import *
 
 class HTTPVersion(enum.Enum):
 	HTTP10 = 'HTTP/1.0'
@@ -134,9 +135,9 @@ def compress_body(req_resp, modify_internal = False):
 
 	else:
 		if modify_internal:
-			req_resp.body = req_resp.body
+			req_resp.body = req_resp.body.encode()
 		else:
-			return req_resp.body
+			return req_resp.body.encode()
 	
 
 class HTTPRequest():
@@ -191,17 +192,17 @@ class HTTPRequest():
 		return t
 		
 	@asyncio.coroutine
-	def from_streamreader(reader):
+	def from_streamreader(reader, timeout = None):
 		try:
 			req = HTTPRequest()
-			firstline = yield from readline_or_exc(reader)
+			firstline = yield from readline_or_exc(reader, timeout = timeout)
 			try:
 				req.method, req.uri, t = firstline.decode('ascii').strip().split(' ')
 				req.version = HTTPVersion(t.upper())
 			except Exception as e:
 				raise e
 
-			hdrs = yield from readuntil_or_exc(reader, b'\r\n\r\n')
+			hdrs = yield from readuntil_or_exc(reader, b'\r\n\r\n', timeout = timeout)
 			hdrs = hdrs[:-4].decode('ascii').split('\r\n')
 			for hdr in hdrs:
 				marker = hdr.find(': ')
@@ -229,7 +230,7 @@ class HTTPRequest():
 				return req
 
 			else:
-				req.body = yield from read_or_exc(reader, int(req.headers[req.clen]))
+				req.body = yield from read_or_exc(reader, int(req.headers[req.clen]), timeout = timeout)
 				if req.cenc is not None:
 					decompress_body(req, modify_internal=True)
 			return req
@@ -312,17 +313,17 @@ class HTTPResponse():
 		self.ccon = None
 
 	@asyncio.coroutine
-	def from_streamreader(reader):
+	def from_streamreader(reader, timeout = None):
 		resp = HTTPResponse()
-		t = yield from readuntil_or_exc(reader, b' ')
+		t = yield from readuntil_or_exc(reader, b' ', timeout = timeout)
 		resp.version = HTTPVersion(t.decode().upper().strip())
-		t = yield from readuntil_or_exc(reader, b' ')
+		t = yield from readuntil_or_exc(reader, b' ', timeout = timeout)
 		resp.code = int(t.decode().strip())
-		t = yield from readline_or_exc(reader)
+		t = yield from readline_or_exc(reader, timeout = timeout)
 		resp.reason = t.decode().strip()
 
 		resp.headers = collections.OrderedDict()
-		hdrs = yield from reader.readuntil(b'\r\n\r\n')
+		hdrs = yield from reader.readuntil(b'\r\n\r\n', timeout = timeout)
 		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
 		for hdr in hdrs:
 			marker = hdr.find(': ')
@@ -349,7 +350,7 @@ class HTTPResponse():
 			return resp
 
 		else:
-			resp.body = yield from reader.read(int(resp.headers[resp.clen]))
+			resp.body = yield from reader.read(int(resp.headers[resp.clen]), timeout = timeout)
 			if resp.cenc is not None:
 				decompress_body(resp, modify_internal=True)
 		return resp
@@ -582,7 +583,7 @@ class HTTPBasicAuth():
 			else:
 				httpserver.session.currentState = HTTPState.AUTHFAILED
 
-			httpserver.logCredential(self.userCreds.toResult())
+			httpserver.logCredential(self.userCreds.toCredential())
 
 		else:
 			if self.isProxy:
@@ -606,7 +607,7 @@ class BASICUserCredentials():
 		self.username = None
 		self.password = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('Cleartext',
 							username = self.username, 
 							password = self.password, 
@@ -635,7 +636,7 @@ class HTTPNTLMAuth():
 
 		if authHdr in httpRequest.headers and httpRequest.headers[authHdr][:4].upper() == 'NTLM':
 			authStatus, ntlmMessage, creds = self.hander.do_AUTH(base64.b64decode(httpRequest.headers[authHdr][5:]))
-			if self.status == 0 and authStatus == NTLMAuthStatus.FAIL:
+			if self.status == 0 and authStatus == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
 				self.status += 1
 				if self.isProxy:
 					a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
@@ -643,15 +644,18 @@ class HTTPNTLMAuth():
 					a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
 				return
 			
-			elif self.status == 1 and authStatus == NTLMAuthStatus.FAIL:
-				httpserver.session.currentState = HTTPState.AUTHFAILED
-				for cred in creds:
-					httpserver.logCredential(cred.toResult())
+			elif self.status == 1 and authStatus == NTStatus.STATUS_ACCOUNT_DISABLED:
+				#### TODO!!!! When NTLM credential verification is implemented, uncomment the lines below!!!
+				#### and comment out the auth successful line!
+				#httpserver.session.currentState = HTTPState.AUTHFAILED
+				#for cred in creds:
+				#	httpserver.logCredential(cred.toCredential())
+				httpserver.session.currentState = HTTPState.AUTHENTICATED
 
-			elif self.status == 1 and authStatus == NTLMAuthStatus.OK:
+			elif self.status == 1 and authStatus == NTStatus.STATUS_SUCCESS:
 				httpserver.session.currentState = HTTPState.AUTHENTICATED
 				for cred in creds:
-					httpserver.logCredential(cred.toResult())
+					httpserver.logCredential(cred.toCredential())
 
 			else:
 				raise Exception('Unexpected status')
@@ -661,216 +665,3 @@ class HTTPNTLMAuth():
 			else:
 				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').toBytes()), timeout = 1)
 			return
-
-"""
-class HTTPRequestParser():
-	def __init__(self, strict = False, encoding = 'ascii'):
-		self.httprequest = None
-		self.strict      = strict
-		self.encoding    = encoding
-
-	def parseHeader(self, buff):
-		self.httprequest = HTTPRequest()
-		buff = buff.decode(self.encoding)
-		hdrs = buff.split('\r\n')
-		self.httprequest.method, self.httprequest.uri, self.httprequest.version = hdrs[0].split(' ')
-		for hdr in hdrs[1:]:
-			marker = hdr.find(': ')
-			key   = hdr[:marker]
-			value = hdr[marker+2:]
-			key = key.lower()
-			if key == 'content-encoding':
-				#TODO
-				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				self.httprequest.headers[key] = HTTPContentEncoding[value]
-			else:
-				self.httprequest.headers[key] = value
-
-		if 'content-length' in self.httprequest.headers:
-			return int(self.httprequest.headers['content-length'])
-		else:
-			return 0
-
-	def parseBody(self, buff):
-		try:
-			#TODO!!
-			#1. decompression
-			#2. check charset, and apply that specific decoding (https://www.w3.org/International/articles/http-charset/index)
-			
-			decompressed_buff = b''
-			decompressed_buff = buff
-			self.httprequest.body = decompressed_buff.decode('utf-8')
-
-			t = self.httprequest
-			self.httprequest = None
-			return t
-
-						if 'content-encoding' in self.httprequest.headers:
-				if self.httprequest.headers['content-encoding'] == HTTPContentEncoding.IDENTITY:
-					decompressed_buff = buff
-				
-				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.GZIP:
-					raise Exception('Not Implemented!')
-					#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
-
-				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.COMPRESS:
-					raise Exception('Not Implemented!')
-
-				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.DEFLATE:
-					raise Exception('Not Implemented!')
-
-				elif self.httprequest.headers['content-encoding'] == HTTPContentEncoding.BR:
-					raise Exception('Not Implemented!')
-				else:
-					raise Exception('Encofding format not recognized!')
-
-			else:
-				self.httprequest.body = body
-
-			
-		except Exception as e:
-			raise
-
-
-
-
-
-	def HTTPNTLMAuthHandler(req, transport, session):
-		if 'authorization' in req.headers and req.headers['authorization'][:4] == 'NTLM':
-			#print('Authdata in! %s' % (base64.b64decode(req.headers['authorization'][4:]).decode('ascii')))
-			if session.HTTPAtuhentication._iterations == 0:
-				session.HTTPAtuhentication._iterations = 1
-				c = NTLMChallenge.construct_from_template('Windows2003')
-				session.HTTPAtuhentication.ServerChallenge = c.ServerChallenge
-				transport.write(HTTP401Resp(session, 'NTLM '+c.toBase64()).toBytes())
-			
-			elif session.HTTPAtuhentication._iterations == 1:
-				session.HTTPAtuhentication._iterations = 2
-				print(req.headers['authorization'][5:])
-				a = NTLMAuthenticate.from_bytes(base64.b64decode(req.headers['authorization'][5:]))
-				print(repr(a))
-
-				#THIS IS TERRIBLE!!!! TODODODODODODODODODODOD!!!!
-				#we'd need to check what authentication method is used exacly (choices: NTLMv1 NTLMv1extended NTLMv2)
-				if len(a.NTBytes) == 24:
-					print('%s::%s:%s:%s:%s' % (a.UserName, a.Workstation, a.LMBytes.hex(), a.NTBytes.hex(), session.HTTPAtuhentication.ServerChallenge))
-
-				else:
-					print('%s::%s:%s:%s:%s' % (a.UserName, a.DomainName, session.HTTPAtuhentication.ServerChallenge, a.NTBytes.hex()[:32], a.NTBytes.hex()[32:]))
-
-				
-				#'%s::%s:%s:%s:%s' % (User, Domain, settings.Config.NumChal, NTHash[:32], NTHash[32:])
-				#'%s::%s:%s:%s:%s' % (User, HostName, LMHash, NTHash, settings.Config.NumChal)
-
-				
-			elif session.HTTPAtuhentication._iterations == 2:
-				raise Exception('unexpected iter')
-
-
-		else:
-			print(HTTP401Resp(session, 'NTLM').toBytes())
-			transport.write(HTTP401Resp(session, 'NTLM').toBytes())
-
-
-
-
-	def RandomChallenge(self):
-		if self.settings['NumChal'] == "random":
-			from random import getrandbits
-			NumChal = '%016x' % getrandbits(16 * 4)
-			Challenge = b''
-			for i in range(0, len(NumChal),2):
-				Challenge += bytes.fromhex(NumChal[i:i+2])
-			return Challenge
-		else:
-			return bytes.fromhex(self.settings['Challenge'])
-
-class HTTPAuthorization():
-	def __init__(self):
-		self.type = ''
-		self.data = ''
-
-	def parse(self, t):
-		marker = t.find(' ')
-		if marker == -1:
-			raise Exception('Header parsing error!' + repr(line))
-
-		self.type = t[:marker]
-		self.data = t[marker+1:]
-
-	def toDict(self):
-		t = {}
-		t['type'] = self.type
-		t['data'] = self.data
-		return t
-
-
-
-class HTTPRequest():
-	def __init__(self):
-		self.method = ''
-		self.uri = ''
-		self.version = ''
-		self.headers = {}
-		self.data = None
-
-		self.authorization = None
-
-		self.isWebDAV = False
-		self.isFirefox = False
-		self.isWpad = False
-
-	def parse(self, data):
-		self.rawdata = data
-		header, self.data = self.rawdata.split('\r\n\r\n')
-
-		request = ''
-		first = True
-		for line in header.split('\r\n'):
-			if first:
-				request = line
-				first = False
-				continue
-
-			marker = line.find(':')
-			if marker == -1:
-				raise Exception('Header parsing error!' + repr(line))
-			
-			self.headers[line[:marker].strip().lower()] = line[marker+1:].strip()
-
-		self.method, self.uri, self.version = request.split(' ')
-
-		if self.uri.endswith('wpad.dat') or self.uri.endswith('.pac'):
-			self.isWpad = True
-
-		if self.method == 'PROPFIND':
-			self.isWebDAV = True
-
-		if 'user-agent' in self.headers:
-			if self.headers['user-agent'].find('Firefox') != -1:
-				self.isFirefox = True
-
-		if 'authorization' in self.headers:
-			self.authorization = HTTPAuthorization()
-			self.authorization.parse(self.headers['authorization'])
-
-class HTTPAuthorization():
-	def __init__(self):
-		self.type = ''
-		self.data = ''
-
-	def parse(self, t):
-		marker = t.find(' ')
-		if marker == -1:
-			raise Exception('Header parsing error!' + repr(line))
-
-		self.type = t[:marker]
-		self.data = t[marker+1:]
-
-	def toDict(self):
-		t = {}
-		t['type'] = self.type
-		t['data'] = self.data
-		return t
-
-"""

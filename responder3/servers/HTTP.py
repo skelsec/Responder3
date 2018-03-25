@@ -1,3 +1,4 @@
+import enum
 import logging
 import asyncio
 from urllib.parse import urlparse
@@ -5,6 +6,11 @@ from urllib.parse import urlparse
 from responder3.core.commons import *
 from responder3.protocols.HTTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+
+
+class HTTPServerMode(enum.Enum):
+	PROXY = 'PROXY'
+	CREDSTEALER = 'CREDSTEALER'
 
 class HTTPSession(ResponderServerSession):
 	def __init__(self, *args):
@@ -15,9 +21,9 @@ class HTTPSession(ResponderServerSession):
 		self.HTTPAtuhentication   = None
 		self.HTTPCookie           = None
 		self.HTTPServerBanner     = None
-		self.currentState         = HTTPState.UNAUTHENTICATED
+		self.current_state         = HTTPState.UNAUTHENTICATED
 		self.invisible            = False
-		self.isproxy              = True
+		self.mode                 = True
 		self.proxy_closed         = asyncio.Event()
 		self.SSLintercept         = False
 		self.close_session        = asyncio.Event()
@@ -30,7 +36,7 @@ class HTTPSession(ResponderServerSession):
 		t += 'HTTPAtuhentication: %s\r\n' % repr(self.HTTPAtuhentication)
 		t += 'HTTPCookie:       %s\r\n' % repr(self.HTTPCookie)
 		t += 'HTTPServerBanner: %s\r\n' % repr(self.HTTPServerBanner)
-		t += 'currentState:     %s\r\n' % repr(self.currentState)
+		t += 'current_state:     %s\r\n' % repr(self.current_state)
 		return t
 
 class HTTP(ResponderServer):
@@ -42,7 +48,7 @@ class HTTP(ResponderServer):
 	def parse_settings(self):
 		if self.settings is None:
 			#default settings, basically just NTLM auth
-			self.session.isproxy = True
+			self.session.mode = HTTPServerMode.CREDSTEALER
 			
 			#self.session.HTTPAtuhentication   = HTTPNTLMAuth(isProxy = self.session.isproxy)
 			#self.session.HTTPAtuhentication.setup()
@@ -50,15 +56,20 @@ class HTTP(ResponderServer):
 			
 			
 		else:
+			if 'mode' in self.settings:
+				self.session.mode = HTTPServerMode(self.settings['mode'].upper())
+
 			if 'authentication' in self.settings:
 				#supported authentication mechanisms
 				if self.settings['authentication']['authmecha'].upper() == 'NTLM':
-					self.session.HTTPAtuhentication   = HTTPNTLMAuth(isProxy = self.session.isproxy)
+					self.session.HTTPAtuhentication   = HTTPNTLMAuth(isProxy = self.session.mode == HTTPServerMode.PROXY)
 					if 'settings' in self.settings['authentication']:
 						self.session.HTTPAtuhentication.setup(self.settings['authentication']['settings'])
+					else:
+						self.session.HTTPAtuhentication.setup()
 				
 				elif self.settings['authmecha'].upper() == 'BASIC':
-					self.session.HTTPAtuhentication  = HTTPBasicAuth(isProxy = self.session.isproxy)
+					self.session.HTTPAtuhentication  = HTTPBasicAuth(isProxy = self.session.mode == HTTPServerMode.PROXY)
 
 				else:
 					raise Exception('Unsupported HTTP authentication mechanism: %s' % (self.settings['authentication']['authmecha']))
@@ -68,7 +79,7 @@ class HTTP(ResponderServer):
 
 
 	@asyncio.coroutine
-	def parse_message(self, timeout = 10):
+	def parse_message(self, timeout = None):
 		try:
 			req = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout = timeout)
 			return req
@@ -223,27 +234,27 @@ class HTTP(ResponderServer):
 	def run(self):
 		try:
 			while not self.session.close_session.is_set():
-				req = yield from asyncio.wait_for(self.parse_message(), timeout = 10)
+				req = yield from asyncio.wait_for(self.parse_message(), timeout = None)
 				if req is None:
 					#connection closed exception happened in the parsing
 					self.session.close_session.set()
 					continue
 				#print(req)
-				#print(self.session.currentState)
+				#print(self.session.current_state)
 				
-				if self.session.currentState == HTTPState.UNAUTHENTICATED and self.session.HTTPAtuhentication is None:
-					self.session.currentState == HTTPState.AUTHENTICATED
+				if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.HTTPAtuhentication is None:
+					self.session.current_state == HTTPState.AUTHENTICATED
 				
-				if self.session.currentState == HTTPState.UNAUTHENTICATED:
+				if self.session.current_state == HTTPState.UNAUTHENTICATED:
 					yield from self.session.HTTPAtuhentication.do_AUTH(req, self)
 
-				if self.session.currentState == HTTPState.AUTHFAILED:
+				if self.session.current_state == HTTPState.AUTHFAILED:
 					yield from asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').toBytes()), timeout = 1)
 					self.cwriter.close()
 					return
 
-				if self.session.currentState == HTTPState.AUTHENTICATED:
-					if self.session.isproxy:
+				if self.session.current_state == HTTPState.AUTHENTICATED:
+					if self.session.mode == HTTPServerMode.PROXY:
 						a = yield from asyncio.wait_for(self.httpproxy(req), timeout = None)
 					else:
 						#serve page or whatever

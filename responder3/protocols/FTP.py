@@ -1,5 +1,10 @@
 #https://tools.ietf.org/html/rfc959
+import io
 import enum
+import asyncio
+import traceback
+
+from responder3.core.commons import readline_or_exc, read_element, Credential
 
 class FTPState(enum.Enum):
 	AUTHORIZATION = enum.auto()
@@ -44,7 +49,7 @@ class FTPCommand(enum.Enum):
 	FEAT = enum.auto()
 	EPSV = enum.auto()
 	SIZE = enum.auto()
-	XXXX = enum.auto()
+	XXX = enum.auto()
 
 FTPReplyCode = {
 	'110' : "Restart marker reply.",
@@ -91,241 +96,126 @@ FTPReplyCode = {
 
 class FTPCommandParser():
 	def __init__(self, strict = False, encoding = 'ascii'):
-		self.ftpcommand  = None
 		self.strict      = strict
 		self.encoding    = encoding
 
-	def parse(self, buff):
-		raw = buff.readline()
+	@asyncio.coroutine
+	def from_streamreader(self, reader, timeout = 60):
+		cmd = yield from readline_or_exc(reader, timeout=timeout)
+		return self.from_bytes(cmd)
+
+	def from_bytes(self, bbuff):
+		return self.from_buffer(io.BytesIO(bbuff))
+
+	def from_buffer(self, buff):
+		line = buff.readline()
 		try:
-			temp = raw[:-2].decode('ascii').split(' ')
-			command = FTPCommand[temp[0]]
-			if command == FTPCommand.USER:
-				self.ftpcommand = FTPUSERCmd(temp[1])
-
-			elif command == FTPCommand.PASS:
-				self.ftpcommand = FTPPASSCmd(temp[1])
-
+			command, *params = line.strip().decode(self.encoding).split(' ')
+			if command in FTPCommand.__members__:
+				return FTPCMD[FTPCommand[command]].from_bytes(line)
 			else:
-				self.ftpcommand = SMTPXXXXCommand()
-				self.ftpcommand.raw_data = raw
+				return FTPXXXCmd.from_bytes(line)
 
 		except Exception as e:
-			print(str(e))
-			self.ftpcommand = SMTPXXXXCommand()
-			self.ftpcommand.raw_data = raw
-
-		return self.ftpcommand
+			traceback.print_exc()
+			#print(str(e))
+			return FTPXXXCmd.from_bytes(line)
 
 
-class FTPCommandBASE():
-	def __init__(self):
-		self.cmd = None
+class FTPUSERCmd:
+	def __init__(self, encoding = 'ascii'):
+		self.encoding = encoding
+		self.command  = FTPCommand.USER
+		self.username = None
 
-	def toBytes(self):
-		return self.cmd.name.encode('ascii') + b' ' + self.params.encode('ascii') + b'\r\n'
+	@staticmethod
+	def from_buffer(buff, encoding='ascii'):
+		return FTPUSERCmd.from_bytes(buff.readline(), encoding)
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = FTPUSERCmd()
+		t, bbuff = read_element(bbuff)
+		cmd.command = FTPCommand[t]
+		cmd.username, bbuff = read_element(bbuff, toend=True)
+		return cmd
+
+	@staticmethod
+	def construct(username):
+		cmd = FTPUSERCmd()
+		cmd.username = username
+		return cmd
+
+	def to_bytes(self):
+		return ('%s %s\r\n' % (self.command.value, self.username)).encode(self.encoding)
 
 	def __repr__(self):
-		t  = '== FTP Command == \r\n'
-		t += 'Command: %s\r\n' % self.cmd.name
-		t += 'Params : %s\r\n' % (''.join(self.params) if self.params is not None else 'NONE')
+		t = '== FTP %s Command ==\r\n' % self.command.name
+		t += 'Command : %s\r\n' % self.command.name
+		t += 'Username    : %s\r\n' % self.username
 		return t
 
-class FTPUSERCmd(FTPCommandBASE):
-	def __init__(self, username):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.USER
-		self.params = [username]
 
-class FTPPASSCmd(FTPCommandBASE):
-	def __init__(self, password):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.PASS
-		self.params = [password]
+class FTPPASSCmd:
+	def __init__(self, encoding = 'ascii'):
+		self.encoding = encoding
+		self.command  = FTPCommand.USER
+		self.password = None
 
+	@staticmethod
+	def from_buffer(buff, encoding='ascii'):
+		return FTPPASSCmd.from_bytes(buff.readline(), encoding)
 
-class FTPACCTCmd(FTPCommandBASE):
-	def __init__(self, account):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.ACCT
-		self.params = [account]
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = FTPPASSCmd()
+		t, bbuff = read_element(bbuff)
+		cmd.command = FTPCommand[t]
+		cmd.password, bbuff = read_element(bbuff, toend=True)
+		return cmd
 
-class FTPCWDCmd(FTPCommandBASE):
-	def __init__(self, pathname):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.CWD
-		self.params = [pathname]
+	@staticmethod
+	def construct(username):
+		cmd = FTPPASSCmd()
+		cmd.username = username
+		return cmd
 
-class FTPCDUPCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.CDUP
+	def to_bytes(self):
+		return ('%s %s\r\n' % (self.command.value, self.password)).encode(self.encoding)
 
-class FTPSMNTCmd(FTPCommandBASE):
-	def __init__(self, pathname):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.SMNT
-		self.params = [pathname]
-
-class FTPREINCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.REIN
-
-class FTPREINCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.QUIT
-
-class FTPPORTCmd(FTPCommandBASE):
-	#FTPPort should be a seperate object
-	#
-	def __init__(self, FTPPort):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.PORT
-		self.params = [FTPPort]
-
-class FTPPASVCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.PASV
+	def __repr__(self):
+		t = '== FTP %s Command ==\r\n' % self.command.name
+		t += 'Command : %s\r\n' % self.command.name
+		t += 'Password: %s\r\n' % self.password
+		return t
 
 
-class FTPTYPECmd(FTPCommandBASE):
-	#FTPTypes should be a seperate object
-	#
-	def __init__(self, FTPTypes):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.TYPE
-		self.params = [str(FTPTypes)]
+class FTPXXXCmd:
+	def __init__(self, encoding = 'ascii'):
+		self.encoding = encoding
+		self.command  = FTPCommand.XXX
+		self.data = None
 
-class FTPSTRUCmd(FTPCommandBASE):
-	#FTPFileStructure should be an enum
-	#
-	def __init__(self, fileStructure):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.STRU
-		self.params = [fileStructure.name]
+	@staticmethod
+	def from_buffer(buff, encoding='ascii'):
+		return FTPXXXCmd.from_bytes(buff.readline(), encoding)
 
-class FTPRETRCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.RETR
-		self.params = [pathName]
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		cmd = FTPXXXCmd()
+		cmd.data = bbuff.decode(encoding).strip()
+		return cmd
 
-class FTPSTORCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.STOR
-		self.params = [pathName]
+	def to_bytes(self):
+		return ('%s\r\n' % self.data).encode(self.encoding)
 
-class FTPSTOUCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.STOU
-		self.params = [pathName]
+	def __repr__(self):
+		t = '== FTP %s Command ==\r\n' % self.command.name
+		t += 'DATA : %s\r\n' % self.data
+		return t
 
-class FTPAPPECmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.APPE
-		self.params = [pathName]
-
-class FTPALLOCmd(FTPCommandBASE):
-	def __init__(self, size):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.ALLO
-		self.params = [size]
-
-class FTPRESTCmd(FTPCommandBASE):
-	def __init__(self, marker):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.REST
-		self.params = [marker]
-
-class FTPRNFRCmd(FTPCommandBASE):
-	def __init__(self, oldPathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.RNFR
-		self.params = [oldPathName]
-
-class FTPRNTOCmd(FTPCommandBASE):
-	def __init__(self, newPathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.RNTO
-		self.params = [newPathName]
-
-class FTPABORCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.ABOR
-
-class FTPDELECmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.DELE
-		self.params = [pathName]
-
-class FTPRMDCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.RMD
-		self.params = [pathName]
-
-class FTPMKDCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.MKD
-		self.params = [pathName]
-
-class FTPPWDCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.PWD
-
-
-class FTPLISTCmd(FTPCommandBASE):
-	def __init__(self, pathName):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.LIST
-		self.params = [pathName]
-
-class FTPNLISTCmd(FTPCommandBASE):
-	def __init__(self, pathName = None):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.NLIST
-		self.params = [pathName]
-
-class FTPNLISTCmd(FTPCommandBASE):
-	def __init__(self, pathName = None):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.NLIST
-		self.params = [pathName]
-
-class FTPSITECmd(FTPCommandBASE):
-	def __init__(self, pathName = None):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.SITE
-
-class FTPSYSTCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.SYST
-
-class FTPSTATCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.STAT
-
-class FTPHELPCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.HELP
-
-class FTPNOOPCmd(FTPCommandBASE):
-	def __init__(self):
-		FTPCommandBASE.__init__(self)
-		self.cmd    = FTPCommand.NOOP
 
 class FTPReply():
 	def __init__(self, code, msg = None):
@@ -341,7 +231,7 @@ class FTPReply():
 		else:
 			raise Exception('Invalid msg type')
 
-	def toBytes(self):
+	def to_bytes(self):
 		if len(self.msg) == 1:
 			return b'%s %s\r\n' % (self.code.encode(self.encoding), self.msg[0].encode(self.encoding))
 		elif len(self.msg) == 2:
@@ -352,57 +242,79 @@ class FTPReply():
 			temp += b'\r\n'.join(['', (m.encode(self.encoding) for m in self.msg[1:-1] )])
 			return temp + b'%s %s' % (self.code.encode(self.encoding) , self.msg[-1].encode(self.encoding))
 
-"""
-class FTPReply():
-	def __init__(self, buff = None):
-		self.code = None
-		self.msg  = None
 
-		if buff is not None:
-			self.parse(buff)
+class FTPAuthMethod(enum.Enum):
+	PLAIN = enum.auto()
 
-	def parse(self, buff):
-		self.replyCode   = buff.read(3).decode('ascii')
-		#sanity check
-		FTPReplyCode[self.replyCode]
-		#
-		temp = buff.read(1).decode('ascii')
-		self.isMultiLine  = temp == '-'
-		if self.isMultiLine:
-			self.replyMessage = ''
-			while True:
-				line = buff.readline().decode('ascii')[:-2]
-				if line == '':
-					raise Exception('Parsing error!')
-				
-				if line[:4] == str(self.replyCode) + ' ':
-					self.replyMessage += line[4:]
-					break
-				self.replyMessage += line + '\\r\\n'
+
+class FTPAuthStatus(enum.Enum):
+	OK = enum.auto()
+	NO = enum.auto()
+	MORE_DATA_NEEDED = enum.auto()
+
+
+class FTPAuthHandler:
+	def __init__(self, authtype = FTPAuthMethod.PLAIN, creds=None):
+		if authtype == FTPAuthMethod.PLAIN:
+			self.authahndler = FTPPlainAuth(creds)
+		else:
+			raise NotImplementedError
+
+	def do_AUTH(self, ftpcmd, salt = None):
+		return self.authahndler.update_creds(ftpcmd)
+
+
+class FTPPlainAuth:
+	def __init__(self, creds):
+		self.creds = creds
+		self.username = None
+		self.password = None
+
+	def update_creds(self, ftpcmd):
+		if ftpcmd.command == FTPCommand.USER:
+			self.username = ftpcmd.username
+
+		elif ftpcmd.command == FTPCommand.PASS:
+			self.password = ftpcmd.password
 
 		else:
-			self.replyMessage = buff.readline().decode('ascii')
+			raise Exception('Wrong command for authentication!')
 
-	def construct(self, ftpcommandcode, reply_message = None):
-		self.replyCode = str(ftpcommandcode)
-		self.replyMessage = reply_message
-		if self.replyMessage is None:
-			self.replyMessage = FTPReplyCode[self.replyCode]
-		
+		if self.username is not None and self.password is not None:
+			return self.verify_creds()
 
-	def toBytes(self):
-		if not self.isMultiLine:
-			return b'%s %s\r\n' % (self.replyCode.encode('ascii'), self.replyMessage.encode('ascii'))
 		else:
-			raise Exception('Not implemented!')
-		
-		return t
+			return FTPAuthStatus.MORE_DATA_NEEDED, None
 
-	def __repr__(self):
-		t = '== FTP Reply ==\r\n'
-		t += 'Code : %s \r\n' % self.replyCode
-		t += 'Code verbose: %s \r\n' % FTPReplyCode[self.replyCode]
-		t += 'Reply: %s \r\n' % self.replyMessage
-		return t
+	def verify_creds(self):
+		c = FTPPlainCred(self.username, self.password)
+		if self.creds is None:
+			return FTPAuthStatus.OK, c.toCredential()
+		else:
+			if c.username in self.creds:
+				if self.creds[c.username] == c.passwrod:
+					return FTPAuthStatus.OK, c.toCredential()
 
-"""
+			else:
+				return FTPAuthStatus.NO, c.toCredential()
+
+		return FTPAuthStatus.NO, c.toCredential()
+
+
+class FTPPlainCred:
+	def __init__(self, username, password):
+		self.username = username
+		self.password = password
+
+	def toCredential(self):
+		return Credential('PLAIN',
+						  username=self.username,
+						  password=self.password,
+						  fullhash='%s:%s' % (self.username, self.password)
+						  )
+
+FTPCMD = {
+	FTPCommand.USER: FTPUSERCmd,
+	FTPCommand.PASS: FTPPASSCmd,
+	#FTPCommand.QUIT: FTPQUITCmd,
+}

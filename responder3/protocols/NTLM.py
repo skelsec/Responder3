@@ -7,6 +7,7 @@ import hmac
 from responder3.crypto.DES import *
 from responder3.crypto.hashing import *
 from responder3.core.commons import timestamp2datetime, Credential
+from responder3.protocols.SMB.ntstatus import *
 
 #https://msdn.microsoft.com/en-us/library/cc236650.aspx
 class NegotiateFlags(enum.IntFlag):
@@ -206,7 +207,7 @@ class Version():
 		self.Reserved            = None
 		self.NTLMRevisionCurrent = None
 
-		#higher level
+		# higher level
 		self.WindowsProduct = None
 
 	def toBytes(self):
@@ -621,12 +622,6 @@ class NTLMNegotiate():
 	def contrct(self):
 		pass
 
-
-
-class NTLMAuthStatus(enum.Enum):
-	OK   = enum.auto()
-	FAIL = enum.auto()
-
 class NTLMAuthMode(enum.Enum):
 	CLIENT   = enum.auto()
 	SERVER   = enum.auto()
@@ -717,7 +712,7 @@ class NTLMAUTHHandler():
 			###parse client NTLMNegotiate message
 			self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
 			self.ntlmChallenge = NTLMChallenge.construct_from_template(self.serverTemplateName, challenge = self.challenge, ess = self.use_Extended_security)
-			return (NTLMAuthStatus.FAIL, self.ntlmChallenge.toBytes(), None)
+			return (NTStatus.STATUS_MORE_PROCESSING_REQUIRED, self.ntlmChallenge.toBytes(), None)
 
 		elif self.ntlmAuthenticate is None:
 			self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
@@ -730,8 +725,7 @@ class NTLMAUTHHandler():
 			#self.calc_SessionBaseKey()
 			#self.calc_KeyExchangeKey()
 
-			#return (NTLMAuthStatus.FAIL, None, creds)
-			return (NTLMAuthStatus.OK, None, creds) #this setting must be removed when actual ntlm authentication is implemented!
+			return (NTStatus.STATUS_ACCOUNT_DISABLED, None, creds) #this setting must be removed when actual ntlm authentication is implemented!
 
 		else:
 			raise Exception('Too many calls to do_AUTH function!')
@@ -766,7 +760,7 @@ class NTLMCredentials():
 				creds.ClientResponse  = ntlmAuthenticate.NTChallenge.Response
 				creds.ChallengeFromClinet = ntlmAuthenticate.LMChallenge.Response
 
-				return creds
+				return [creds]
 
 			else:
 				creds = netntlm()
@@ -777,7 +771,7 @@ class NTLMCredentials():
 				
 				if ntlmAuthenticate.NTChallenge.Response == ntlmAuthenticate.LMChallenge.Response:
 					#the the two responses are the same, then the client did not send encrypted LM hashes, only NT
-					return creds
+					return [creds]
 					
 
 				#CAME FOR COPPER, FOUND GOLD!!!!!
@@ -802,7 +796,7 @@ class netlm():
 		#this is from the LMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('netLM',
 							username = self.username, 
 							fullhash = '%s:$NETLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
@@ -836,7 +830,7 @@ class netlmv2():
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('netLMv2',
 							username = self.username, 
 							fullhash = '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
@@ -856,14 +850,13 @@ class netntlm_ess():
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('netNTLMv1-ESS',
 							username = self.username, 
 							fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
 						)
 		return cred
 		#u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c 
-		#print('%s::%s:%s:%s:%s' % (a.UserName, a.Workstation, a.LMBytes.hex(), a.NTBytes.hex(), session.HTTPAtuhentication.ServerChallenge))
 
 class netntlm():
 	#not supported by hashcat?
@@ -877,7 +870,7 @@ class netntlm():
 		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('netNTLMv1',
 							username = self.username, 
 							fullhash = '%s:$NETNTLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
@@ -897,7 +890,7 @@ class netntlmv2():
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toResult(self):
+	def toCredential(self):
 		cred = Credential('netNTLMv2',
 							username = self.username, 
 							domain = self.domain,

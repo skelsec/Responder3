@@ -352,7 +352,7 @@ class SMB_COM_SESSION_SETUP_ANDX_REPLY():
 
 		return cmd
 
-	def construct(secblob, nativeos, nativelanman):
+	def construct(secblob = None, nativeos = None, nativelanman = None):
 		cmd = SMB_COM_SESSION_SETUP_ANDX_REPLY()
 		cmd.WordCount     = 4
 		cmd.AndXCommand   = 0xff
@@ -374,9 +374,15 @@ class SMB_COM_SESSION_SETUP_ANDX_REPLY():
 		t += self.Action.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBlobLen.to_bytes(2, byteorder = 'little', signed=False)
 
+		if self.NativeOS is None:
+			nativeos = b''
+		else:
+			nativeos = (self.NativeOS + '\x00').encode('utf-16-le')
 		
-		nativeos = (self.NativeOS + '\x00').encode('utf-16-le')
-		nativelanman = (self.NativeLanMan + '\x00').encode('utf-16-le')
+		if self.NativeLanMan is None:
+			nativelanman = b''
+		else:
+			nativelanman = (self.NativeLanMan + '\x00').encode('utf-16-le')
 		tlen = 2 + self.SecurityBlobLen + len(t)
 		padneeded = tlen %2 != 0
 
@@ -395,7 +401,7 @@ class SMB_COM_SESSION_SETUP_ANDX_REPLY():
 
 
 	def __repr__(self):
-		t = '===SMB_COM_SESSION_SETUP_AND_X_REQ===\r\n'
+		t = '===SMB_COM_SESSION_SETUP_ANDX_REPLY===\r\n'
 		t += repr(self.params)
 		t += repr(self.data)	
 		return t
