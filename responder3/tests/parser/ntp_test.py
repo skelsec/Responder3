@@ -1,9 +1,9 @@
 import datetime
 from responder3.protocols.NTP import *
 
-epoch = datetime.datetime(1900,1,1)
+epoch = datetime.datetime(1900, 1, 1)
 
-test = epoch + datetime.timedelta(seconds = 2208988800.0000001)
+test = epoch + datetime.timedelta(seconds= 2208988800.0000001)
 
 print(test.isoformat())
 

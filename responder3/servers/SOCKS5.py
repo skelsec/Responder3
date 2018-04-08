@@ -155,9 +155,9 @@ class SOCKS5(ResponderServer):
 					mutual, mutual_idx = get_mutual_preference(self.session.supported_auth_types,msg.METHODS)
 					if mutual is None:
 						self.log('No common authentication types! Client supports %s' % (','.join([str(x) for x in msg.METHODS])))
-						t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).toBytes()), timeout = 1)
+						t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes()), timeout = 1)
 						return
-
+					self.log('Mutual authentication type: %s' % mutual, logging.DEBUG)
 					self.session.mutual_auth_type = mutual
 					self.session.authHandler = SOCKS5AuthHandler(self.session.mutual_auth_type, self.session.creds) 
 
@@ -166,16 +166,16 @@ class SOCKS5(ResponderServer):
 					else:
 						self.session.current_state = SOCKS5ServerState.NOT_AUTHENTICATED
 
-					t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct(self.session.mutual_auth_type).toBytes()), timeout = 1)
+					t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct(self.session.mutual_auth_type).to_bytes()), timeout = 1)
 
 				elif self.session.current_state == SOCKS5ServerState.NOT_AUTHENTICATED:
 					if self.session.mutual_auth_type == SOCKS5Method.PLAIN:
 						status, creds = self.session.authHandler.do_AUTH(msg)
 						if status:
 							self.session.current_state = SOCKS5ServerState.REQUEST
-							t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).toBytes()), timeout = 1)
+							t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).to_bytes()), timeout = 1)
 						else:
-							t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).toBytes()), timeout = 1)
+							t = yield from asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes()), timeout = 1)
 							return
 					else:
 						#put GSSAPI implementation here
@@ -193,7 +193,7 @@ class SOCKS5(ResponderServer):
 							proxy_reader, proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=str(msg.DST_ADDR),port = msg.DST_PORT), timeout=1)
 							self.log('Connected!', logging.DEBUG)
 							self.session.current_state = SOCKS5ServerState.RELAYING
-							t = yield from asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.session.allinterface, 0).toBytes()), timeout = 1)
+							t = yield from asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.session.allinterface, 0).to_bytes()), timeout = 1)
 							self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(msg.DST_ADDR),int(msg.DST_PORT)), self.caddr))
 							self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr, (str(msg.DST_ADDR),int(msg.DST_PORT))))
 
@@ -211,7 +211,7 @@ class SOCKS5(ResponderServer):
 								proxy_reader, proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=str(fake_dest_ip),port = fake_dest_port), timeout=1)
 								self.log('Connected!', logging.DEBUG)
 								self.session.current_state = SOCKS5ServerState.RELAYING
-								t = yield from asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes()), timeout = 1)
+								t = yield from asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes()), timeout = 1)
 								self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(fake_dest_ip),int(fake_dest_port)), self.caddr))
 								self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr,  (str(fake_dest_ip),int(fake_dest_port))))
 
@@ -219,7 +219,7 @@ class SOCKS5(ResponderServer):
 								return
 
 					else:
-						t = yield from asyncio.wait_for(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.session.allinterface, 0).toBytes(), timeout = 1)
+						t = yield from asyncio.wait_for(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.session.allinterface, 0).to_bytes(), timeout = 1)
 						return				
 					
 		except Exception as e:

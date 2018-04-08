@@ -28,7 +28,7 @@ class ResponderServer(abc.ABC):
 		self.cwriter = connection[1]
 		self.logQ    = serverprops.shared_logQ
 		self.rdns    = serverprops.shared_rdns
-		self.protocol= serverprops.bind_porotcol
+		self.protocol= serverprops.bind_protocol
 		self.sprops  = serverprops
 		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, self.protocol.name)
 		self.settings= copy.deepcopy(serverprops.settings)

@@ -736,7 +736,7 @@ class POP3PlainAuth:
 			return POP3AuthStatus.OK, c.toCredential()
 		else:
 			if c.username in self.creds:
-				if self.creds[c.username] == c.passwrod:
+				if self.creds[c.username] == c.password:
 					return POP3AuthStatus.OK, c.toCredential()
 
 			else:
@@ -756,48 +756,6 @@ class POP3PlainCred:
 						  fullhash='%s:%s' % (self.username, self.password)
 						  )
 
-
-"""
-class IMAPAuthHandler():
-	def __init__(self, authtype = IMAPAuthMethod.PLAIN, creds = None):
-		if authtype == IMAPAuthMethod.PLAIN:
-			self.authenticator = IMAPPlainAuth(creds)
-		else:
-			raise NotImplementedError
-
-	def do_AUTH(self, cmd):
-		return self.authenticator.verify_creds(cmd)
-
-class IMAPPlainAuth():
-	def __init__(self, creds):
-		self.creds = creds
-
-	def verify_creds(self, cmd):
-		c = IMAPPlainCred(cmd.username, cmd.password)
-		if self.creds is None:
-			return True, c.toCredential()
-		else:
-			if c.username in self.creds:
-				if self.creds[c.username] == c.passwrod:
-					return True, c.toCredential()
-
-			else:
-				return False, c.toCredential()
-
-		return False, c.toCredential()
-
-class IMAPPlainCred():
-	def __init__(self, username, password):
-		self.username = username
-		self.password = password
-
-	def toCredential(self):
-		return Credential('PLAIN',
-			username = self.username,
-			password = self.password,
-			fullhash = '%s:%s' % (self.username, self.password)
-		)
-"""
 
 POP3RESP = {
 	POP3ResponseStatus.OK : POP3OKResp,

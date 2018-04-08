@@ -1,4 +1,5 @@
-#packettest
+#!/usr/bin/env python3.6
+# packettest
 from responder3.protocols.SMB.SMB2 import SMB2Message
 from responder3.protocols.GSSAPI import *
 import io

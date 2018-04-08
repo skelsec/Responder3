@@ -30,7 +30,7 @@ class ServerProperties():
 		self.bind_addr     = None
 		self.bind_port     = None
 		self.bind_family   = None
-		self.bind_porotcol = None
+		self.bind_protocol = None
 		self.bind_iface    = None
 		self.bind_iface_idx = None
 		self.serverhandler = None
@@ -57,7 +57,7 @@ class ServerProperties():
 		sp.bind_family = socket.AF_INET if sp.bind_addr.version == 4 else socket.AF_INET6
 		if 'bind_port' in settings and settings['bind_port'] is not None:
 			sp.bind_port = int(settings['bind_port'])
-			sp.bind_porotcol = commons.ServerProtocol[settings['bind_porotcol'].upper()]
+			sp.bind_protocol = commons.ServerProtocol[settings['bind_protocol'].upper()]
 		else:
 			raise Exception('Port MUST be specified!')
 
@@ -90,7 +90,7 @@ class ServerProperties():
 			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
 
 		if 'bind_sslctx' in settings:
-			sp.bind_porotcol = commons.ServerProtocol.SSL
+			sp.bind_protocol = commons.ServerProtocol.SSL
 			sslctx = settings['bind_sslctx'] if isinstance(settings['bind_sslctx'], dict) else settings['bind_sslctx'][0] #sometimes deepcpy creates a touple insted of dict here
 			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['bind_sslctx'], server_side= True)
 
@@ -126,7 +126,7 @@ class ServerProperties():
 		t += 'bind_addr : %s \r\n' % repr(self.bind_addr)
 		t += 'bind_port : %s \r\n' % repr(self.bind_port)
 		t += 'bind_family : %s \r\n' % repr(self.bind_family)
-		t += 'bind_porotcol : %s \r\n' % repr(self.bind_porotcol)
+		t += 'bind_protocol : %s \r\n' % repr(self.bind_protocol)
 		t += 'bind_iface_idx : %s \r\n' % repr(self.bind_iface_idx)
 		t += 'serverhandler : %s \r\n' % repr(self.serverhandler)
 		t += 'serversession : %s \r\n' % repr(self.serversession)
@@ -161,7 +161,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.connectionFactory = None
 
 	def import_packages(self):
-		if self.serverentry['bind_porotcol'].upper() == 'UDP':
+		if self.serverentry['bind_protocol'].upper() == 'UDP':
 			self.udpserver = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
 		
 		handler_spec = importlib.util.find_spec('responder3.poisoners.%s' % self.serverentry['handler'])
@@ -177,11 +177,9 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverentry['serverhandler'] = getattr(servermodule, self.serverentry['handler'])
 		self.serverentry['serversession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'Session'))
 		self.serverentry['globalsession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'GlobalSession'), None)
-		
 
-
-	def accept_client(self,client_reader, client_writer):
-		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.bind_porotcol)		
+	def accept_client(self, client_reader, client_writer):
+		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.bind_protocol)		
 		self.logConnection(connection, commons.ConnectionStatus.OPENED)
 		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
@@ -191,7 +189,7 @@ class ResponderServerProcess(multiprocessing.Process):
 
 		def client_done(task):
 			del self.clients[task]
-			if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP,commons.ServerProtocol.SSL]:
+			if self.sprops.bind_protocol in [commons.ServerProtocol.TCP,commons.ServerProtocol.SSL]:
 				client_writer.close()
 			else:
 				self.log('UDP task cleanup not implemented!', logging.DEBUG)
@@ -216,7 +214,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.modulename = '%s-%s-%d' % (self.sprops.serverhandler.__name__, self.sprops.bind_addr, self.sprops.bind_port)
 		self.serverCoro = None
 
-		if self.sprops.bind_porotcol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
+		if self.sprops.bind_protocol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
 				sock = self.sprops.serverhandler.custom_socket(self.sprops)
@@ -225,7 +223,7 @@ class ResponderServerProcess(multiprocessing.Process):
 			
 			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.sprops.sslcontext)
 		
-		elif self.sprops.bind_porotcol == commons.ServerProtocol.UDP:
+		elif self.sprops.bind_protocol == commons.ServerProtocol.UDP:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
 				sock = self.sprops.serverhandler.custom_socket(self.sprops)
@@ -235,7 +233,6 @@ class ResponderServerProcess(multiprocessing.Process):
 
 		else:
 			raise Exception('Unknown protocol type!')
-
 
 	def run(self):
 		try:

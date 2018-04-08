@@ -37,7 +37,7 @@ class DNSGlobalSession():
 			
 			self.passthru_iface  = self.settings['passthru']['bind_iface'] if 'bind_iface' in self.settings['passthru'] else self.server_properties.bind_iface
 			self.passthru_iface_idx = self.server_properties.bind_iface_idx
-			self.passthru_proto  = self.settings['passthru']['bind_porotcol'] if 'bind_porotcol' in self.settings['passthru'] else self.server_properties.bind_porotcol
+			self.passthru_proto  = self.settings['passthru']['bind_protocol'] if 'bind_protocol' in self.settings['passthru'] else self.server_properties.bind_protocol
 			self.passthru_ip     = ipaddress.ip_address(self.settings['passthru']['bind_addr']) if 'bind_addr' in self.settings['passthru'] else None
 
 			if self.passthru_ip is None and self.passthru_iface != self.server_properties.bind_iface:
@@ -74,12 +74,12 @@ class DNS(ResponderServer):
 
 	@asyncio.coroutine
 	def parse_message(self):
-		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader, self.globalsession.server_properties.bind_porotcol), timeout = 1)
+		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader, self.globalsession.server_properties.bind_protocol), timeout = 1)
 		return msg
 
 	@asyncio.coroutine
 	def send_data(self, data, addr = None):
-		if self.globalsession.server_properties.bind_porotcol == ServerProtocol.UDP:
+		if self.globalsession.server_properties.bind_protocol == ServerProtocol.UDP:
 			yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		else:
 			self.cwriter.write(data)

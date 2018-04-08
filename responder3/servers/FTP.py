@@ -95,7 +95,7 @@ class FTP(ResponderServer):
 							self.send_data(FTPReply(503).to_bytes()), timeout=1)
 						return
 
-				elif self.session.current_state == POP3State.AUTHENTICATED:
+				elif self.session.current_state == FTPState.AUTHENTICATED:
 					raise NotImplementedError
 
 				else:

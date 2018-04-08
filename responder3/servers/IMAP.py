@@ -51,7 +51,10 @@ class IMAP(ResponderServer):
 	def run(self):
 		try:
 			# send hello
-			yield from asyncio.wait_for(self.send_data(IMAPOKResp.construct('hello from Honeyport IMAP server').to_bytes()), timeout = 1)
+			yield from asyncio.wait_for(
+				self.send_data(IMAPOKResp.construct('hello from Honeyport IMAP server').to_bytes()),
+				timeout = 1
+			)
 			
 			# main loop
 			while True:
@@ -65,19 +68,24 @@ class IMAP(ResponderServer):
 				
 				if self.session.current_state == IMAPState.NOTAUTHENTICATED:
 					if cmd.command == IMAPCommand.LOGIN:
-						self.session.authhandler  = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)
+						self.session.authhandler = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)
 						res, cred = self.session.authhandler.do_AUTH(cmd)
 						self.logCredential(cred)
 						if res is True:
 							self.session.current_state = IMAPState.AUTHENTICATED
-							yield from asyncio.wait_for(self.send_data(IMAPOKResp.construct('CreZ good!', cmd.tag).to_bytes()), timeout = 1)
+							yield from asyncio.wait_for(
+								self.send_data(IMAPOKResp.construct('CreZ good!', cmd.tag).to_bytes())
+								, timeout = 1
+							)
 							continue
 						else:
-							yield from asyncio.wait_for(self.send_data(IMAPNOResp.construct('wrong credZ!', cmd.tag).to_bytes()), timeout = 1)
+							yield from asyncio.wait_for(self.send_data(
+								IMAPNOResp.construct('wrong credZ!', cmd.tag).to_bytes()),
+								timeout = 1
+							)
 							return
 
 					elif cmd.command == IMAPCommand.CAPABILITY:
-						print('ptag: %s' % cmd.tag )
 						yield from asyncio.wait_for(
 							self.send_data(
 								IMAPCAPABILITYResp.construct(
@@ -86,7 +94,11 @@ class IMAP(ResponderServer):
 									self.session.additional_capabilities
 									).to_bytes()
 								), timeout = 1)
-						yield from asyncio.wait_for(self.send_data(IMAPOKResp.construct('Completed', cmd.tag).to_bytes()), timeout = 1)
+						yield from asyncio.wait_for(
+							self.send_data(
+								IMAPOKResp.construct('Completed', cmd.tag).to_bytes()),
+								timeout = 1
+						)
 						continue
 
 				if self.session.current_state == IMAPState.AUTHENTICATED:

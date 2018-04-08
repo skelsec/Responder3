@@ -113,7 +113,7 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 				serverentry['bind_iface'] = element[0][1]
 				serverentry['bind_iface_idx'] = element[0][2]
 				serverentry['bind_port'] = element[1][0]
-				serverentry['bind_porotcol'] = element[1][1]
+				serverentry['bind_protocol'] = element[1][1]
 
 				temp = copy.deepcopy(serverentry)
 				temp['shared_rdns'] = rdns

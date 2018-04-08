@@ -1,12 +1,14 @@
+#!/usr/bin/env python3.6
+
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
 server = smtplib.SMTP('localhost', 25)
 
-#Next, log in to the server
+# Next, log in to the server
 server.login("alma", "alma")
 
-#Send the mail
+# Send the mail
 msg = MIMEMultipart()       # create a message
 
 # add in the actual person name to the message template
@@ -22,3 +24,4 @@ msg.attach(MIMEText(message, 'plain'))
 
 # send the message via the server set up earlier.
 server.send_message(msg)
+server.close()

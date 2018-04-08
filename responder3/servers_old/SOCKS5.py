@@ -4,14 +4,13 @@ import io
 import os
 import re
 import copy
-import time
 import asyncio
 import socket
 import threading
 import collections
 from ipaddress import IPv4Address, IPv6Address
+
 from responder3.core.common import *
-from responder3.utils import ServerFunctionality
 from responder3.core.servertemplate import ResponderServer, ResponderProtocolTCP, ProtocolSession
 from responder3.protocols.Socks5 import *
 

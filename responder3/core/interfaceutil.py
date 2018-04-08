@@ -450,3 +450,9 @@ elif os_name == 'Linux':
 
 elif os_name == 'Darwin':
 	interfaced = get_darwin_ifaddrs()
+
+ifacehelp = 'NAME\tIPv4\t\tIPv6\r\n'
+for iface in interfaced:
+	ifacehelp += '\t'.join([iface, ','.join(interfaced[iface].IPv4), ','.join(interfaced[iface].IPv6)])
+	ifacehelp += '\r\n'
+

@@ -5,6 +5,8 @@ import io
 import enum
 import asyncio
 import ipaddress
+import traceback
+from base64 import b64decode, b64encode
 
 from responder3.core.commons import read_element, readline_or_exc, Credential
 
@@ -30,6 +32,7 @@ SMTPReplyCode = {
 	250: 'Requested mail action okay, completed',
 	251: 'User not local; will forward to <forward-path>', #(See Section 3.4)
 	252: 'Cannot VRFY user, but will accept message and attempt delivery', #(See Section 3.5.3)
+	334: '',
 	354: 'Start mail input; end with <CRLF>.<CRLF>',
 	421: '{domain} Service not available, closing transmission channel', #(This may be a reply to any command if the service knows it must shut down)
 	432: 'A password transition is needed',
@@ -82,18 +85,32 @@ class SMTPCommandParser:
 	def __init__(self, encoding='ascii', timeout = 60):
 		self.encoding = encoding
 		self.timeout = timeout
+		self.is_mulitline = False
+		self.multiline_cmd = None
+		self.multiline_buffer = None
 
 	@asyncio.coroutine
 	def from_streamreader(self, reader):
+		if self.is_mulitline:
+			while True:
+				temp = yield from readline_or_exc(reader, timeout=self.timeout)
+				print(repr(temp))
+				print(temp == b'.\r\n')
+				self.multiline_buffer += temp
+				if temp == b'.\r\n':
+					self.is_mulitline = False
+					cmd = self.from_bytes(self.multiline_buffer)
+					self.multiline_buffer = None
+					return cmd
+
 		buff = yield from readline_or_exc(reader, timeout=self.timeout)
+
 		command, *params = buff.strip().decode(self.encoding).upper().split(' ')
 		if command in SMTPCommand.__members__:
 			if SMTPCommand[command] in SMTPMultilineCMD:
-				while True:
-					temp = yield from readline_or_exc(reader, timeout=self.timeout)
-					buff += temp
-					if temp == b'.\r\n':
-						break
+				self.is_mulitline = True
+				self.multiline_buffer = buff
+				return SMTPCMD[SMTPCommand[command]].from_bytes(None)
 
 		return self.from_bytes(buff)
 
@@ -101,15 +118,21 @@ class SMTPCommandParser:
 		return self.from_buffer(io.BytesIO(bbuff))
 
 	def from_buffer(self, buff):
+		pos = buff.tell()
 		line = buff.readline()
 		try:
 			command, *params = line.strip().decode(self.encoding).upper().split(' ')
 			if command in SMTPCommand.__members__:
-				return SMTPCMD[SMTPCommand[command]].from_bytes(line)
+				if SMTPCommand[command] in SMTPMultilineCMD:
+					buff.seek(pos)
+					return SMTPCMD[SMTPCommand[command]].from_bytes(buff.read())
+				else:
+					return SMTPCMD[SMTPCommand[command]].from_bytes(line)
 			else:
 				return SMTPXXXXCmd.from_bytes(line)
+
 		except Exception as e:
-			print(str(e))
+			traceback.print_exc()
 			return SMTPXXXXCmd.from_bytes(line)
 
 
@@ -129,7 +152,7 @@ class SMTPHELOCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = SMTPHELOCmd()
 		t, bbuff = read_element(bbuff, toend=True)
-		cmd.command = SMTPHELOCmd[t]
+		cmd.command = SMTPCommand[t.upper()]
 		cmd.msgno, bbuff = read_element(bbuff, toend=True)
 		return cmd
 
@@ -164,7 +187,7 @@ class SMTPEHLOCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = SMTPEHLOCmd()
 		t, bbuff = read_element(bbuff, toend=True)
-		cmd.command = SMTPHELOCmd[t]
+		cmd.command = SMTPCommand[t.upper()]
 		cmd.msgno, bbuff = read_element(bbuff, toend=True)
 		return cmd
 
@@ -183,6 +206,7 @@ class SMTPEHLOCmd:
 		t += 'Domain  : %s\r\n' % self.domain
 		return t
 
+
 class SMTPMAILCmd:
 	def __init__(self, encoding= 'ascii'):
 		self.encoding = encoding
@@ -199,11 +223,21 @@ class SMTPMAILCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = SMTPMAILCmd()
 		t, bbuff = read_element(bbuff)
-		cmd.command = SMTPHELOCmd[t]
-		t, bbuff = read_element(bbuff, toend=True)
-		cmd.emailaddress = t[1:-1]
+		cmd.command = SMTPCommand[t.upper()]
+		t, bbuff = read_element(bbuff, marker=':')
+		temp_email = bbuff.strip()
+		print(temp_email)
+		if temp_email[0] == '<':
+			temp_email = temp_email[1:]
+			cmd.emailaddress, bbuff = read_element(temp_email, marker='>', toend= True)
+
+		else:
+			# this case means the email address was defined in an old format, using spaces
+			cmd.emailaddress, bbuff = read_element(temp_email, toend= True)
+
 		if bbuff != '':
-			cmd.params = bbuff
+			cmd.params = bbuff.split(' ')
+
 		return cmd
 
 	@staticmethod
@@ -244,11 +278,21 @@ class SMTPRCPTCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = SMTPRCPTCmd()
 		t, bbuff = read_element(bbuff)
-		cmd.command = SMTPHELOCmd[t]
-		t, bbuff = read_element(bbuff, toend=True)
-		cmd.emailaddress = t[1:-1]
+		cmd.command = SMTPCommand[t.upper()]
+		t, bbuff = read_element(bbuff, marker=':')
+		temp_email = bbuff.strip()
+		print(temp_email)
+		if temp_email[0] == '<':
+			temp_email = temp_email[1:]
+			cmd.emailaddress, bbuff = read_element(temp_email, marker='>', toend=True)
+
+		else:
+			# this case means the email address was defined in an old format, using spaces
+			cmd.emailaddress, bbuff = read_element(temp_email, toend=True)
+
 		if bbuff != '':
-			cmd.params = bbuff
+			cmd.params = bbuff.split(' ')
+
 		return cmd
 
 	@staticmethod
@@ -270,175 +314,110 @@ class SMTPRCPTCmd:
 		t += 'emailaddress  : %s\r\n' % self.emailaddress
 		t += 'params  : %s\r\n' % self.params
 		return t
-"""
-class SMTPCommandParser():
-	def __init__(self, strict = False, encoding = 'ascii'):
-		self.smtpcommand = None
-		self.strict      = strict
-		self.encoding    = encoding
 
-	def parse(self, buff):
-		raw = buff.readline()
-		try:
-			temp = raw.decode(self.encoding).strip().split(' ')
-			if temp[0].upper() in SMTPCommand.__members__:
-				command = SMTPCommand[temp[0].upper()]
-			elif not self.strict:
-				command = SMTPCommand.XXXX
+
+class SMTPResponseParser:
+	def __init__(self, encoding='ascii', timeout = 60, multiline_buffer_size_limit = 4096):
+		self.encoding = encoding
+		self.timeout = timeout
+		self.multiline_buffer_size_limit = multiline_buffer_size_limit
+
+	@asyncio.coroutine
+	def from_streamreader(self, reader):
+		is_multiline = True
+		multiline_buffer = b''
+
+		while True:
+			buff = yield from readline_or_exc(reader, timeout=self.timeout)
+			line = buff.strip().decode(self.encoding)
+			if line[3] == '-':
+				is_multiline = True
+				multiline_buffer += buff
+				if len(multiline_buffer) > self.multiline_buffer_size_limit:
+					raise Exception('Multiline size limit reached!')
+				continue
+
 			else:
-				raise Exception('SMTP command parsing error! Command unknown')
-
-			if command == SMTPCommand.HELO or command == SMTPCommand.EHLO:
-				self.smtpcommand = SMTPHELOorEHLOCommand()
-				try:
-					self.smtpcommand.address = ipaddress.ip_address(DomainorAddress)
-				except:
-					pass
+				if not is_multiline:
+					return self.from_bytes(buff)
 				else:
-					self.smtpcommand.domain = domain
+					multiline_buffer += buff
+					if len(multiline_buffer) > self.multiline_buffer_size_limit:
+						raise Exception('Multiline size limit reached!')
+					return self.from_bytes(multiline_buffer)
+				break
 
-			elif command == SMTPCommand.MAIL:
-				if temp[1].split(':')[0] != 'FROM':
-					raise Exception('MAIL command error!')
+	def from_socket(self, sock):
+		buffer = b''
+		while True:
+			temp = sock.recv(4096)
+			if temp == b'':
+				break
 
-				self.smtpcommand = SMTPMAILCommand()
-				rawEmail = temp[1].split(':')[1]
-				if rawEmail[0] == '<':
-					emailAddress = rawEmail[1:-1]
-
-				else:
-					marker = rawEmail[0].find('<')
-					if marker == -1:
-						raise Exception('email not found')
+			buffer += temp
+			bsize = len(buffer)
+			if bsize > self.multiline_buffer_size_limit:
+				raise Exception('Multiline size limit reached!')
+			if bsize > 4:
+				if buffer[:-1] == b'\n':
+					if buffer[3] == b'-':
+						continue
 					else:
-						emailAddress = rawEmail[marker+1:-1]
-
-				if checkEmailAddress(emailAddress):
-					self.smtpcommand.emailFrom = emailAddress
-
-			elif command == SMTPCommand.RCPT:
-				if temp[1].split(':')[0] != 'TO':
-					raise Exception('RCPT command error!')
-
-				self.smtpcommand = SMTPRCPTCommand()
-				rawEmail = temp[1].split(':')[1]
-				if rawEmail[0] == '<':
-					rawEmail = rawEmail[1:-1]
-
-				#TODO: postmaster stuff
-				#if rawEmail == 'Postmaster' or :
-				#
-				#TODO [SP Rcpt-parameters]
-				#TODO relaying address parsing
-
-
-				if rawEmail.find(',') == -1:
-					self.smtpcommand.emailTo = [rawEmail]
-
+						return self.from_bytes(buffer)
 				else:
-					self.smtpcommand.emailTo = []
-					for email in rawEmail.split(','):
-						if checkEmailAddress(email):
-							self.smtpcommand.emailTo.append(email)
+					continue
 
-			elif command == SMTPCommand.DATA:
-				#his is a two-step command!
-				self.smtpcommand = SMTPDATACommand()
+	def from_bytes(self, bbuff):
+		return self.from_buffer(io.BytesIO(bbuff))
 
-			elif command == SMTPCommand.RSET:
-				self.smtpcommand = SMTPRSETCommand()
+	def from_buffer(self, buff):
+		response = None
+		lines = buff.readlines()
+		print(lines)
+		for line in lines:
+			try:
+				temp = line.strip().decode(self.encoding)
+				status_code = int(temp[:3], 10)
+				if status_code not in SMTPReplyCode:
+					raise Exception('Unknown REPLY code!')
 
-			elif command == SMTPCommand.VRFY:
-				self.smtpcommand = SMTPVRFYCommand()
-				self.smtpcommand.data = temp[1]
+				if response is None:
+					response = SMTPReply()
+					response.code = status_code
+					response.parameter.append(temp[4:])
+				else:
+					if status_code != response.code:
+						raise Exception('SMTP Multiline response with mismatching status codes!')
 
-			elif command == SMTPCommand.EXPN:
-				self.smtpcommand = SMTPEXPNCommand()
-				self.smtpcommand.data = temp[1]
+					response.parameter.append(temp[4:])
 
-			elif command == SMTPCommand.HELP:
-				self.smtpcommand = SMTPHELPCommand()
-				if len(temp) > 1:
-					self.smtpcommand.data = temp[1]
+			except Exception as e:
+				print(str(e))
+				raise e
 
-			elif command == SMTPCommand.NOOP:
-				self.smtpcommand = SMTPNOOPCommand()
-				if len(temp) > 1:
-					self.smtpcommand.data = temp[1]
-
-			elif command == SMTPCommand.QUIT:
-				self.smtpcommand = SMTPQUITCommand()
-
-			elif command == SMTPCommand.AUTH:
-				self.smtpcommand = SMTPAUTHCommand()
-				self.smtpcommand.mechanism = temp[1]
-				if len(temp) > 2:
-					self.smtpcommand.initresp = temp[2]
-
-			elif command == SMTPCommand.XXXX:
-				self.smtpcommand.data = raw
-
-		except Exception as e:
-			print(str(e))
-			self.smtpcommand = SMTPXXXXCommand()
-			self.smtpcommand.raw_data = raw
-
-		return self.smtpcommand
-"""
-
-class SMTPReplyParser:
-	def __init__(self, buff):
-		self.smtpreply = None
-
-		if buff is not None:
-			self.parse(buff)
-
-	def parse(self, buff, rec = False):
-		temp = buff.readline()[:-2].decode('ascii')
-		reply = int(temp[:4],10)
-		if reply not in SMTPReplyCode:
-			raise Exception('Unknown REPLY code!')
-		
-		if rec:
-			if reply != self.smtpreply:
-				raise Exception('Multiline message format error!')
-			self.parameter.append(temp[5:])
-
-		else:
-			self.smtpreply = SMTPReply()
-			self.smtpreply.code = reply
-			self.parameter.append(temp[5:])
-		
-		if temp[4] == '-':
-			self.parse(buff, rec = True)
-		elif temp[4] == ' ':
-			if rec:
-				return
-			return self.smtpreply
-		else:
-			raise Exception('Multiline message format error!')
+		return response
 
 
 class SMTPReply:
-	def __init__(self, code = None, params = None):
-		self.code      = code
-		self.parameter = params #is list
+	def __init__(self):
+		self.code      = None
+		self.parameter = []
 
-		if self.code is not None:
-			self.construct(self.code, self.parameter)
-
-	def construct(self, code, data = None):
-		self.code = code
+	@staticmethod
+	def construct(code, data = None):
+		rep = SMTPReply()
+		rep.code = code
 		if data is None:
-			self.parameter = [SMTPReplyCode[code]]
-		elif isinstance(data,str):
-			self.parameter = [data]
-		elif isinstance(data,list):
-			self.parameter = data
+			rep.parameter = [SMTPReplyCode[code]]
+		elif isinstance(data, str):
+			rep.parameter = [data]
+		elif isinstance(data, list):
+			rep.parameter = data
 		else:
 			raise Exception('Unknown data for SMTP reply!')
+		return rep
 
-	def toBytes(self):
+	def to_bytes(self):
 		"""
 		returns a list of bytes
 		"""
@@ -464,7 +443,7 @@ class SMTPXXXXCmd:
 	"""
 	def __init__(self):
 		self.command   = SMTPCommand.XXXX
-		self.raw_data  = None
+		self.data  = None
 
 	def construct(self):
 		"""
@@ -472,36 +451,80 @@ class SMTPXXXXCmd:
 		"""
 		pass
 
-	def toBytes(self):
-		return self.raw_data.encode('ascii')
+	@staticmethod
+	def from_bytes(bbuff):
+		return SMTPXXXXCmd.from_buffer(io.BytesIO(bbuff))
+
+	@staticmethod
+	def from_buffer(buff):
+		xxx = SMTPXXXXCmd()
+		xxx.data = buff.read()
+		return xxx
+
+	def to_bytes(self):
+		return self.data.encode('ascii')
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'data      : %s\r\n' % repr(self.data)
+		return t
 
 
 class SMTPAUTHCmd:
 	def __init__(self):
 		self.command   = SMTPCommand.AUTH
 		self.mechanism = None
-		self.initresp  = None
+		self.data  = None
 
-	def construct(self, mechanism, initresp = None):
+	def construct(self, mechanism, data = None):
 		self.mechanism = mechanism
-		self.initresp  = None
+		self.data  = None
 
-	def toBytes(self):
-		if self.initresp is not None:
-			return b' '.join([self.command.name.encode('ascii'), self.mechanism.encode('ascii'), self.initresp.encode('ascii')]) +b'\r\n'
+	def to_bytes(self):
+		if self.data is not None:
+			return b' '.join([self.command.name.encode('ascii'), self.mechanism.encode('ascii'), self.data.encode('ascii')]) +b'\r\n'
 		else:
 			return b' '.join([self.command.name.encode('ascii'), self.mechanism.encode('ascii')]) +b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPAUTHCmd()
+		t, bbuff = read_element(bbuff)
+		cmd.command = SMTPCommand[t.upper()]
+		cmd.mechanism, bbuff = read_element(bbuff, toend = True)
+		if len(bbuff) > 0:
+			cmd.data = bbuff
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'mechanism : %s\r\n' % repr(self.mechanism)
+		t += 'data      : %s\r\n' % repr(self.data)
+		return t
 
 
 class SMTPQUITCmd:
 	def __init__(self):
 		self.command   = SMTPCommand.NOOP
 
-	def construct(self, data):
+	def construct(self):
 		pass
 
-	def toBytes(self):
-		return self.command.name.encode('ascii') +b'\r\n'
+	def to_bytes(self):
+		return self.command.name.encode('ascii') + b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPQUITCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		return t
 
 
 class SMTPNOOPCmd:
@@ -512,11 +535,26 @@ class SMTPNOOPCmd:
 	def construct(self, data):
 		self.data      = data
 
-	def toBytes(self):
+	def to_bytes(self):
 		if self.data is not None:
-			return self.command.name.encode('ascii') + b' ' +self.data.encode('ascii') +b'\r\n'
+			return self.command.name.encode('ascii') + b' ' + ' '.join(self.data).encode('ascii') + b'\r\n'
 		else:
 			return self.command.name.encode('ascii') + b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPNOOPCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		if len(bbuff) > 0:
+			cmd.data = bbuff.split(' ')
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'data  : %s\r\n' % repr(self.data)
+		return t
 
 
 class SMTPHELPCmd:
@@ -527,35 +565,79 @@ class SMTPHELPCmd:
 	def construct(self, data):
 		self.data      = data
 
-	def toBytes(self):
+	def to_bytes(self):
 		if self.data is not None:
-			return self.command.name.encode('ascii') + b' ' +self.data.encode('ascii') +b'\r\n'
+			return self.command.name.encode('ascii') + b' ' + ' '.join(self.data).encode('ascii') +b'\r\n'
 		else:
 			return self.command.name.encode('ascii') +b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPHELPCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		if len(bbuff) > 0:
+			cmd.data = bbuff.split(' ')
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'data  : %s\r\n' % repr(self.data)
+		return t
 
 
 class SMTPEXPNCmd:
 	def __init__(self):
 		self.command   = SMTPCommand.VRFY
-		self.data      = None
+		self.username      = None
 
 	def construct(self, data):
-		self.data      = data
+		self.username      = data
 
 	def toBytes(self):
-		return self.command.name.encode('ascii') + b' ' +self.data.encode('ascii') +b'\r\n'
+		return self.command.name.encode('ascii') + b' ' +self.username.encode('ascii') +b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPEXPNCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		cmd.username = bbuff
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'username  : %s\r\n' % repr(self.username)
+		return t
 
 
 class SMTPVRFYCmd:
 	def __init__(self):
 		self.command   = SMTPCommand.VRFY
-		self.data      = None
+		self.username  = None
 
 	def construct(self, data):
-		self.data      = data
+		self.username      = data
 
 	def toBytes(self):
-		return self.command.name.encode('ascii') + b' ' +self.data.encode('ascii') +b'\r\n'
+		return self.command.name.encode('ascii') + b' ' +self.username.encode('ascii') +b'\r\n'
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPVRFYCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		cmd.username = bbuff
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'username  : %s\r\n' % repr(self.username)
+		return t
+
 
 
 class SMTPRSETCmd:
@@ -568,38 +650,137 @@ class SMTPRSETCmd:
 	def toBytes(self):
 		return self.command + b'\r\n'
 
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPRSETCmd()
+		t, bbuff = read_element(bbuff, toend= True)
+		cmd.command = SMTPCommand[t.upper()]
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		return t
+
 
 class SMTPDATACmd:
 	def __init__(self):
 		self.command   = SMTPCommand.DATA
-		self.emailData = None #will be a list!
+		self.emaildata = None
 
 	def construct(self, emaildata):
-		self.emailData = emaildata
+		self.emaildata = emaildata
 
 	def toBytes(self):
 		return [self.command.name.encode('ascii') + b'\r\n', self.emailData.replace('\r\n','\n').encode('ascii') + b'\r\n.\r\n']
 
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		print('----------------')
+		print(bbuff)
+		print('----------------')
+		if bbuff is None:
+			# we return an empty instance, as this command is muliline
+			return SMTPDATACmd()
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPDATACmd()
+		t, bbuff = read_element(bbuff, marker='\n')
+		cmd.command = SMTPCommand[t.strip().upper()]
+		cmd.emaildata = ''
+		for line in bbuff.split('\n'):
+			print(repr(line))
+			if line.strip() == '.':
+				break
+			cmd.emaildata += line + '\n'
+		return cmd
 
-class SMTPRCPTCmd:
-	def __init__(self):
-		self.command = SMTPCommand.RCPT
-		self.emailTo = None #will be a list!
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		t += 'Command : %s\r\n' % self.command.name
+		t += 'emaildata  : %s\r\n' % repr(self.emaildata)
+		return t
 
-	def construct(self, emailAddressList, check = True):
-		if isintance(emailAddressList, str):
-			self.emailTo = [emailAddressList]
-		if isintance(emailAddressList, list):
-			self.emailTo = emailAddressList
 
-		if check:
-			for emailAddress in self.emailTo:
-				if not EMAIL_REGEX.match(emailAddress):
-					raise Exception('emailAddress not an email address!')
+class SMTPAuthStatus(enum.Enum):
+	OK = enum.auto()
+	NO = enum.auto()
+	MORE_DATA_NEEDED = enum.auto()
 
-	def toBytes(self):
-		return self.command.name.encode('ascii') + b' <' + str(self.emailFrom).encode('ascii') + b'>\r\n'
 
+class SMTPAuthMethod(enum.Enum):
+	PLAIN = enum.auto()
+	CRAM_MD5 = enum.auto()
+
+
+class SMTPPlainAuth:
+	def __init__(self, creds):
+		self.creds = creds
+		self.username = None
+		self.password = None
+
+	def update_creds(self, cmd):
+		print(cmd)
+		print(cmd.data)
+		if cmd.command == SMTPCommand.AUTH:
+			if cmd.data is not None:
+				authdata = b64decode(cmd.data).split(b'\x00')[1:]
+				print(authdata)
+				self.username = authdata[0].decode('ascii')
+				self.password = authdata[1].decode('ascii')
+			else:
+				return SMTPAuthStatus.MORE_DATA_NEEDED, None
+
+		else:
+			authdata = b64decode(cmd.data).split(b'\x00')[1:]
+			print(authdata)
+			self.username = authdata[0].decode('ascii')
+			self.password = authdata[1].decode('ascii')
+
+		if self.username is not None and self.password is not None:
+			return self.verify_creds()
+
+		else:
+			return SMTPAuthStatus.MORE_DATA_NEEDED, None
+
+	def verify_creds(self):
+		c = SMTPPlainCred(self.username, self.password)
+		if self.creds is None:
+			return SMTPAuthStatus.OK, c.toCredential()
+		else:
+			if c.username in self.creds:
+				if self.creds[c.username] == c.password:
+					return SMTPAuthStatus.OK, c.toCredential()
+
+			else:
+				return SMTPAuthStatus.NO, c.toCredential()
+
+		return SMTPAuthStatus.NO, c.toCredential()
+
+
+class SMTPPlainCred:
+	def __init__(self, username, password):
+		self.username = username
+		self.password = password
+
+	def toCredential(self):
+		return Credential('PLAIN',
+						  username=self.username,
+						  password=self.password,
+						  fullhash='%s:%s' % (self.username, self.password)
+						  )
+
+
+class SMTPAuthHandler:
+	def __init__(self, authtype, creds=None, salt = None):
+		if authtype == SMTPAuthMethod.PLAIN:
+			self.authahndler = SMTPPlainAuth(creds)
+		elif authtype == SMTPAuthMethod.CRAM_MD5:
+			self.authahndler = SMTPCRAM_MD5Auth(creds, salt)
+		else:
+			raise NotImplementedError
+
+	def do_AUTH(self, cmd, salt = None):
+		return self.authahndler.update_creds(cmd)
 
 SMTPCMD = {
 	SMTPCommand.HELO: SMTPHELOCmd,

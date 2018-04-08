@@ -1,4 +1,6 @@
+#!/usr/bin/env python3.6
 from responder3.protocols.IMAP import *
+
 
 def parse_comm(comms):
 	p = IMAPCommandParser()

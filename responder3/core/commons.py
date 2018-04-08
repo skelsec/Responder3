@@ -345,7 +345,7 @@ defaultports = {
 	"IMAPS": [(993, 'tcp')],
 	"SMB"  : [(445, 'tcp')],
 	"NBTNS": [(137, 'udp')],
-	"SOCKS5":[(1050, 'tcp')],
+	"SOCKS5":[(1080, 'tcp')],
 	"LLMNR": [(5355, 'udp')],
 	"MDNS" : [(5353, 'udp')],
 	"HTTPProxy":[(8080, 'tcp')],
@@ -386,7 +386,7 @@ def get_platform():
 def setup_base_socket(server_properties, bind_ip_override = None):
 	try:
 		sock = None
-		if server_properties.bind_porotcol == ServerProtocol.UDP:
+		if server_properties.bind_protocol == ServerProtocol.UDP:
 			if server_properties.bind_family == socket.AF_INET:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 				if server_properties.platform == ResponderPlatform.LINUX:
@@ -433,7 +433,7 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 			else:
 				raise Exception('Unknown IP version')
 
-		elif server_properties.bind_porotcol in [ServerProtocol.TCP,ServerProtocol.SSL]:
+		elif server_properties.bind_protocol in [ServerProtocol.TCP,ServerProtocol.SSL]:
 			if server_properties.bind_family == socket.AF_INET:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
 				sock.setblocking(False)

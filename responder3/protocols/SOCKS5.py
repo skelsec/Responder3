@@ -9,10 +9,12 @@ import asyncio
 
 from responder3.core.commons import *
 
+
 class SOCKS5ServerMode(enum.Enum):
 	OFF    = enum.auto()
 	NORMAL = enum.auto()
 	EVIL   = enum.auto()
+
 
 class SOCKS5ServerState(enum.Enum):
 	NEGOTIATION = 0
@@ -20,24 +22,28 @@ class SOCKS5ServerState(enum.Enum):
 	REQUEST = 3 
 	RELAYING = 4
 
+
 class SOCKS5Method(enum.Enum):
 	NOAUTH = 0x00
 	GSSAPI = 0x01
 	PLAIN  = 0x02
-	##IANA ASSIGNED X'03' to X'7F' 
-	##RESERVED FOR PRIVATE METHODS X'80' to X'FE' 
+	# IANA ASSIGNED X'03' to X'7F'
+	# RESERVED FOR PRIVATE METHODS X'80' to X'FE'
 
 	NOTACCEPTABLE = 0xFF
+
 
 class SOCKS5Command(enum.Enum):
 	CONNECT = 0x01
 	BIND = 0x02
 	UDP_ASSOCIATE = 0x03
 
+
 class SOCKS5AddressType(enum.Enum):
 	IP_V4 = 0x01
 	DOMAINNAME = 0x03
 	IP_V6 = 0x04
+
 
 class SOCKS5ReplyType(enum.Enum):
 	SUCCEEDED = 0X00 # o  X'00' succeeded
@@ -52,7 +58,7 @@ class SOCKS5ReplyType(enum.Enum):
 	#o  X'09' to X'FF' unassigned
 
 
-class SOCKS5SocketParser():
+class SOCKS5SocketParser:
 	def __init__(self, protocol = ServerProtocol.TCP):
 		self.protocol = protocol
 
@@ -70,7 +76,8 @@ class SOCKS5SocketParser():
 				break
 		return data
 
-class SOCKS5CommandParser():
+
+class SOCKS5CommandParser:
 	# the reason we need this class is: SOCKS5 protocol messages doesn't have a type field,
 	# the messages are parsed in context of the session itself.
 	def __init__(self, protocol = ServerProtocol.TCP):
@@ -106,7 +113,8 @@ class SOCKS5CommandParser():
 			t = yield from asyncio.wait_for(SOCKS5Request.from_streamreader(reader), timeout = timeout)
 			return t
 
-class SOCKS5AuthHandler():
+
+class SOCKS5AuthHandler:
 	def __init__(self, authtype, creds = None):
 		self.authtype  = authtype
 		self.creds = creds
@@ -131,10 +139,12 @@ class SOCKS5AuthHandler():
 		else:
 			raise Exception('Not implemented!')
 
-class SOCKS5PlainCredentials():
+
+class SOCKS5PlainCredentials:
 	def __init__(self, username, password):
 		self.username = username
 		self.password = password
+
 
 	def toCredential(self):
 		res = {
@@ -146,7 +156,7 @@ class SOCKS5PlainCredentials():
 		return res
 
 
-class SOCKS5PlainAuth():
+class SOCKS5PlainAuth:
 	def __init__(self):
 		self.VER = None
 		self.ULEN = None
@@ -154,25 +164,28 @@ class SOCKS5PlainAuth():
 		self.PLEN = None
 		self.PASSWD = None
 
+	@staticmethod
 	@asyncio.coroutine
 	def from_streamreader(reader, timeout = None):
 		auth = SOCKS5PlainAuth()
-		t = yield from read_or_exc(reader,1, timeout = timeout)
+		t = yield from read_or_exc(reader, 1, timeout = timeout)
 		auth.VER = int.from_bytes(t, byteorder = 'big', signed = False)
-		t = yield from read_or_exc(reader,1, timeout = timeout)
+		t = yield from read_or_exc(reader, 1, timeout = timeout)
 		auth.ULEN = int.from_bytes(t, byteorder = 'big', signed = False)
-		t = yield from read_or_exc(reader,auth.ULEN, timeout = timeout)
+		t = yield from read_or_exc(reader, auth.ULEN, timeout = timeout)
 		auth.UNAME = t.decode()
-		t = yield from read_or_exc(reader,1, timeout = timeout)
+		t = yield from read_or_exc(reader, 1, timeout = timeout)
 		auth.PLEN = int.from_bytes(t, byteorder = 'big', signed = False)
-		t = yield from read_or_exc(reader,auth.PLEN, timeout = timeout)
+		t = yield from read_or_exc(reader, auth.PLEN, timeout = timeout)
 		auth.PASSWD = t.decode()
 
 		return auth
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SOCKS5PlainAuth.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		auth = SOCKS5PlainAuth()
 		auth.VER = int.from_bytes(buff.read(1), byteorder = 'big', signed = False) 
@@ -183,7 +196,8 @@ class SOCKS5PlainAuth():
 
 		return auth
 
-	def constrcut(username, password):
+	@staticmethod
+	def construct(username, password):
 		auth = SOCKS5PlainAuth()
 		auth.VER    = 5
 		auth.ULEN   = len(username)
@@ -193,7 +207,7 @@ class SOCKS5PlainAuth():
 
 		return auth
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.VER.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.ULEN.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.UNAME.encode()
@@ -202,12 +216,13 @@ class SOCKS5PlainAuth():
 		return t
 
 
-class SOCKS5Nego():
+class SOCKS5Nego:
 	def __init__(self):
 		self.VER = None
 		self.NMETHODS = None
 		self.METHODS = None
 
+	@staticmethod
 	@asyncio.coroutine
 	def from_streamreader(reader, timeout = None):
 		nego = SOCKS5Nego()
@@ -222,9 +237,11 @@ class SOCKS5Nego():
 
 		return nego
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SOCKS5Nego.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		nego = SOCKS5Nego()
 		nego.VER = int.from_bytes(buff.read(1), byteorder = 'big', signed = False) 
@@ -234,6 +251,7 @@ class SOCKS5Nego():
 			nego.METHODS.append(SOCKS5Method(int.from_bytes(buff.read(1), byteorder = 'big', signed = False)))
 		return nego
 
+	@staticmethod
 	def construct(methods):
 		if not isinstance(methods, list):
 			methods = [methods]
@@ -243,18 +261,25 @@ class SOCKS5Nego():
 		nego.METHODS = methods
 		return nego
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.VER.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.NMETHODS.to_bytes(1, byteorder = 'big', signed = False)
 		for method in self.METHODS:
 			t += method.value.to_bytes(1, byteorder = 'big', signed = False)
 		return t
 
-class SOCKS5NegoReply():
+class SOCKS5NegoReply:
 	def __init__(self):
 		self.VER = None
 		self.METHOD = None
 
+	def __repr__(self):
+		t  = '== SOCKS5NegoReply ==\r\n'
+		t += 'VER: %s\r\n' % self.VER
+		t += 'METHOD: %s\r\n' % self.METHOD
+		return t
+
+	@staticmethod
 	def from_socket(soc):
 		data = b''
 		total_size = 2
@@ -274,7 +299,7 @@ class SOCKS5NegoReply():
 		t = yield from read_or_exc(reader,1, timeout = timeout)
 		rep.VER = int.from_bytes(t, byteorder = 'big', signed = False)
 		t = yield from read_or_exc(reader,1, timeout = timeout)
-		rep.VER= int.from_bytes(t, byteorder = 'big', signed = False)
+		rep.METHOD = SOCKS5Method(int.from_bytes(t, byteorder = 'big', signed = False))
 		
 		return rep
 
@@ -304,14 +329,13 @@ class SOCKS5NegoReply():
 		return rep
 
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.VER.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.METHOD.value.to_bytes(1, byteorder = 'big', signed = False)
 		return t
 
 
-
-class SOCKS5Request():
+class SOCKS5Request:
 	def __init__(self):
 		self.VER = None
 		self.CMD = None
@@ -320,6 +344,7 @@ class SOCKS5Request():
 		self.DST_ADDR = None
 		self.DST_PORT = None
 
+	@staticmethod
 	@asyncio.coroutine
 	def from_streamreader(reader, timeout = None):
 		req = SOCKS5Request()
@@ -349,9 +374,11 @@ class SOCKS5Request():
 
 		return req
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SOCKS5Request.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		req = SOCKS5Request()
 		req.VER = int.from_bytes(buff.read(1), byteorder = 'big', signed = False)
@@ -369,6 +396,7 @@ class SOCKS5Request():
 		req.DST_PORT = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
 		return req
 
+	@staticmethod
 	def construct(cmd, address, port):
 		req = SOCKS5Request()
 		req.VER = 5
@@ -387,7 +415,7 @@ class SOCKS5Request():
 		req.DST_PORT = port
 		return req
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.VER.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.CMD.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.RSV.to_bytes(1, byteorder = 'big', signed = False)
@@ -400,7 +428,8 @@ class SOCKS5Request():
 		t += self.DST_PORT.to_bytes(2, byteorder = 'big', signed = False)
 		return t
 
-class SOCKS5Reply():
+
+class SOCKS5Reply:
 	def __init__(self):
 		self.VER = None
 		self.REP = None
@@ -409,6 +438,7 @@ class SOCKS5Reply():
 		self.BIND_ADDR= None
 		self.BIND_PORT= None
 
+	@staticmethod
 	def from_socket(soc):
 		data = b''
 		total_size = 1024
@@ -417,7 +447,6 @@ class SOCKS5Reply():
 			if temp == b'':
 				break
 			data += temp
-			
 
 			if len(data) > 4:
 				rt = SOCKS5AddressType(data[3])
@@ -434,6 +463,7 @@ class SOCKS5Reply():
 
 		return SOCKS5Reply.from_bytes(data)
 
+	@staticmethod
 	@asyncio.coroutine
 	def from_streamreader(reader, timeout = None):
 		rep = SOCKS5Reply()
@@ -461,9 +491,11 @@ class SOCKS5Reply():
 		rep.BIND_PORT = int.from_bytes(t, byteorder = 'big', signed = False)
 		return rep
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SOCKS5Reply.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		rep = SOCKS5Reply()
 		rep.VER = int.from_bytes(buff.read(1), byteorder = 'big', signed = False) 
@@ -473,9 +505,9 @@ class SOCKS5Reply():
 
 		if rep.ATYP == SOCKS5AddressType.IP_V4:
 			rep.BIND_ADDR = ipaddress.IPv4Address(buff.read(4))
-		elif req.ATYP == SOCKS5AddressType.IP_V6:
+		elif rep.ATYP == SOCKS5AddressType.IP_V6:
 			rep.BIND_ADDR = ipaddress.IPv6Address(buff.read(16))
-		elif req.ATYP == SOCKS5AddressType.DOMAINNAME:
+		elif rep.ATYP == SOCKS5AddressType.DOMAINNAME:
 			length = int.from_bytes(buff.read(1), byteorder = 'big', signed = False) 
 			rep.BIND_ADDR = buff.read(length).decode()
 
@@ -483,6 +515,7 @@ class SOCKS5Reply():
 
 		return rep
 
+	@staticmethod
 	def construct(reply, address, port): 
 		rep = SOCKS5Reply()
 		rep.VER = 5
@@ -501,7 +534,7 @@ class SOCKS5Reply():
 		rep.DST_PORT = port
 		return rep
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.VER.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.REP.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.RSV.to_bytes(1, byteorder = 'big', signed = False)
@@ -524,8 +557,7 @@ class SOCKS5Reply():
 		return t
 
 
-
-class SOCKS5UDP():
+class SOCKS5UDP:
 	def __init__(self):
 		self.RSV = None
 		self.FRAG = None
@@ -534,6 +566,7 @@ class SOCKS5UDP():
 		self.DST_PORT = None
 		self.DATA = None
 
+	@staticmethod
 	@asyncio.coroutine
 	def from_streamreader(reader, timeout = None):
 		rep = SOCKS5UDP()
@@ -560,9 +593,11 @@ class SOCKS5UDP():
 		rep.DST_PORT = int.from_bytes(t, byteorder = 'big', signed = False)
 		return rep
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SOCKS5UDP.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		rep = SOCKS5UDP()
 		rep.RSV = int.from_bytes(buff.read(2), byteorder = 'big', signed = False)
@@ -570,9 +605,9 @@ class SOCKS5UDP():
 		rep.ATYP = int.SOCKS5AddressType(buff.read(1), byteorder = 'big', signed = False)
 		if rep.ATYP == SOCKS5AddressType.IP_V4:
 			rep.DST_ADDR = ipaddress.IPv4Address(buff.read(4))
-		elif req.ATYP == SOCKS5AddressType.IP_V6:
+		elif rep.ATYP == SOCKS5AddressType.IP_V6:
 			rep.DST_ADDR = ipaddress.IPv6Address(buff.read(16))
-		elif req.ATYP == SOCKS5AddressType.DOMAINNAME:
+		elif rep.ATYP == SOCKS5AddressType.DOMAINNAME:
 			length = int.from_bytes(buff.read(1), byteorder = 'big', signed = False) 
 			rep.DST_ADDR = buff.read(length).decode()
 
@@ -580,7 +615,7 @@ class SOCKS5UDP():
 		#be careful, not data length is defined in the RFC!!
 		rep.DATA = buff.read()
 
-
+	@staticmethod
 	def construct(address, port, data, frag = 0):
 		req = SOCKS5Request()
 		req.RSV = 0
@@ -599,7 +634,7 @@ class SOCKS5UDP():
 		req.DATA = data
 		return req
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.RSV.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.FRAG.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.ATYP.value.to_bytes(1, byteorder = 'big', signed = False)

@@ -5,15 +5,15 @@ import os
 import copy
 import time
 import asyncio
-import socket
-import threading
 from random import shuffle
-from ipaddress import IPv4Address, IPv6Address
-from responder3.utils import ServerFunctionality
-from responder3.servers.BASE import ResponderServer, ResponderProtocolTCP, ProtocolSession
-from responder3.protocols.Socks5 import *
+from urllib.parse import urlparse
+import ipaddress
 
-class SOCKS5Server():
+from responder3.core.commons import *
+from responder3.core.interfaceutil import ifacehelp, interfaced
+from responder3.protocols.SOCKS5 import *
+
+class SOCKS5ServerConfig:
 	def __init__(self):
 		self.ip       = ''
 		self.port     = ''
@@ -21,24 +21,65 @@ class SOCKS5Server():
 		self.username = ''
 		self.password = ''
 
-	def getAddr(self):
-		return (str(self.ip), self.port)
+	def __repr__(self):
+		t  = '== SOCKS5ServerConfig ==\r\n'
+		t += 'IP: %s\r\n' % self.ip
+		t += 'port: %s\r\n' % self.port
+		t += 'timeout: %s\r\n' % self.timeout
+		t += 'username: %s\r\n' % self.username
+		t += 'password: %s\r\n' % self.password
+		return t
 
-	def constrcut(ip, port, timeout = 1, username = None, password = None):
-		self.ip       = ip
-		if not isinstance(ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
-			self.ip       = ipadress.ip_address(ip)
-		
-		self.port     = int(port)
-		self.timeout  = int(timeout)
-		self.username = username
-		self.password = password
+	def get_addr(self):
+		return str(self.ip), self.port
 
+	def get_paddr(self):
+		return '%s:%d' % (str(self.ip), self.port)
+
+	@staticmethod
+	def from_url(url, timeout = 10):
+		conf = SOCKS5ServerConfig()
+		o = urlparse(url)
+
+		if o.scheme.lower() != 'socks5':
+			raise Exception('Only SOCKS5 proxies are supported! (usage: socks5://<user>:<pass>@ip:port')
+
+		conf.ip = o.netloc
+		if conf.ip.find('@') != -1:
+			conf.ip = conf.ip.split('@')[1]
+
+		if conf.ip.find(':') != -1:
+			m = conf.ip.rfind(':')
+			conf.ip = conf.ip[:m]
+
+		if o.port is None:
+			logging.debug('No port specified, default port will be used (1080)')
+			conf.port = 1080
+		else:
+			conf.port = o.port
+		conf.timeout = timeout
+		conf.username = o.username
+		conf.password = o.password
+
+		return conf
+
+	@staticmethod
+	def construct(ip, port, timeout = 1, username = None, password = None):
+		conf = SOCKS5ServerConfig()
+		conf.ip       = ip
+		conf.port     = int(port)
+		conf.timeout  = int(timeout)
+		conf.username = username
+		conf.password = password
+		return conf
+
+	@staticmethod
 	def from_json(s):
-		return SOCKS5Server.from_dict(json.loads(s))
+		return SOCKS5ServerConfig.from_dict(json.loads(s))
 
+	@staticmethod
 	def from_dict(d):
-		s = SOCKS5Server()
+		s = SOCKS5ServerConfig()
 		s.ip       = ipaddress.ip_address(d['ip'])
 		s.port     = int(d['port'])
 		s.timeout  = int(d['timeout'])
@@ -46,52 +87,7 @@ class SOCKS5Server():
 		s.password = d['password']
 		return s
 
-class TCPProxyThread():
-	def __init__(self):
-		self.soc1  = None
-		self.soc2 = None
-		self.inout_thread = None
-		self.outin_thread = None
-		self.threads = []
-
-	def construct(soc_in, soc_out):
-		tp = TCPProxyThread()
-		tp.soc1  = soc_in
-		tp.soc2 = soc_out
-		return tp
-
-
-	def proxy(soc1, soc2):
-		try:
-			while True:
-				data = soc1.recv(4096)
-				if data == b'':
-					break
-				soc2.sendall(data)
-			print('Socket closed!')
-		except Exception as e:
-			print('Error while proxying: %s' % str(e))
-
-
-
-	def run(self):
-		t = threading.Thread(target=TCPProxyThread.proxy, args=(self.soc1, self.soc2))
-		self.threads.append(t)
-		t2 = threading.Thread(target=TCPProxyThread.proxy, args=(self.soc2, self.soc1))
-		self.threads.append(t2)
-
-		for t in self.threads:
-			t.start()
-
-		for t in self.threads:
-			t.join()
-
-class TunnelTrack():
-	def __init__(self, level, addr):
-		self.leve = level
-		self.addr = addr
-
-class Socks5Client():
+class Socks5Client:
 	def __init__(self):
 		self.servers = None
 		self.bind_addr = None
@@ -102,155 +98,283 @@ class Socks5Client():
 		self.randomize_servers = False
 		self.cmdparser = SOCKS5SocketParser()
 		self.listening_socket = None
-		self.connection_threads = []
+
 		self.latest_tunnel = None
+		self.server_props = None
+		self.server_coro = None
+		self.clients = {}
+		self.loop = asyncio.get_event_loop()
+		self.timeout = None
+
+
+	@asyncio.coroutine
+	def generic_read(self, reader):
+		return reader.read(1024)
+
+	@asyncio.coroutine
+	def proxy_forwarder(self, reader, writer, reader_address, stop_event, timeout = None):
+		reader_address = '%s:%d' % reader_address
+		writer_address = '%s:%d' % writer.get_extra_info('peername')
+		logging.debug('Proxy starting %s -> %s' % (reader_address, writer_address))
+		while not stop_event.is_set():
+			try:
+				data = yield from asyncio.wait_for(self.generic_read(reader), timeout=timeout)
+			except asyncio.TimeoutError:
+				logging.exception()
+				stop_event.set()
+				break
+
+			if data == b'' or reader.at_eof():
+				logging.debug('Connection closed!')
+				stop_event.set()
+				break
+
+			logging.log(1, '%s -> %s: %s' % (reader_address, writer_address, data.hex()))
+
+			try:
+				writer.write(data)
+				yield from asyncio.wait_for(writer.drain(), timeout=timeout)
+			except asyncio.TimeoutError:
+				logging.debug('Remote server timed out!')
+				stop_event.set()
+				break
+
+		return
 
 	def create_listening_socket(self):
 		try:
-			self.listening_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.listening_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-			self.listening_socket.bind((str(self.bind_addr), self.bind_port))
-			self.listening_socket.listen(500)
+			self.listening_socket = setup_base_socket(self.server_props)
+			#self.listening_socket.listen(500)
 		except Exception as e:
 			raise e
 
-	def connect_proxy(self, server):
-		print('Connecting to proxy %s:%d...' % server.getAddr())
+	@asyncio.coroutine
+	def connect_proxy(self, serverconfig):
+		print('Connecting to socks5 proxy %s:%d...' % serverconfig.get_addr())
 		try:
-			s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			s.connect(server.getAddr())
-		except Exception as e:
-			raise Exception('Failed to connect to proxy! Reason: %s' % str(e))
+			reader, writer = yield from asyncio.wait_for(
+				asyncio.open_connection(host=serverconfig.ip, port=serverconfig.port),
+				timeout=10)
+			return reader, writer
 
-	def get_route(self, s, server):
+		except Exception as e:
+			logging.exception('Failed to connect to proxy!')
+
+	@asyncio.coroutine
+	def create_tunnel(self, target, server, proxy_reader, proxy_writer):
+		logging.info('Establishing proxy connection %s => %s' % (server.get_paddr(), target.get_paddr()))
 		authmethods = [SOCKS5Method.NOAUTH]
 		if server.username is not None:
 			authmethods.append(SOCKS5Method.PLAIN)
 
-		print('Sending nego')
-		s.sendall(SOCKS5Nego.construct(authmethods).toBytes())
-		rep_nego = SOCKS5NegoReply.from_socket(s)
-		print('GOT nego reply')
+		logging.debug('Sending negotiation command to %s:%d' % proxy_writer.get_extra_info('peername'))
+		proxy_writer.write(SOCKS5Nego.construct(authmethods).to_bytes())
+		t = yield from asyncio.wait_for(proxy_writer.drain(), timeout = 1)
+
+		rep_nego = yield from asyncio.wait_for(SOCKS5NegoReply.from_streamreader(proxy_reader), timeout = self.timeout)
+		logging.debug('Got negotiation reply from %s: %s' % (proxy_writer.get_extra_info('peername'), repr(rep_nego)))
 		if rep_nego.METHOD == SOCKS5Method.NOTACCEPTABLE:
-			raise Exception('Failed to connect to proxy! No common authentication type!')
+			raise Exception('Failed to connect to proxy %s:%d! No common authentication type!' % proxy_writer.get_extra_info('peername'))
 
 		if rep_nego.METHOD == SOCKS5Method.PLAIN:
-			print('Doing plain auth')
-			s.sendall(SOCKS5PlainAuth.construct(server.username, server.password).toBytes())
-			rep_auth_nego = SOCKS5NegoReply.from_socket(s)
-			if rep_auth_nego.METHOD != SOCKS5Method.NOAUTH:
-				raise Exception('Failed to connect to proxy! Authentication failed!')
+			logging.debug('Preforming plaintext auth to %s:%d' % proxy_writer.get_extra_info('peername'))
+			proxy_writer.write(SOCKS5PlainAuth.construct(server.username, server.password).to_bytes())
+			t = yield from asyncio.wait_for(proxy_writer.drain(), timeout=1)
+			rep_auth_nego = yield from asyncio.wait_for(SOCKS5NegoReply.from_streamreader(proxy_reader), timeout = self.timeout)
 
-		print('Sending connect req')
-		s.sendall(SOCKS5Request.construct(SOCKS5Command.CONNECT, server.getAddr()[0], server.getAddr()[1]).toBytes())
-		rep = SOCKS5Reply.from_socket(s)
+			if rep_auth_nego.METHOD != SOCKS5Method.NOAUTH:
+				raise Exception('Failed to connect to proxy %s:%d! Authentication failed!' % proxy_writer.get_extra_info('peername'))
+
+		logging.debug('Sending connect request to %s:%d' % proxy_writer.get_extra_info('peername'))
+		proxy_writer.write(SOCKS5Request.construct(SOCKS5Command.CONNECT, target.get_addr()[0], target.get_addr()[1]).to_bytes())
+		t = yield from asyncio.wait_for(proxy_writer.drain(), timeout=1)
+
+		rep = yield from asyncio.wait_for(SOCKS5Reply.from_streamreader(proxy_reader), timeout=self.timeout)
 		if rep.REP != SOCKS5ReplyType.SUCCEEDED:
-			raise Exception(print('Failed to connect to proxy! Server replied: %s' % (repr(SOCKS5ReplyType.SUCCEEDED))))
-			
+			logging.info('Failed to connect to proxy %s! Server replied: %s' % (proxy_writer.get_extra_info('peername'), repr(rep.REP)))
+			raise Exception('Authentication failure!')
 
 		#at this point everything seems to be okay, now let's check if the connect address is the same
-		print('Server reply: %s' % repr(rep))
+		logging.debug('Server reply from %s : %s' % (proxy_writer.get_extra_info('peername'),repr(rep)))
 
-		if rep.BIND_ADDR == IPv6Address('::') or rep.BIND_ADDR == IPv4Address('0.0.0.0'):
+		if rep.BIND_ADDR == ipaddress.IPv6Address('::') or rep.BIND_ADDR == ipaddress.IPv4Address('0.0.0.0'):
+			logging.debug('Same socket can be used now on %s:%d' % (proxy_writer.get_extra_info('peername')))
 			#this means that the communication can continue on the same socket!
-			return None
+			logging.info('Proxy connection succeeded')
+			return proxy_reader, proxy_writer
 
 		else:
-			return (str(rep.BIND_ADDR), rep.BIND_PORT)
+			reader, writer = yield from asyncio.wait_for(
+				asyncio.open_connection(host=str(rep.BIND_ADDR), port=rep.BIND_PORT),
+				timeout=10)
+			logging.info('Proxy connection succeeded')
+			return reader, writer
 
-	
-
-	def get_multitunnel(self, servers, target, recursion = 0, rsock = None):
+	@asyncio.coroutine
+	def get_multitunnel(self, servers, target, recursion = 0, proxy_reader = None, proxy_writer = None):
 		"""
 		should return a socket or throw exception
 		"""
-		if rsock is None:
-			rsock = self.connect_proxy(servers[recursion])
+		if proxy_reader is None:
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.connect_proxy(servers[recursion]), timeout=10)
 
-		if recursion < len(servers):
-			addr = self.get_route(rsock, servers[recursion+1])
-			if addr is not None:
-				#here the server opens a different socet for us, but following this would require
-				#an algo that is too complex for me (like for each and every recirsion layer we'd need to jump back to the original while keeping track of the latest layer's new address)
-				raise Exception('This feature is not implemented')
+		if recursion < (len(servers) - 1):
+			taddr = proxy_writer.get_extra_info('peername')
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.create_tunnel(servers[recursion+1], servers[recursion], proxy_reader, proxy_writer), timeout = 10)
+			if proxy_writer.get_extra_info('peername') != taddr:
+				# here the server opens a different socet for us, but following this would require
+				# an algo that is too complex for me
+				raise Exception('Socks5 server at %s:%d opened a different tunneling socket than the one we connected to! This feature is not supported yet! You may want to remove this server from your list' % taddr)
 			else:
-				return self.get_multitunnel(servers, target, recursion = recursion+1, rsock = rsock):
+				proxy_reader, proxy_writer = yield from asyncio.wait_for(
+					self.get_multitunnel(
+						servers, target, recursion = recursion+1, proxy_reader = proxy_reader, proxy_writer = proxy_writer
+					),
+					timeout = 10
+				)
+				return proxy_reader, proxy_writer
 		
 		else:
-			addr = self.get_route(rsock, target)
-			if addr is not None:
-				#here the server opens a different socet for us, but following this would require
-				#an algo that is too complex for me (like for each and every recirsion layer we'd need to jump back to the original while keeping track of the latest layer's new address)
-				raise Exception('This feature is not implemented ')
-			
-			return rsock
+			taddr = proxy_writer.get_extra_info('peername')
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.create_tunnel(target, servers[recursion], proxy_reader, proxy_writer), timeout = 10)
+			if proxy_writer.get_extra_info('peername') != taddr:
+				raise Exception('Socks5 server at %s:%d opened a different tunneling socket than the one we connected to! This feature is not supported yet! You may want to remove this server from your list' % taddr)
 
+			return proxy_reader, proxy_writer
 
-
-	def proxyfy(self, clientsock, addr):
-		print('Client connected from %s:%d' % (addr[0],addr[1]))
-		rsock = None
-		servers = shuffle(copy.deepcopy(self.servers)) if self.randomize_servers else copy.deepcopy(self.servers)
-		if len(servers) == 1:
-			rsock = self.connect_proxy(servers[0])
-			addr = self.get_route(servers[0], (self.remote_addr, self.remote_port))
-			if addr is None:
-				rsock = self.connect_proxy(addr)
+	@asyncio.coroutine
+	def proxyfy(self, client_reader, client_writer):
+		stop_event = asyncio.Event()
+		target = SOCKS5ServerConfig.construct(self.remote_addr, self.remote_port)
+		if len(self.servers) == 1:
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.connect_proxy(self.servers[0]), timeout = 10)
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.create_tunnel(target, self.servers[0], proxy_reader, proxy_writer), timeout = 10)
 
 		else:
-			servers = shuffle(copy.deepcopy(self.servers)) if self.randomize_servers else copy.deepcopy(self.servers)
-			rsock = get_multitunnel(servers)
+			servers = copy.deepcopy(self.servers)
+			if self.randomize_servers:
+				shuffle(servers)
+			logging.info(servers)
+			proxy_reader, proxy_writer = yield from asyncio.wait_for(self.get_multitunnel(servers, target), timeout = 10)
 
-		if rsock is None:
-			print('Error happened!')
-		proxy = TCPProxy.construct(clientsock, rsock)
-		proxy.run()
+		task = asyncio.Task(self.proxy_forwarder(proxy_reader, client_writer, proxy_writer.get_extra_info('peername'), stop_event))
+		task = asyncio.Task(self.proxy_forwarder(client_reader, proxy_writer, client_writer.get_extra_info('peername'), stop_event))
+
+		logging.info('Tunnel is ready!')
+		t = yield from asyncio.wait_for(stop_event.wait(), timeout = None)
+		return
+
+	def handle_client(self, client_reader, client_writer):
+		logging.info('Client connected from %s:%d' % client_writer.get_extra_info('peername'))
+		task = asyncio.Task(self.proxyfy(client_reader, client_writer))
+		self.clients[task] = (client_reader, client_writer)
+
+		def client_done(task):
+			del self.clients[task]
+			client_writer.close()
+			logging.info('Client %s:%d disconnected!' % client_writer.get_extra_info('peername'))
+
+		task.add_done_callback(client_done)
+		return
 		
 	def run(self):
 		try:
 			self.create_listening_socket()
-			while True:
-				clientsock, addr = self.listening_socket.accept()
-				cont = threading.Thread(target=self.proxyfy, args=(clientsock, addr))
-				self.connection_threads.append(cont)
-				cont.start()
+			self.server_coro = asyncio.start_server(self.handle_client, sock=self.listening_socket)
+			logging.info('Server started!')
+			self.loop.run_until_complete(self.server_coro)
+			self.loop.run_forever()
+
+		except KeyboardInterrupt:
+			sys.exit(0)
+
 		except Exception as e:
-			print(str(e))
 			traceback.print_exc()
+			print(str(e))
+
+class ServerProperties:
+	def __init__(self):
+		self.bind_iface  = None
+		self.bind_port   = None
+		self.bind_family = None
+		self.bind_protocol = None
+		self.bind_addr = None
+		self.platform = get_platform()
+
+	@staticmethod
+	def from_address(ip, port, proto = ServerProtocol.TCP):
+		sp = ServerProperties()
+		sp.bind_addr = ip
+		sp.bind_port = port
+		sp.bind_protocol = proto
+
+		for iface in interfaced:
+			if ip in interfaced[iface].IPv4:
+				sp.bind_iface = iface
+				sp.bind_family = socket.AF_INET
+				break
+
+			if ip in interfaced[iface].IPv6:
+				sp.bind_iface = iface
+				sp.bind_family = socket.AF_INET6
+				break
+		if sp.bind_iface is None:
+			raise Exception('Could not find the Interface for IP %s' % ip)
+
+		return sp
+
+
 
 def main():
 	import argparse
-	parser = argparse.ArgumentParser(description = 'SOCKS5 client. Listens on a local TCP port and tunnels the connection to the requested destintation')
-	parser.add_argument("bind_port", type=int, default = 5555, help="local port to listen on")
-	parser.add_argument("bind_address", default = '0.0.0.0', help="ip address to listen on")
-	parser.add_argument("remote_address", help="remote IP/domain")
-	parser.add_argument("remote_port", type=int, help="remote port")
+	parser = argparse.ArgumentParser(description = 'SOCKS5 client. Listens on a local TCP port and tunnels the\
+	 												connection to the requested destintation',
+									 epilog      = 'list of available interfaces:\r\n' + ifacehelp,
+									 formatter_class = argparse.RawTextHelpFormatter)
+	parser.add_argument("target_address", help="remote IP/domain")
+	parser.add_argument("target_port", type=int, help="remote port")
+	parser.add_argument("listen_port", nargs='?', type=int, default=5555, help="local port to listen on")
+	parser.add_argument("listen_addr", nargs='?', default='127.0.0.1', help="ip to listen on")
+	parser.add_argument("-s", "--server", action='append', default=[], help="SOCKS5 server URL.\r\nFormat: socks5://<user>:<pass>@ip:port")
+	parser.add_argument('-v', '--verbose', action='count', default=0)
+	parser.add_argument('-r', '--randomize', action='store_true', help = 'randomize servers to create tunnel (only used if multiple servers configured)')
+	parser.add_argument('-t', '--timeout', type=int, default = 10, help='timeout for connecting to the proxies')
 
 	args = parser.parse_args()
 
-	s = SOCKS5Server()
-	s.ip       = '127.0.0.1'
-	s.port     = 9150
-	s.timeout  = 2
-	s.username = None
-	s.password = None
+	#'socks5://127.0.0.1:9150'
+	if args.verbose == 0:
+		logging.basicConfig(level=logging.INFO)
+	if args.verbose == 1:
+		logging.basicConfig(level=logging.DEBUG)
+	else:
+		#supplying -vv or -v -v will show the actual data being passed trough the proxy!
+		logging.basicConfig(level=1)
 
-	servers = [s]
+	servers = []
 
+	for url in args.server:
+		server_config = SOCKS5ServerConfig.from_url(url)
+		servers.append(server_config)
+
+	server_props = ServerProperties.from_address(args.listen_addr, args.listen_port)
 
 	cli = Socks5Client()
-	cli.bind_addr = ipaddress.ip_address(args.bind_address)
-	cli.bind_port = args.bind_port
+
+	cli.server_props = server_props
 	try:
-		cli.remote_addr = ipaddress.ip_address(args.remote_address)
+		cli.remote_addr = ipaddress.ip_address(args.target_address)
 	except:
 		#could be domain name
-		cli.remote_addr = args.remote_address
+		cli.remote_addr = args.target_address
 	
-	cli.remote_port = args.remote_port
+	cli.remote_port = args.target_port
 	cli.servers = servers
+	cli.randomize_servers = args.randomize
+	cli.timeout = args.timeout
 
 	cli.run()
+
 
 if __name__ == '__main__':
 	main()
