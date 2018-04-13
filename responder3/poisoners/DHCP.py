@@ -47,7 +47,7 @@ class DHCPGlobalSession():
 	def parse_settings(self):
 		#default values
 		#defaults
-		self.serveraddress = self.server_properties.bind_addr
+		self.serveraddress = self.server_properties.listener_socket.bind_addr
 		self.subnetmask    = 'FF:FF:FF:00'
 		self.leasetime     = random.randint(600,1000)
 		self.offer_options = None
@@ -104,10 +104,10 @@ class DHCPSession(ResponderServerSession):
 	pass
 
 class DHCP(ResponderServer):
-	def custom_socket(server_properties):
-		if server_properties.bind_family == socket.AF_INET6:
+	def custom_socket(socket_config):
+		if socket_config.bind_family == 6:
 			raise Exception('DHCP server should not be run on IPv6 (requires a different protocol)')
-		sock = setup_base_socket(server_properties, bind_ip_override = ipaddress.ip_address('0.0.0.0'))
+		sock = setup_base_socket(socket_config, bind_ip_override = ipaddress.ip_address('0.0.0.0'))
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 		return sock
 

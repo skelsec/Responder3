@@ -1,4 +1,7 @@
 import platform
+import ipaddress
+import socket
+from responder3.core import commons
 
 """
 Linux implementation thankyous:
@@ -14,12 +17,209 @@ OSX (MAC) implementation thankyous:
 Implementation was created for this project by EvilWan (https://github.com/evilwan)
 """
 
-class NetworkInterface():
+
+class NetworkInterfaces:
+	def __init__(self):
+		"""
+		Provides a platform-independent way of enumerating all available interfaces and IP addresses on the host
+		"""
+		self.platform = platform.system()
+		self.interfaces = {}
+		self.name_ip_lookup = {}
+		self.ip_name_lookup = {}
+		self.iface_help = ''
+
+		# enumerating interfaces
+		self.enumerate_interfaces()
+		# creating lookup tables, and help string to display on help menu
+		self.generate_lookups_and_help()
+
+	def enumerate_interfaces(self):
+		"""
+		Enumerates all interfaces
+		:return: None
+		"""
+		if self.platform == 'Windows':
+			self.interfaces = get_win_ifaddrs()
+
+		elif self.platform == 'Linux':
+			self.interfaces = get_linux_ifaddrs()
+
+		elif self.platform == 'Darwin':
+			self.interfaces = get_darwin_ifaddrs()
+
+	def generate_lookups_and_help(self):
+		"""
+		Generates lookup dictionaries and a formatted string describing all interfaces and addresses
+		:return: None
+		"""
+		self.iface_help += 'NAME\tIPv4\t\tIPv6\r\n'
+		for iface in self.interfaces:
+			addresses = [str(ip) for ip in self.interfaces[iface].addresses]
+			self.iface_help += '\t'.join([iface, ','.join(addresses), '\r\n'])
+
+			for ip in self.interfaces[iface].addresses:
+
+				if (iface, ip.version) not in self.name_ip_lookup:
+					self.name_ip_lookup[(iface, ip.version)] = []
+				self.name_ip_lookup[(iface, ip.version)].append(ip)
+
+				if ip in self.ip_name_lookup:
+					print('Multiple interface found with the same IPv4 address! You will need to specify interface name in config')
+				else:
+					self.ip_name_lookup[ip] = iface
+
+	def get_ifname(self, ip):
+		"""
+		Returns interface name belonging to the IP address provided in ip
+		:param ip: IP address to search the interface for
+		:type ip: ipaddress.IPv4Address or ipaddress.IPv6Address
+		:return: str
+		"""
+		return self.ip_name_lookup.get(str(ip), None)
+
+	def get_ip(self, ifname, ipversion = 4):
+
+		return self.name_ip_lookup.get((ifname, ipversion), None)
+
+	def get_socketconfig_from_ip(self, ip, port, protocol):
+		sc = SocketConfig()
+		sc.bind_port = int(port)
+		if isinstance(ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+			sc.bind_addr = ip
+		else:
+			sc.bind_addr = ipaddress.ip_address(ip)
+
+		sc.bind_family = sc.bind_addr.version
+
+		if isinstance(protocol, str):
+			if protocol.lower() == 'tcp':
+				sc.bind_protocol = socket.SOCK_STREAM
+			elif protocol.lower() == 'udp':
+				sc.bind_protocol = socket.SOCK_DGRAM
+			else:
+				raise Exception('Unknown protocol definition %s' % protocol)
+		elif isinstance(protocol, int):
+			sc.bind_protocol = protocol
+		else:
+			raise Exception('Unknown protocol definition %s' % protocol)
+
+		sc.bind_iface = self.ip_name_lookup[sc.bind_addr]
+		sc.bind_iface_idx = self.interfaces[sc.bind_iface].ifindex
+
+		return sc
+
+	def get_socketconfig(self, ifname, port, protocol, ipversion = None):
+		if ifname not in self.interfaces:
+			raise Exception('Could not find ifname %s!' % ifname)
+
+		scl = []
+		try:
+			iv = []
+			if ipversion is None:
+				iv.append(4)
+				iv.append(6)
+			elif isinstance(ipversion, str):
+				if int(ipversion) in [4,6]:
+					iv.append(int(ipversion))
+				else:
+					raise Exception()
+
+			elif isinstance(ipversion, int):
+				if ipversion in [4,6]:
+					iv.append(ipversion)
+				else:
+					raise Exception()
+
+			elif isinstance(ipversion, list):
+				iv = ipversion
+
+		except Exception as e:
+			raise Exception('Unknown IP version %s' % repr(ipversion))
+
+		for version in iv:
+			for lookup_ifname, ver in self.name_ip_lookup:
+				if ifname != lookup_ifname:
+					continue
+				if ver != version:
+					break
+				for address in self.name_ip_lookup[(lookup_ifname, ver)]:
+					sc = SocketConfig()
+					sc.bind_port = int(port)
+					sc.bind_addr = address
+					sc.bind_family = sc.bind_addr.version
+
+					if isinstance(protocol, str):
+						if protocol.lower() == 'tcp':
+							sc.bind_protocol = socket.SOCK_STREAM
+						elif protocol.lower() == 'udp':
+							sc.bind_protocol = socket.SOCK_DGRAM
+						else:
+							raise Exception('Unknown protocol definition %s' % protocol)
+					elif isinstance(protocol, int):
+						sc.bind_protocol = protocol
+					else:
+						raise Exception('Unknown protocol definition %s' % protocol)
+
+					sc.bind_iface = ifname
+					sc.bind_iface_idx = self.interfaces[sc.bind_iface].ifindex
+					scl.append(sc)
+
+		return scl
+
+	def __str__(self):
+		return self.iface_help
+
+class SocketConfig:
+	def __init__(self):
+		self.bind_iface  = None
+		self.bind_port   = None
+		self.bind_family = None
+		self.bind_protocol = None
+		self.bind_addr = None
+		self.bind_iface_idx = None
+		self.platform = commons.get_platform()
+
+	def get_protocolname(self):
+		if self.bind_protocol == socket.SOCK_STREAM:
+			return 'TCP'
+		elif self.bind_protocol == socket.SOCK_DGRAM:
+			return 'UDP'
+		else:
+			return 'UNKNOWN'
+
+	def get_address(self):
+		return (str(self.bind_addr), self.bind_port)
+
+	def get_print_address(self):
+		return '%s:%d' % (str(self.bind_addr), self.bind_port)
+
+	def get_server_kwargs(self):
+		return {
+			'host'         : str(self.bind_addr),
+			'port'         : self.bind_port,
+			'family'       : self.bind_family,
+		}
+
+	def __repr__(self):
+		return str(self)
+
+	def __str__(self):
+		t = '==SocketConfig==\r\n'
+		t+= 'Interface: %s\r\n' % self.bind_iface
+		t+= 'Iface idx: %s\r\n' % self.bind_iface_idx
+		t+= 'Address  : %s\r\n' % str(self.bind_addr)
+		t+= 'Port     : %s\r\n' % self.bind_port
+		t+= 'Protocol : %s\r\n' % self.bind_protocol
+		t+= 'Family   : %s\r\n' % self.bind_family
+		return t
+
+
+class NetworkInterface:
 	def __init__(self):
 		self.ifname = None
 		self.ifindex = None #zone_indices in windows
-		self.IPv4 = []
-		self.IPv6 = []
+		self.addresses = []
 
 	def __repr__(self):
 		return str(self)
@@ -28,8 +228,8 @@ class NetworkInterface():
 		t  = '== INTERFACE ==\r\n'
 		t += 'Name: %s\r\n' % self.ifname
 		t += 'ifindex: %s\r\n' % self.ifindex
-		t += 'IPv4: %s\r\n' % self.IPv4
-		t += 'IPv6: %s\r\n' % self.IPv6
+		for addr in self.addresses:
+			t += 'Address: %s\r\n' % str(addr)
 		
 		return t
 
@@ -113,10 +313,8 @@ def get_linux_ifaddrs():
 				interfacesd[ifname].ifname = ifname
 				interfacesd[ifname].ifindex = libc.if_nametoindex(ifname)
 			family, addr = getfamaddr(ifa.ifa_addr.contents)
-			if family == AF_INET:
-				interfacesd[ifname].IPv4.append(addr)
-			elif family == AF_INET6:
-				interfacesd[ifname].IPv6.append(addr)
+			if family in [socket.SOCK_DGRAM, socket.SOCK_STREAM]:
+				interfacesd[ifname].addresses.append(ipaddress.ip_address(addr))
 		return interfacesd
 	finally:
 		libc.freeifaddrs(ifap)
@@ -311,14 +509,12 @@ def get_win_ifaddrs():
 
 	interfaced = {}
 	for i in GetAdaptersAddresses():
-		result = NetworkInterface()
-		result.ifname  = i.description
-		result.ifindex = i.zone_indices #zone_indices in windows
+		interface = NetworkInterface()
+		interface.ifname  = i.description
+		interface.ifindex = i.zone_indices #zone_indices in windows
 		
 		
 		addresses = i.first_unicast_address
-		result.IPv4 = []
-		result.IPv6 = []
 		
 		while addresses:
 			
@@ -329,130 +525,108 @@ def get_win_ifaddrs():
 				ad = fu.address.address.v4.contents
 				#print("\tfamily: {0}".format(ad.family))
 				ip_int = struct.unpack('>2xI8x', ad.data)[0]
-				ip = ipaddress.IPv4Address(ip_int)
-				#print(ip)
-				result.IPv4.append(ip)
+				interface.addresses.append(ipaddress.IPv4Address(ip_int))
 			elif ipversion == AF_INET6:
 				ad = fu.address.address.v6.contents
 				ip_int = struct.unpack('!QQ', ad.addr.byte)[0]
-				ip = ipaddress.IPv6Address(ip_int)
-				result.IPv6.append(ip)
+				interface.addresses.append(ipaddress.IPv6Address(ip_int))
 			
 			addresses = addresses.contents.next
 			
-		interfaced[result.ifname] = result
+		interfaced[interface.ifname] = interface
 	return interfaced
 	
 
 def get_darwin_ifaddrs():
-        from socket import AF_INET, AF_INET6, inet_ntop
-        from ctypes import (
-                Structure, Union, POINTER,
-                pointer, get_errno, cast,
-                c_ushort, c_byte, c_uint8, c_void_p, c_char_p, c_uint, c_int, c_uint16, c_uint32
-        )
-        import ctypes.util
-        import ctypes
+	from socket import AF_INET, AF_INET6, inet_ntop
+	from ctypes import (
+		Structure, Union, POINTER,
+		pointer, get_errno, cast,
+		c_ushort, c_byte, c_uint8, c_void_p, c_char_p, c_uint, c_int, c_uint16, c_uint32
+	)
+	import ctypes.util
+	import ctypes
 
-        class struct_sockaddr(Structure):
-                _fields_ = [
-                        ('sa_len', c_uint8),
-                        ('sa_family', c_uint8),
-                        ('sa_data', c_byte * 14),]
+	class struct_sockaddr(Structure):
+		_fields_ = [
+			('sa_len', c_uint8),
+			('sa_family', c_uint8),
+			('sa_data', c_byte * 14),]
 
-        class struct_sockaddr_in(Structure):
-                _fields_ = [
-                        ('sin_len', c_uint8),
-                        ('sin_family', c_uint8),
-                        ('sin_port', c_uint16),
-                        ('sin_addr', c_uint8 * 4),
-                        ('sin_zero', c_byte * 8),]
+	class struct_sockaddr_in(Structure):
+		_fields_ = [
+			('sin_len', c_uint8),
+			('sin_family', c_uint8),
+			('sin_port', c_uint16),
+			('sin_addr', c_uint8 * 4),
+			('sin_zero', c_byte * 8),]
 
-        class struct_sockaddr_in6(Structure):
-                _fields_ = [
-                        ('sin6_len', c_uint8),
-                        ('sin6_family', c_ushort),
-                        ('sin6_port', c_uint16),
-                        ('sin6_flowinfo', c_uint32),
-                        ('sin6_addr', c_byte * 16),
-                        ('sin6_scope_id', c_uint32)]
-        
-        """
-        class union_ifa_ifu(Union):
-                _fields_ = [
-                        ('ifu_broadaddr', POINTER(struct_sockaddr)),
-                        ('ifu_dstaddr', POINTER(struct_sockaddr)),]
-        """
+	class struct_sockaddr_in6(Structure):
+		_fields_ = [
+			('sin6_len', c_uint8),
+			('sin6_family', c_ushort),
+			('sin6_port', c_uint16),
+			('sin6_flowinfo', c_uint32),
+			('sin6_addr', c_byte * 16),
+			('sin6_scope_id', c_uint32)]
 
-        class struct_ifaddrs(Structure):
-                pass
-        struct_ifaddrs._fields_ = [
-                ('ifa_next', POINTER(struct_ifaddrs)),
-                ('ifa_name', c_char_p),
-                ('ifa_flags', c_uint),
-                ('ifa_addr', POINTER(struct_sockaddr)),
-                ('ifa_netmask', POINTER(struct_sockaddr)),
-                ('ifa_dstaddr', POINTER(struct_sockaddr)),
-                ('ifa_data', c_void_p),]
+	"""
+	class union_ifa_ifu(Union):
+			_fields_ = [
+					('ifu_broadaddr', POINTER(struct_sockaddr)),
+					('ifu_dstaddr', POINTER(struct_sockaddr)),]
+	"""
 
-        libc = ctypes.CDLL(ctypes.util.find_library('c'))
+	class struct_ifaddrs(Structure):
+		pass
+	struct_ifaddrs._fields_ = [
+		('ifa_next', POINTER(struct_ifaddrs)),
+		('ifa_name', c_char_p),
+		('ifa_flags', c_uint),
+		('ifa_addr', POINTER(struct_sockaddr)),
+		('ifa_netmask', POINTER(struct_sockaddr)),
+		('ifa_dstaddr', POINTER(struct_sockaddr)),
+		('ifa_data', c_void_p),]
 
-        def ifap_iter(ifap):
-                ifa = ifap.contents
-                while True:
-                        yield ifa
-                        if not ifa.ifa_next:
-                                break
-                        ifa = ifa.ifa_next.contents
+	libc = ctypes.CDLL(ctypes.util.find_library('c'))
 
-        def getfamaddr(sa):
-                family = sa.sa_family
-                addr = None
-                if family == AF_INET:
-                        sa = cast(pointer(sa), POINTER(struct_sockaddr_in)).contents
-                        addr = inet_ntop(family, sa.sin_addr)
-                elif family == AF_INET6:
-                        sa = cast(pointer(sa), POINTER(struct_sockaddr_in6)).contents
-                        addr = inet_ntop(family, sa.sin6_addr)
-                return family, addr
+	def ifap_iter(ifap):
+		ifa = ifap.contents
+		while True:
+			yield ifa
+			if not ifa.ifa_next:
+				break
+			ifa = ifa.ifa_next.contents
 
-        ifap = POINTER(struct_ifaddrs)()
-        result = libc.getifaddrs(pointer(ifap))
-        if result != 0:
-                raise OSError(get_errno())
-        del result
-        try:
-                interfacesd = {}
-                for ifa in ifap_iter(ifap):
-                        ifname = ifa.ifa_name.decode("UTF-8")
-                        if ifname not in interfacesd:
-                                interfacesd[ifname] = NetworkInterface()
-                                interfacesd[ifname].ifname = ifname
-                                interfacesd[ifname].ifindex = libc.if_nametoindex(ifname)
-                        family, addr = getfamaddr(ifa.ifa_addr.contents)
-                        if family == AF_INET:
-                                interfacesd[ifname].IPv4.append(addr)
-                        elif family == AF_INET6:
-                                interfacesd[ifname].IPv6.append(addr)
-                return interfacesd
-        finally:
-            libc.freeifaddrs(ifap)
+	def getfamaddr(sa):
+		family = sa.sa_family
+		addr = None
+		if family == AF_INET:
+			sa = cast(pointer(sa), POINTER(struct_sockaddr_in)).contents
+			addr = inet_ntop(family, sa.sin_addr)
+		elif family == AF_INET6:
+			sa = cast(pointer(sa), POINTER(struct_sockaddr_in6)).contents
+			addr = inet_ntop(family, sa.sin6_addr)
+		return family, addr
+
+	ifap = POINTER(struct_ifaddrs)()
+	result = libc.getifaddrs(pointer(ifap))
+	if result != 0:
+		raise OSError(get_errno())
+	del result
+	try:
+		interfacesd = {}
+		for ifa in ifap_iter(ifap):
+			ifname = ifa.ifa_name.decode("UTF-8")
+			if ifname not in interfacesd:
+				interfacesd[ifname] = NetworkInterface()
+				interfacesd[ifname].ifname = ifname
+				interfacesd[ifname].ifindex = libc.if_nametoindex(ifname)
+			family, addr = getfamaddr(ifa.ifa_addr.contents)
+			interfacesd[ifname].addresses.append(ipaddress.ip_address(addr))
+		return interfacesd
+	finally:
+		libc.freeifaddrs(ifap)
 
 
-
-interfaced = None
-os_name = platform.system()
-if os_name == 'Windows':
-	interfaced = get_win_ifaddrs()
-
-elif os_name == 'Linux':
-	interfaced = get_linux_ifaddrs()
-
-elif os_name == 'Darwin':
-	interfaced = get_darwin_ifaddrs()
-
-ifacehelp = 'NAME\tIPv4\t\tIPv6\r\n'
-for iface in interfaced:
-	ifacehelp += '\t'.join([iface, ','.join(interfaced[iface].IPv4), ','.join(interfaced[iface].IPv6)])
-	ifacehelp += '\r\n'
-
+interfaces = NetworkInterfaces()

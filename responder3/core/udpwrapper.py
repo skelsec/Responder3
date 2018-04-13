@@ -5,6 +5,7 @@ import ipaddress
 
 from responder3.core import commons
 
+
 def recvfrom(loop, sock, n_bytes, fut=None, registed=False):
 	fd = sock.fileno()
 	if fut is None:
@@ -19,6 +20,7 @@ def recvfrom(loop, sock, n_bytes, fut=None, registed=False):
 	else:
 		fut.set_result((data, addr))
 	return fut
+
 
 def sendto(loop, sock, data, addr, fut=None, registed=False):
 	fd = sock.fileno()
@@ -85,7 +87,7 @@ class UDPWriter():
 		else:
 			yield from sendto(self._loop, self._sock, data, addr)
 
-class UDPClient():
+class UDPClient:
 	def __init__(self, raddr, loop = None, sock = None):
 		self._raddr  = raddr
 		self._socket = sock
@@ -112,26 +114,27 @@ class UDPClient():
 		reader = UDPReader(data, addr)
 		return (reader,writer)
 
-#https://www.pythonsheets.com/notes/python-asyncio.html
-class UDPServer():
-	def __init__(self, callback, server_properties, loop = None, sock = None):
+
+# https://www.pythonsheets.com/notes/python-asyncio.html
+class UDPServer:
+	def __init__(self, callback, server_config, loop = None, sock = None):
 		self._callback = callback
-		self._server_properties = server_properties
+		self.server_config = server_config
 		self._socket = sock
 		self._loop   = loop
-		if self._server_properties is None:
+		if self.server_config is None:
 			if self._socket is None:
 				raise Exception('Either socket or server_properties MUST be defined!')
 			self._laddr  = self._socket.getsockname()
 		else:
-			self._laddr  = (str(self._server_properties.bind_addr), self._server_properties.bind_port)
+			self._laddr  = (str(self.server_config.listener_socket.bind_addr), self.server_config.listener_socket.bind_port)
 		if loop is None:
 			self._loop = asyncio.get_event_loop()
 
 	@asyncio.coroutine
 	def run(self):
 		if self._socket is None:
-			self._socket = commons.setup_base_socket(self._server_properties)
+			self._socket = commons.setup_base_socket(self.server_config.listener_socket)
 		while True:
 			data, addr = yield from recvfrom(self._loop, self._socket, 65536)
 			reader = UDPReader(data, addr)

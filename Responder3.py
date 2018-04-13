@@ -11,11 +11,12 @@ import multiprocessing
 from pathlib import Path
 
 from responder3.core import commons
-from responder3.core import interfaceutil
+from responder3.core.interfaceutil import interfaces
 from responder3.core import logprocess
 from responder3.core import serverprocess
 
 import config
+
 
 def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 	try:
@@ -39,27 +40,21 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 		else:
 			#starting in standalone mode...
 			pass
-		
-		
-		
+
 		current_path = Path(__file__)
 		basedir = Path(str(current_path.parents[0]))
-
-		#starting commin manager
-		#commons.start_commons()
 
 		man = multiprocessing.Manager()
 		rdns = man.dict()
 		logQ = multiprocessing.Queue()
 
-
-		#Setting up logging
+		# Setting up logging
 		lp = logprocess.LogProcessor(config.logsettings, logQ)
 		lp.daemon = True
 		lp.start()
 
-		#Setting up and starting servers
-		servers    = []
+		# Setting up and starting servers
+		servers = []
 		serverProcesses = []
 		
 		for serverentry in config.servers:
@@ -92,15 +87,6 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 
 			if bind_family == []:
 				raise Exception('IP version (bind_family) MUST be set either in cofig file or in command line!')
-			
-			ips = []
-			for iface in ifaces:
-				if 4 in bind_family:
-					for ip in interfaceutil.interfaced[iface].IPv4:
-						ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
-				if 6 in bind_family:
-					for ip in interfaceutil.interfaced[iface].IPv6:
-						ips.append( (ip,iface, interfaceutil.interfaced[iface].ifindex))
 
 			portspecs = serverentry.get('bind_port', commons.defaultports[serverentry['handler']] if serverentry['handler'] in commons.defaultports else None)
 			if portspecs is None:
@@ -108,22 +94,17 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 			if not isinstance(portspecs, list):
 				portspecs = [portspecs]
 
-			for element in itertools.product(ips, portspecs):
-				serverentry['bind_addr'] = element[0][0]
-				serverentry['bind_iface'] = element[0][1]
-				serverentry['bind_iface_idx'] = element[0][2]
-				serverentry['bind_port'] = element[1][0]
-				serverentry['bind_protocol'] = element[1][1]
+			for element in itertools.product(ifaces, portspecs):
+				socket_configs = interfaces.get_socketconfig(element[0], element[1][0], element[1][1], ipversion = bind_family)
+				for socket_config in socket_configs:
+					serverentry['listener_socket'] =  socket_config
 
-				temp = copy.deepcopy(serverentry)
-				temp['shared_rdns'] = rdns
-				temp['shared_logQ'] = logQ
-				temp['interfaced'] = interfaceutil.interfaced
-				#servers.append(serverprocess.ServerProperties.from_dict(serverentry))
-				
-				#print(serverentry)
-				servers.append(temp)
-					
+					temp = copy.deepcopy(serverentry)
+					temp['shared_rdns'] = rdns
+					temp['shared_logQ'] = logQ
+
+					# print(serverentry)
+					servers.append(temp)
 
 		if len(servers) == 0:
 			raise Exception('Did not start any servers! Possible reasons: 1. config file is wrong 2. the interface you specified is not up/doesnt have any IP configured')
@@ -135,7 +116,7 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 			ss.start()
 		
 
-		#print('Started everything!')
+		# print('Started everything!')
 		for server in serverProcesses:
 			server.join()
 		
@@ -147,7 +128,9 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 def main(argv):
 	import argparse
 	import pprint
-	parser = argparse.ArgumentParser(description = 'Responder3')
+	parser = argparse.ArgumentParser(description = 'Responder3',
+									 epilog      = 'list of available interfaces:\r\n' + str(interfaces),
+									 formatter_class = argparse.RawTextHelpFormatter)
 	parser.add_argument("-I", action='append', help="Interface to bind to, can be multiple by providing sequential -I. Overrides bind_iface parameter in configs.")
 	parser.add_argument("-4", action='store_true', dest='ip4', help="IP version 4 to be used. Overrides config settings.")
 	parser.add_argument("-6", action='store_true', dest='ip6', help="IP version 6 to be used. Overrides config settings.")
@@ -156,8 +139,7 @@ def main(argv):
 	args = parser.parse_args()
 
 	if args.list_interfaces:
-		for iface in interfaceutil.interfaced:
-			print(interfaceutil.interfaced[iface])
+		str(interfaces)
 		sys.exit()
 	start_responder(args.I, args.ip4, args.ip6)
 

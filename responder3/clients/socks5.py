@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import ipaddress
 
 from responder3.core.commons import *
-from responder3.core.interfaceutil import ifacehelp, interfaced
+from responder3.core.interfaceutil import interfaces
 from responder3.protocols.SOCKS5 import *
 
 class SOCKS5ServerConfig:
@@ -292,44 +292,12 @@ class Socks5Client:
 			traceback.print_exc()
 			print(str(e))
 
-class ServerProperties:
-	def __init__(self):
-		self.bind_iface  = None
-		self.bind_port   = None
-		self.bind_family = None
-		self.bind_protocol = None
-		self.bind_addr = None
-		self.platform = get_platform()
-
-	@staticmethod
-	def from_address(ip, port, proto = ServerProtocol.TCP):
-		sp = ServerProperties()
-		sp.bind_addr = ip
-		sp.bind_port = port
-		sp.bind_protocol = proto
-
-		for iface in interfaced:
-			if ip in interfaced[iface].IPv4:
-				sp.bind_iface = iface
-				sp.bind_family = socket.AF_INET
-				break
-
-			if ip in interfaced[iface].IPv6:
-				sp.bind_iface = iface
-				sp.bind_family = socket.AF_INET6
-				break
-		if sp.bind_iface is None:
-			raise Exception('Could not find the Interface for IP %s' % ip)
-
-		return sp
-
-
 
 def main():
 	import argparse
 	parser = argparse.ArgumentParser(description = 'SOCKS5 client. Listens on a local TCP port and tunnels the\
 	 												connection to the requested destintation',
-									 epilog      = 'list of available interfaces:\r\n' + ifacehelp,
+									 epilog      = 'list of available interfaces:\r\n' + str(interfaces),
 									 formatter_class = argparse.RawTextHelpFormatter)
 	parser.add_argument("target_address", help="remote IP/domain")
 	parser.add_argument("target_port", type=int, help="remote port")

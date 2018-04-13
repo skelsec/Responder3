@@ -16,32 +16,27 @@ import asyncio
 
 from responder3.crypto.hashing import *
 
-sslcontexttable = {
-	#'SSLv2': ssl.PROTOCOL_SSLv2,
-	#'SSLv3': ssl.PROTOCOL_SSLv3,
-	'SSLv23': ssl.PROTOCOL_SSLv23,
-	'TLS'   : ssl.PROTOCOL_TLS,
-	'TLSv1' : ssl.PROTOCOL_TLSv1,
-	'TLSv11': ssl.PROTOCOL_TLSv1_1,
-	'TLSv12': ssl.PROTOCOL_TLSv1_2,
-}
 
-class SSLContextBuilder():
+class SSLContextBuilder:
+	"""
+	Object to parse the user-supplied setting and create an ssl.SSLContext class
+	"""
 	def __init__(self):
 		pass
 
-	def from_dict(sslsettings, server_side = False):
+	@staticmethod
+	def from_dict(sslsettings, server_side=False):
+		"""
+		Creates SSL context from dictionary-based configuration
+		:param sslsettings: configuration dictionary
+		:param server_side: decides that the context will be created as a server or client
+		:return: ssl.SSLContext
+		"""
 		protocols = [ssl.PROTOCOL_SSLv23]
 		options = []
 		verify_mode = ssl.CERT_NONE
 		ciphers = 'ALL'
-		"""
-		protocols or ('PROTOCOL_SSLv3','PROTOCOL_TLSv1',
-								  'PROTOCOL_TLSv1_1','PROTOCOL_TLSv1_2')
 
-				options = options or ('OP_CIPHER_SERVER_PREFERENCE','OP_SINGLE_DH_USE',
-							  'OP_SINGLE_ECDH_USE','OP_NO_COMPRESSION')
-		"""
 		if 'protocols' in sslsettings:
 			protocols = []
 			if isinstance(sslsettings['protocols'], list):
@@ -83,15 +78,20 @@ class SSLContextBuilder():
 		context.set_ciphers(ciphers)
 		return context 
 
-class LogEntry():
+
+class LogEntry:
 	"""
 	Communications object that is used to pass log information to the LogProcessor
 	"""
 	def __init__(self, level, name, msg):
 		"""
-		level: the log level, needs to be a level specified by the built-in logging module (eg. logging.INFO)
-		name : name of the source module
-		msg  : message that is to be printed in the logs 
+
+		:param level: log level
+		:type level: int
+		:param name: name of the module emitting the message
+		:type name: str
+		:param msg: the message which will be logged
+		:type msg: str
 		"""
 		self.level = level
 		self.name  = name
@@ -101,23 +101,26 @@ class LogEntry():
 		return "[%s] %s" % (self.name, self.msg)
 
 
-class ConnectionStatus(enum.Enum):
-	OPENED = 0
-	CLOSED = 1
-	STATELESS = 3
-
-class ConnectionFactory():
-	"""
-	Creates Connetion object from the socket input. 
-	in: rdns which is a shared dictionary to speed up the rdns lookup
-	"""
+class ConnectionFactory:
 	def __init__(self, rdnsd):
+		"""
+		Creates Connetion object from the socket input.
+		:param rdnsd: shared dictionary to speed up the rdns lookup
+		:type rdnsd: dict created via multiprocessing.Manager()
+		"""
 		self.rdnsd       = rdnsd
 
-	def from_streamwriter(self, writer, protocoltype):
+	def from_streamwriter(self, writer):
+		"""
+		Creates Connection object from streamwriter
+		:param writer: Streamwriter
+		:type writer: asyncio.Streamwriter
+		:return: Connection object
+		"""
+		protocoltype = writer.get_extra_info('socket').getsockopt(socket.SOL_SOCKET, socket.SO_TYPE)
 		con = Connection()
 		con.timestamp = datetime.datetime.utcnow()
-		if protocoltype in [ServerProtocol.TCP,ServerProtocol.SSL]:
+		if protocoltype == socket.SOCK_STREAM:
 			soc = writer.get_extra_info('socket')
 			con.local_ip, con.local_port   = soc.getsockname()
 			con.remote_ip, con.remote_port = soc.getpeername()
@@ -126,15 +129,18 @@ class ConnectionFactory():
 			con.local_ip, con.local_port   = writer._laddr[:2]
 			con.remote_ip, con.remote_port = writer._addr[:2]
 		
-		self.lookupRDNS(con)
+		self.lookup_rdns(con)
 		return con
 		
-	def lookupRDNS(self, con):
+	def lookup_rdns(self, con):
 		"""
-		Reolves the remote host's IP address to a DNS address. 
+		Resolves the remote host's IP address to a DNS address.
 		First checks if the address has already been resolved by looking it up in the shared rdns dictionary
+		:param con: The Connection object specifies the connection settings
+		:type con: Connection
+		:return: Nothing
 		"""
-		#if con.remote_ip in self.rdnsd :
+
 		if con.remote_ip in self.rdnsd:
 			con.remote_dns = self.rdnsd[con.remote_ip]
 		
@@ -146,7 +152,11 @@ class ConnectionFactory():
 
 			self.rdnsd[con.remote_ip] = con.remote_dns
 
+
 class ProxyDataType(enum.Enum):
+	"""
+	The type of the data being logged. This is used for re-parsing the communication from the log file
+	"""
 	BINARY = 0
 	HTTP   = 1
 	SOCKS5 = 2
@@ -155,8 +165,12 @@ class ProxyDataType(enum.Enum):
 	SMTP   = 5
 
 
-class ProxyData():
+class ProxyData:
 	def __init__(self):
+		"""
+		Describes the intercepted communication data.
+		Used to store or to read back the intercepted comms.
+		"""
 		self.src_addr  = None
 		self.dst_addr  = None
 		self.proto     = None
@@ -165,7 +179,11 @@ class ProxyData():
 		self.data_type = None
 		self.data      = None
 
-	def toDict(self):
+	def to_dict(self):
+		"""
+		Converts the object to a dictionary
+		:return: dict
+		"""
 		t = {}
 		t['src_addr'] = [str(self.src_addr[0]), int(self.src_addr[1])]
 		t['dst_addr'] = [str(self.dst_addr[0]), int(self.dst_addr[1])]
@@ -178,8 +196,15 @@ class ProxyData():
 		else:
 			raise Exception('Data type %s not implemented!' % (self.data_type))
 		return t
-	
-	def fromDict(d):
+
+	@staticmethod
+	def from_dict(d):
+		"""
+		Loads the object from a dictionary
+		:param d: The dictionary containing all fileds of the object
+		:type d: dict
+		:return: ProxyData
+		"""
 		pd = ProxyData()
 		pd.src_addr  = (ipaddress.ip_address(d['src_addr'][0]), int(d['src_addr'][1]))
 		pd.dst_addr  = (ipaddress.ip_address(d['dst_addr'][0]), int(d['dst_addr'][1]))
@@ -195,24 +220,37 @@ class ProxyData():
 
 		return pd
 
-	def toJSON(self):
-		return json.dumps(self.toDict(), cls=UniversalEncoder)
+	def to_json(self):
+		"""
+		Used to serialize the ProxyData object
+		:return: str
+		"""
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
 
-	def fromJSON(s):
-		return ProxyData.fromDict(json.loads(s))
+	@staticmethod
+	def from_json(s):
+		"""
+		Deserializes the ProxyData object
+		:param s: JSON formatted string
+		:type s: str
+		:return: ProxyData
+		"""
+		return ProxyData.from_dict(json.loads(s))
 
 	def __str__(self):
 		if self.data_type == ProxyDataType.BINARY:
-			return '[%s] [%s -> %s]\r\n%s' % (self.timestamp.isoformat(), '%s:%d' % self.src_addr, '%s:%d' % self.dst_addr, hexdump(self.data))
+			return '[%s] [%s -> %s]\r\n%s' % (self.timestamp.isoformat(),
+													'%s:%d' % self.src_addr, '%s:%d' % self.dst_addr,
+													hexdump(self.data))
 		else:
 			raise Exception('Data type %s not implemented!' % (self.data_type))
 		
 
-class Connection():
-	"""
-	Keeps all the connection related information that is used for logging and/or connection purposes
-	"""
+class Connection:
 	def __init__(self):
+		"""
+		Keeps all the connection related information that is used for logging and/or connection purposes
+		"""
 		self.remote_ip   = None
 		self.remote_dns  = None
 		self.remote_port = None
@@ -220,14 +258,39 @@ class Connection():
 		self.local_port  = None
 		self.timestamp   = None
 
+	def get_remote_print_address(self):
+		"""
+		Returns the remote peer's address in a printable format
+		:return: str
+		"""
+		return '%s:%d' % (str(self.remote_ip), int(self.remote_port))
 
-	def getRemoteAddress(self):
-		return (str(self.remote_ip), int(self.remote_port))
+	def get_local_print_address(self):
+		"""
+		Returns the local address in a printable format
+		:return: str
+		"""
+		return '%s:%d' % (str(self.local_ip), int(self.local_port))
 
-	def getLocalAddress(self):
-		return (str(self.local_ip), int(self.local_port))
+	def get_remote_address(self):
+		"""
+		Returns the remote peer's address in a socket friendly format
+		:return: tuple
+		"""
+		return str(self.remote_ip), int(self.remote_port)
 
-	def toDict(self):
+	def get_local_address(self):
+		"""
+		Returns the local address in a socket friendly format
+		:return: tuple
+		"""
+		return str(self.local_ip), int(self.local_port)
+
+	def to_dict(self):
+		"""
+		Converts the object to a dict
+		:return: dict
+		"""
 		t = {}
 		t['remote_ip']   = self.remote_ip
 		t['remote_port'] = self.remote_port
@@ -242,14 +305,27 @@ class Connection():
 
 	def __str__(self):
 		if self.remote_dns is not None:
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_dns, self.remote_port, self.local_ip,self.local_port )
+			return '[%s] %s:%d -> %s' % (self.timestamp.isoformat(), self.remote_dns, self.remote_port, self.get_local_print_address())
 		else:
-			return '[%s] %s:%d -> %s:%d' % (self.timestamp.isoformat(), self.remote_ip, self.remote_port, self.local_ip,self.local_port )
+			return '[%s] %s-> %s' % (self.timestamp.isoformat(), self.get_remote_print_address(), self.get_local_print_address())
 
 
-class Credential():
+class Credential:
 	def __init__(self, credtype, domain = None, username = None, password = None, fullhash = None):
-		self.type     = credtype
+		"""
+		Credential object is used to log captured credential.
+		This is the container for all captured credential info
+		:param credtype: The type of the credential
+		:type credtype: str
+		:param domain: Domain info
+		:param username: Username
+		:type username: str
+		:param password: Password
+		:type password: str
+		:param fullhash: The full captured credential in any format that is supported by major password crackers
+		:type fullhash: str
+		"""
+		self.credtype = credtype
 		self.domain   = domain
 		self.username = username
 		self.password = password
@@ -259,9 +335,13 @@ class Credential():
 		self.client_rdns  = None
 		self.fingerprint = None
 
-	def toDict(self):
+	def to_dict(self):
+		"""
+		Converts the object to a dict
+		:return: dict
+		"""
 		t = {}
-		t['type'] = self.type
+		t['type'] = self.credtype
 		t['domain'] = self.domain
 		t['username'] = self.username
 		t['password'] = self.password
@@ -274,8 +354,12 @@ class Credential():
 	def __str__(self):
 		return '%s %s %s' % (self.type, self.domain, self.fullhash)
 
-class PoisonResult():
+
+class PoisonResult:
 	def __init__(self):
+		"""
+		Container for messages captured or emitted by poisoner modules
+		"""
 		self.module = None
 		self.target = None
 		self.request_name = None
@@ -286,7 +370,6 @@ class PoisonResult():
 
 	def __repr__(self):
 		return str(self)
-		
 
 	def __str__(self):
 		if self.mode == PoisonerMode.ANALYSE:
@@ -294,16 +377,22 @@ class PoisonResult():
 		else:
 			return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
 
-class EmailEntry():
-	"""
-	If the SMTP server recieved an email it's sent to the log queue for processing
-	"""
+
+class EmailEntry:
 	def __init__(self):
+		"""
+		Container for emails captured
+		"""
 		self.fromAddress = None #string
 		self.toAddress   = None #list
 		self.email       = None #email object (from the email package)
 
+
 class UniversalEncoder(json.JSONEncoder):
+	"""
+	Used to override the default json encoder to provide a direct serialization for formats
+	that the default json encoder is incapable to serialize
+	"""
 	def default(self, obj):
 		if isinstance(obj, datetime.datetime):
 			return obj.isoformat()
@@ -312,25 +401,36 @@ class UniversalEncoder(json.JSONEncoder):
 		else:
 			return json.JSONEncoder.default(self, obj)
 
+
 def timestamp2datetime(dt):
+	"""
+	Converting Windows timestamps to datetime.datetime format
+	:param dt: Windows timestamp as array of bytes
+	:type dt: bytearray
+	:return: datetime.datetime
+	"""
 	us = int.from_bytes(dt, byteorder='little')/ 10.
 	return datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=us)
 
+
 class PoisonerMode(enum.Enum):
+	"""
+	Enum to specify the posioner module's mode of operation
+	"""
 	SPOOF = enum.auto()
 	ANALYSE = enum.auto()
 
+
 class ServerFunctionality(enum.Enum):
+	"""
+	Enum to specify the server's mode of operation
+	"""
 	HONEYPOT = 0
 	SERVER   = 1
 	TARPIT   = 2
-	
-class ServerProtocol(enum.Enum):
-	TCP = 0
-	UDP = 1
-	SSL = 2
 
-#values MUST be lists!
+
+# values MUST be lists!
 defaultports = {
 	"DNS"  : [(53, 'udp'),(53, 'tcp')],
 	"DHCP" : [(67, 'udp')],
@@ -351,9 +451,11 @@ defaultports = {
 	"HTTPProxy":[(8080, 'tcp')],
 }
 
+
 def byealex(name_of_pid):
 	pidfile = str(name_of_pid)
 	os.remove(pidfile)
+
 
 def handle_systemd(pidfile):
 	if os.path.isfile(pidfile):
@@ -366,13 +468,22 @@ def handle_systemd(pidfile):
 	
 	atexit.register(byealex,pidfile)
 
+
 class ResponderPlatform(enum.Enum):
+	"""
+	Enum to specify the platform the code is running on
+	"""
 	UNKNOWN = 0
 	WINDOWS = 1
 	LINUX   = 2
 	MAC     = 3
 
+
 def get_platform():
+	"""
+	Detects the current platform
+	:return: ResponderPlatform
+	"""
 	p = platform.system()
 	if p == 'Linux':
 		return ResponderPlatform.LINUX
@@ -383,95 +494,106 @@ def get_platform():
 	else:
 		return ResponderPlatform.UNKNOWN
 
-def setup_base_socket(server_properties, bind_ip_override = None):
+
+def setup_base_socket(socket_config, bind_ip_override = None):
+	"""
+	This function provides a platform-independent way to create a socket based on the socket configuration
+	:param socket_config: Socket configuration object
+	:type socket_config: SocketConfig
+	:param bind_ip_override: Used to override the bind_addr value of the socket configuration,
+							and creates the socket with the overridden value
+	:return: socket.socket
+	"""
 	try:
 		sock = None
-		if server_properties.bind_protocol == ServerProtocol.UDP:
-			if server_properties.bind_family == socket.AF_INET:
+		if socket_config.bind_protocol == socket.SOCK_DGRAM:
+			if socket_config.bind_family == 4:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-				if server_properties.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+				if socket_config.platform == ResponderPlatform.LINUX:
+					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
+					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+				# print(str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr))
+				# print(int(socket_config.bind_port))
 				sock.bind(
 					(
-						str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-						int(server_properties.bind_port)
+						str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
+						int(socket_config.bind_port)
 					)
 				)
 				
-			elif server_properties.bind_family == socket.AF_INET6:
+			elif socket_config.bind_family == 6:
 				if not socket.has_ipv6:
 					raise Exception('IPv6 is NOT supported on this platform')
 				if str(bind_ip_override) == '0.0.0.0':
 					bind_ip_override = ipaddress.ip_address('::')
 				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
 				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 				
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
+				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
+					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
+					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 						
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
+				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
 					sock.bind(
 						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port),
-							server_properties.bind_iface_idx
+							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
+							int(socket_config.bind_port),
+							socket_config.bind_iface_idx
 						)
 					)
-				elif server_properties.platform == ResponderPlatform.WINDOWS:
+				elif socket_config.platform == ResponderPlatform.WINDOWS:
 					sock.bind(
 						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port)
+							str(socket_config) if bind_ip_override is not None else str(socket_config.bind_addr),
+							int(socket_config.bind_port)
 						)
 					)
 
 			else:
 				raise Exception('Unknown IP version')
 
-		elif server_properties.bind_protocol in [ServerProtocol.TCP,ServerProtocol.SSL]:
-			if server_properties.bind_family == socket.AF_INET:
+		elif socket_config.bind_protocol == socket.SOCK_STREAM:
+			if socket_config.bind_family == 4:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
 				sock.setblocking(False)
-				if server_properties.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+				if socket_config.platform == ResponderPlatform.LINUX:
+					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
 					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
 				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
 				sock.bind(
 					(
-						str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-						int(server_properties.bind_port)
+						str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
+						int(socket_config.bind_port)
 					)
 				)
 
-			elif server_properties.bind_family == socket.AF_INET6:
+			elif socket_config.bind_family == 6:
 				if not socket.has_ipv6:
 					raise Exception('IPv6 is NOT supported on this platform')
 				if str(bind_ip_override) == '0.0.0.0':
 					bind_ip_override = ipaddress.ip_address('::')
 				sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP)
 				sock.setblocking(False)
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, server_properties.bind_iface.encode())
+				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
+					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
 					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
 				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-				if server_properties.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
+				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
 					sock.bind(
 						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port),
-							server_properties.bind_iface_idx
+							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
+							int(socket_config.bind_port),
+							socket_config.bind_iface_idx
 						)
 					)
-				elif server_properties.platform == ResponderPlatform.WINDOWS:
+				elif socket_config.platform == ResponderPlatform.WINDOWS:
 					sock.bind(
 						(
-							str(bind_ip_override) if bind_ip_override is not None else str(server_properties.bind_addr), 
-							int(server_properties.bind_port)
+							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
+							int(socket_config.bind_port)
 						)
 					)
 						
@@ -482,20 +604,32 @@ def setup_base_socket(server_properties, bind_ip_override = None):
 		
 		return sock
 	except Exception as e:
+		#print(socket_config)
 		raise type(e)(str(e) +
-				'Failed to set up socket for handler %s IP %s PORT %s FAMILY %s' % (\
-						server_properties.serverhandler, \
-						server_properties.bind_addr, \
-						server_properties.bind_port, \
-						server_properties.bind_family)\
-				, sys.exc_info()[2]).with_traceback(sys.exc_info()[2])
+				'Failed to set up socket for on IP %s PORT %s FAMILY %s IP_OVERRIDE %s' % (
+					str(socket_config.bind_addr),
+					socket_config.bind_port,
+					socket_config.bind_family,
+					str(bind_ip_override)),
+					sys.exc_info()[2]).with_traceback(sys.exc_info()[2])
 
 
 class ConnectionClosed(Exception):
 	pass
 
+
 @asyncio.coroutine
 def read_or_exc(reader, n, timeout = None):
+	"""
+	Helper function to read N amount of data from the wire.
+	:param reader: The reader object
+	:type reader: asyncio.StreamReader
+	:param n: The maximum amount of bytes to read. BEWARE: this will not read exactly that amount of data!
+	:type n: int
+	:param timeout: Time in seconds to wait for the reader to return data
+	:type timeout: int
+	:return: bytearray
+	"""
 	try:
 		data = yield from asyncio.wait_for(reader.read(n), timeout = timeout)
 	except:
@@ -507,8 +641,19 @@ def read_or_exc(reader, n, timeout = None):
 
 	return data
 
+
 @asyncio.coroutine
 def readuntil_or_exc(reader, pattern, timeout = None):
+	"""
+	Helper function to read the wire until a certain pattern is reached.
+	:param reader: The reader object
+	:type reader: asyncio.StreamReader
+	:param pattern: The pattern marking the end of read
+	:type pattern: bytearray
+	:param timeout: Time in seconds to wait for the reader to reach the pattern
+	:type timeout: int
+	:return: bytearray
+	"""
 	try:
 		data = yield from asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
 	except:
@@ -520,8 +665,17 @@ def readuntil_or_exc(reader, pattern, timeout = None):
 
 	return data
 
+
 @asyncio.coroutine
 def readline_or_exc(reader, timeout = None):
+	"""
+	Helper function to read the wire until an end-of-line character is reached.
+	:param reader: The reader object
+	:type reader: asyncio.StreamReader
+	:param timeout: Time in seconds to wait for the reader to reach the pattern
+	:type timeout: int
+	:return: bytearray
+	"""
 	try:
 		data = yield from asyncio.wait_for(reader.readline(), timeout = timeout)
 	except:
@@ -533,69 +687,83 @@ def readline_or_exc(reader, timeout = None):
 
 	return data
 
+
 @asyncio.coroutine
 def sendall(writer, data):
+	"""
+	Helper function that writes all the data to the wire
+	:param writer: Writer object
+	:type writer: asyncio.StreamWriter
+	:param data: Data to be written
+	:type data: bytearray
+	:return: None
+	"""
 	try:
 		writer.write(data)
 		yield from writer.drain()
-	except:
+	except Exception as e:
 		raise ConnectionClosed()
 
-#thank you Python developers who after A FUCKING DECADE
-#could not figure out a way to make your datetime.datetime
-#object in a format that is reversible
-#now it's either this bullshit "solution" OR installing a 3rd party
-#lib that have to GUESS YOUR SHITTY FORMAT
-#PS: "isoformat" doesn't even conforming to the ISO standard..
+
+# thank you Python developers who after A FUCKING DECADE
+# could not figure out a way to make your datetime.datetime
+# object in a format that is reversible
+# now it's either this bullshit "solution" OR installing a 3rd party
+# lib that have to GUESS YOUR SHITTY FORMAT
+# PS: "isoformat" doesn't even conforming to the ISO standard..
 def isoformat2dt(isostr):
-	dt, _, us= isostr.partition(".")
-	dt= datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S")
-	us= int(us.rstrip("Z"), 10)
+	"""
+	Converts back the string result of datetime.datateime.isoformat() to a datetime.datetime object
+	:param isostr: string output of datetime.datetime.isoformat()
+	:type isostr: str
+	:return: datetime.datetime
+	"""
+	dt, _, us = isostr.partition(".")
+	dt = datetime.datetime.strptime(dt, "%Y-%m-%dT%H:%M:%S")
+	us = int(us.rstrip("Z"), 10)
 	return dt + datetime.timedelta(microseconds=us)
 
-#https://gist.github.com/ImmortalPC/c340564823f283fe530b
-def hexdump( src, length=16, sep='.' ):
-	'''
-	@brief Return {src} in hex dump.
-	@param[in] length	{Int} Nb Bytes by row.
-	@param[in] sep		{Char} For the text part, {sep} will be used for non ASCII char.
-	@return {Str} The hexdump
-	@note Full support for python2 and python3 !
-	'''
-	result = [];
 
-	# Python3 support
-	try:
-		xrange(0,1);
-	except NameError:
-		xrange = range;
+# https://gist.github.com/ImmortalPC/c340564823f283fe530b
+def hexdump(src, length=16, sep='.'):
+	"""
+	Pretty printing binary data blobs
+	:param src: Binary blob
+	:type src: bytearray
+	:param length: Size of data in each row
+	:type length: int
+	:param sep: Character to print when data byte is non-printable ASCII
+	:type sep: str(char)
+	:return: str
+	"""
+	result = []
 
-	for i in xrange(0, len(src), length):
-		subSrc = src[i:i+length];
-		hexa = '';
-		isMiddle = False;
-		for h in xrange(0,len(subSrc)):
+	for i in range(0, len(src), length):
+		subSrc = src[i:i+length]
+		hexa = ''
+		isMiddle = False
+		for h in range(0,len(subSrc)):
 			if h == length/2:
-				hexa += ' ';
-			h = subSrc[h];
+				hexa += ' '
+			h = subSrc[h]
 			if not isinstance(h, int):
-				h = ord(h);
-			h = hex(h).replace('0x','');
+				h = ord(h)
+			h = hex(h).replace('0x', '')
 			if len(h) == 1:
-				h = '0'+h;
-			hexa += h+' ';
-		hexa = hexa.strip(' ');
-		text = '';
+				h = '0'+h
+			hexa += h+' '
+		hexa = hexa.strip(' ')
+		text = ''
 		for c in subSrc:
 			if not isinstance(c, int):
-				c = ord(c);
+				c = ord(c)
 			if 0x20 <= c < 0x7F:
-				text += chr(c);
+				text += chr(c)
 			else:
-				text += sep;
-		result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text));
+				text += sep
+		result.append(('%08X:  %-'+str(length*(2+1)+1)+'s  |%s|') % (i, hexa, text))
 
-	return '\n'.join(result);
+	return '\n'.join(result)
 
 
 def get_mutual_preference(preference, offered):
@@ -603,8 +771,13 @@ def get_mutual_preference(preference, offered):
 	# which is both supported by the client and the server, in order of the
 	# server's preference
 	"""
-	preference: (list) server's preferred option in order of preference (DESC)
-	offered: (list) the options the client support, we don't care about the client's preferences so it can be in any order
+	Generic function to determine which option to use from two lists of options offered by two parties.
+	Returns the option that is mutual and in the highes priority of the preference
+	:param preference: A list of options where the preference is set by the option's position in the list (lower is most preferred)
+	:type preference: list
+	:param offered: A list of options that the other party can offer
+	:type offered: list
+	:return: tuple
 	"""
 	clinet_supp = set(offered)
 	server_supp = set(preference)
@@ -622,18 +795,32 @@ def get_mutual_preference(preference, offered):
 			continue
 		break
 	
-	#getting index of the preferred option... 
+	# getting index of the preferred option...
 	preferred_opt_idx = 0
 	for option in offered:
 		if option == preferred_opt:
-		#preferred_dialect_idx += 1
+			# preferred_dialect_idx += 1
 			break
 		preferred_opt_idx += 1
 
-	return (preferred_opt, preferred_opt_idx)
+	return preferred_opt, preferred_opt_idx
 
 
 def read_element(line, marker = ' ', marker_end = None, toend = False):
+	"""
+	Helper function to read a substring from a string.
+	Returns a tuple containing the substring and the remaining data starting from the end of the substring.
+	:param line: the data to read from
+	:type line: str
+	:param marker: if marker_end is not defined it marks the end of the returned substring
+					if marker is defined it marks the beginning of the returned substring
+	:type marker: str
+	:param marker_end: if defined it marks the end of the returned substring
+	:param marker_end: str
+	:param toend:
+	:type toend: bool
+	:return: tuple
+	"""
 	if marker_end is None:
 		m = line.find(marker)
 		if m == -1:

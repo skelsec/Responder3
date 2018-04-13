@@ -7,6 +7,7 @@ import ipaddress
 import datetime
 import collections
 
+from responder3.core.interfaceutil import interfaces
 from responder3.core.commons import *
 from responder3.protocols.DNS import * 
 from responder3.core.udpwrapper import UDPClient
@@ -35,30 +36,25 @@ class DNSGlobalSession():
 				self.passthru_server = ipaddress.ip_address(self.settings['passthru']['dnsserver'])
 				self.passthru_port   = 53
 			
-			self.passthru_iface  = self.settings['passthru']['bind_iface'] if 'bind_iface' in self.settings['passthru'] else self.server_properties.bind_iface
-			self.passthru_iface_idx = self.server_properties.bind_iface_idx
-			self.passthru_proto  = self.settings['passthru']['bind_protocol'] if 'bind_protocol' in self.settings['passthru'] else self.server_properties.bind_protocol
+			self.passthru_iface  = self.settings['passthru']['bind_iface'] if 'bind_iface' in self.settings['passthru'] else self.server_properties.listener_socket.bind_iface
+			self.passthru_iface_idx = self.server_properties.listener_socket.bind_iface_idx
+			self.passthru_proto  = self.settings['passthru']['bind_protocol'] if 'bind_protocol' in self.settings['passthru'] else self.server_properties.listener_socket.bind_protocol
 			self.passthru_ip     = ipaddress.ip_address(self.settings['passthru']['bind_addr']) if 'bind_addr' in self.settings['passthru'] else None
 
-			if self.passthru_ip is None and self.passthru_iface != self.server_properties.bind_iface:
-				iface = self.server_properties.interfaced[self.passthru_iface]
-				#grabbinf the first one!
-				if self.passthru_server.version == 4:
-					self.passthru_ip = ipaddress.ip_address(iface.IPv4[0])
-				else:
-					self.passthru_ip = ipaddress.ip_address(iface.IPv6[0])
+			if self.passthru_ip is None and self.passthru_iface != self.server_properties.listener_socket.bind_iface:
+				self.passthru_ip = interfaces.get_ip(self.passthru_iface, self.passthru_server.version)[0]
 			else:
-				self.passthru_ip = self.server_properties.bind_addr
+				self.passthru_ip = self.server_properties.listener_socket.bind_addr
 
 		if self.settings is None:
 			self.log('No settings defined, adjusting to Analysis functionality!')
 
 		else:
-			#parse the poisoner mode
+			# parse the poisoner mode
 			if isinstance(self.settings['mode'], str):
 				self.poisonermode = PoisonerMode[self.settings['mode'].upper()]
 
-			#compiling re strings to actual re objects and converting IP strings to IP objects
+			# compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.poisonermode == PoisonerMode.SPOOF:
 				for entry in self.settings['spooftable']:
 					for regx in entry:

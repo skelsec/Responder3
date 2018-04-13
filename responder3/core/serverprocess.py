@@ -27,12 +27,13 @@ class ServerProperties():
 	settings dict MUST have a port the port, serverhandler, serversession parameters!!!
 	"""
 	def __init__(self):
-		self.bind_addr     = None
-		self.bind_port     = None
-		self.bind_family   = None
-		self.bind_protocol = None
-		self.bind_iface    = None
-		self.bind_iface_idx = None
+		# self.bind_addr     = None
+		# self.bind_port     = None
+		# self.bind_family   = None
+		# self.bind_protocol = None
+		# self.bind_iface    = None
+		# self.bind_iface_idx = None
+		self.listener_socket = None
 		self.serverhandler = None
 		self.serversession = None
 		self.serverglobalsession = None
@@ -41,35 +42,17 @@ class ServerProperties():
 		self.shared_rdns   = None
 		self.shared_logQ   = None
 		self.interfaced    = None
-		self.platform      = None
+		self.platform      = commons.get_platform()
+		self.module_name   = None
 
-		self.platform = commons.get_platform()
-
+	@staticmethod
 	def from_dict(settings):
 		sp = ServerProperties()
 
-		if 'interfaced' in settings and settings['interfaced'] is not None:
-			sp.interfaced = settings['interfaced']
-
-		if 'bind_addr' in settings and settings['bind_addr'] is not None:
-			sp.bind_addr = ipaddress.ip_address(settings['bind_addr'])
-
-		sp.bind_family = socket.AF_INET if sp.bind_addr.version == 4 else socket.AF_INET6
-		if 'bind_port' in settings and settings['bind_port'] is not None:
-			sp.bind_port = int(settings['bind_port'])
-			sp.bind_protocol = commons.ServerProtocol[settings['bind_protocol'].upper()]
+		if 'listener_socket' in settings and settings['listener_socket'] is not None:
+			sp.listener_socket = settings['listener_socket']
 		else:
-			raise Exception('Port MUST be specified!')
-
-		if 'bind_iface' in settings and settings['bind_iface'] is not None:
-			sp.bind_iface = settings['bind_iface']
-		else:
-			raise Exception('interface name  MUST be provided!')
-
-		if 'bind_iface_idx' in settings and settings['bind_iface_idx'] is not None:
-			sp.bind_iface_idx = settings['bind_iface_idx']
-		elif sp.bind_family == socket.AF_INET6:
-			raise Exception('bind_iface_idx name  MUST be provided for IPv6 addresses!')
+			raise Exception('Server listener socket MUST be defined!')
 
 		if 'serverhandler' in settings and settings['serverhandler'] is not None:
 			sp.serverhandler = settings['serverhandler']
@@ -106,20 +89,21 @@ class ServerProperties():
 		else:
 			raise Exception('shared_logQ MUST be specified!')
 
+		sp.module_name = '%s-%s' % (sp.serverhandler.__name__, sp.listening_socket.get_protocolname())
+		if sp.sslcontext is not None:
+			sp.module_name += '-SSL'
+
 		return sp
 
 	def getserverkwargs(self):
 		"""
 		returns an kwargs dict that is ready to be used by asyncio.start_server
 		"""
-		return {
-			'host'   : str(self.bind_addr),
-			'port'   : self.bind_port,
-			'family' : self.bind_family,
-			'ssl'    : self.sslcontext,
-			'reuse_address' : True,
-			'reuse_port'    : True,
-			}
+		socket_kwargs = self.listener_socket.get_server_kwargs()
+		socket_kwargs['ssl'] = self.sslcontext
+		socket_kwargs['reuse_address'] = True
+		socket_kwargs['reuse_port'] = True
+		return socket_kwargs
 
 	def __repr__(self):
 		t  = '== ServerProperties ==\r\n'
@@ -138,6 +122,7 @@ class ServerProperties():
 		#t += 'interfaced : %s \r\n' % repr(self.interfaced)
 		#t += 'platform : %s \r\n' % repr(self.platform)
 		return t
+
 
 class ResponderServerProcess(multiprocessing.Process):
 	"""
@@ -161,7 +146,8 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.connectionFactory = None
 
 	def import_packages(self):
-		if self.serverentry['bind_protocol'].upper() == 'UDP':
+		# print(self.serverentry['listener_socket'])
+		if self.serverentry['listener_socket'].bind_protocol == socket.SOCK_DGRAM:
 			self.udpserver = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
 		
 		handler_spec = importlib.util.find_spec('responder3.poisoners.%s' % self.serverentry['handler'])
@@ -179,7 +165,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverentry['globalsession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'GlobalSession'), None)
 
 	def accept_client(self, client_reader, client_writer):
-		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.bind_protocol)		
+		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.listener_socket.bind_protocol)
 		self.logConnection(connection, commons.ConnectionStatus.OPENED)
 		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
@@ -189,7 +175,7 @@ class ResponderServerProcess(multiprocessing.Process):
 
 		def client_done(task):
 			del self.clients[task]
-			if self.sprops.bind_protocol in [commons.ServerProtocol.TCP,commons.ServerProtocol.SSL]:
+			if self.sprops.listener_socket.bind_protocol == socket.SOCK_STREAM:
 				client_writer.close()
 			else:
 				self.log('UDP task cleanup not implemented!', logging.DEBUG)
@@ -211,22 +197,22 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.logQ    = self.sprops.shared_logQ
 		self.rdnsd   = self.sprops.shared_rdns
 		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
-		self.modulename = '%s-%s-%d' % (self.sprops.serverhandler.__name__, self.sprops.bind_addr, self.sprops.bind_port)
+		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, str(self.sprops.listener_socket.get_print_address()))
 		self.serverCoro = None
 
-		if self.sprops.bind_protocol in [commons.ServerProtocol.TCP, commons.ServerProtocol.SSL]:
+		if self.sprops.listener_socket.bind_protocol == socket.SOCK_STREAM:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops)
+				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket)
 			else:
-				sock = commons.setup_base_socket(self.sprops)
+				sock = commons.setup_base_socket(self.sprops.listener_socket)
 			
 			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.sprops.sslcontext)
 		
-		elif self.sprops.bind_protocol == commons.ServerProtocol.UDP:
+		elif self.sprops.listener_socket.bind_protocol == socket.SOCK_DGRAM:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops)
+				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket)
 			
 			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
 			self.serverCoro = udpserver.run()

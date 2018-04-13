@@ -22,9 +22,9 @@ class MDNSGlobalSession():
 		self.spooftable = []
 		self.poisonermode = PoisonerMode.ANALYSE
 
-		self.maddr = ('224.0.0.251' , self.server_properties.bind_port)
-		if self.server_properties.bind_addr.version == 6:
-			self.maddr = ('FF02::FB' , self.server_properties.bind_port,0, self.server_properties.bind_iface_idx)
+		self.maddr = ('224.0.0.251' , self.server_properties.listener_socket.bind_port)
+		if self.server_properties.listener_socket.bind_addr.version == 6:
+			self.maddr = ('FF02::FB' , self.server_properties.listener_socket. bind_port,0, self.server_properties.listener_socket.bind_iface_idx)
 
 		self.parse_settings()
 
@@ -45,12 +45,13 @@ class MDNSSession(ResponderServerSession):
 	pass
 
 class MDNS(ResponderServer):
-	def custom_socket(server_properties):
-		if server_properties.bind_family == socket.AF_INET:
+	def custom_socket(socket_config):
+		print(socket_config)
+		if socket_config.bind_family == 4:
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = setup_base_socket(
-				server_properties, 
-				bind_ip_override = ipaddress.ip_address('0.0.0.0') if server_properties.platform == ResponderPlatform.WINDOWS else None
+				socket_config,
+				bind_ip_override = ipaddress.ip_address('0.0.0.0') if socket_config.platform == ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)
@@ -59,13 +60,13 @@ class MDNS(ResponderServer):
 		else:
 			mcast_addr = ipaddress.ip_address('FF02::FB')
 			sock = setup_base_socket(
-				server_properties, 
-				bind_ip_override = ipaddress.ip_address('::') if server_properties.platform == ResponderPlatform.WINDOWS else None
+				socket_config,
+				bind_ip_override = ipaddress.ip_address('::') if socket_config.platform == ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(
-				41 if server_properties.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6, 
+				41 if socket_config.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6,
 				socket.IPV6_JOIN_GROUP,
-				struct.pack('16sI', mcast_addr.packed, server_properties.bind_iface_idx)
+				struct.pack('16sI', mcast_addr.packed, socket_config.bind_iface_idx)
 			)
 			
 		return sock

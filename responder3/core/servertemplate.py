@@ -12,26 +12,25 @@ import copy
 
 from responder3.core.commons import *
 
+
 class ResponderServerSession(abc.ABC):
 	def __init__(self, connection):
 		self.connection = connection
 
+
 class ResponderServer(abc.ABC):
-	def __init__(self, connection, session, serverprops, globalsession = None, loop = None):
+	def __init__(self, connection, session, server_properties, globalsession = None, loop = None):
 		self.loop = loop
 		if self.loop is None:
 			self.loop = asyncio.get_event_loop()
 		self.session = session
-		self.caddr   = (session.connection.remote_ip, 
-						session.connection.remote_port)
+		self.caddr   = self.session.connection.get_remote_address()
 		self.creader = connection[0]
 		self.cwriter = connection[1]
-		self.logQ    = serverprops.shared_logQ
-		self.rdns    = serverprops.shared_rdns
-		self.protocol= serverprops.bind_protocol
-		self.sprops  = serverprops
-		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, self.protocol.name)
-		self.settings= copy.deepcopy(serverprops.settings)
+		self.logQ    = server_properties.shared_logQ
+		self.rdns    = server_properties.shared_rdns
+		self.server_properties  = server_properties
+		self.settings= copy.deepcopy(server_properties.settings)
 		self.globalsession = globalsession
 
 		self.init()
@@ -48,13 +47,12 @@ class ResponderServer(abc.ABC):
 		#	message = '[INIT] %s' %  message
 		#else:	
 		#	message = '[%s:%d] %s' % (self.session.connection.remote_ip, self.session.connection.remote_port, message)
-		message = '[%s:%d] <-> [%s:%d] %s' % (self.sprops.bind_addr, self.sprops.bind_port,
-												self.session.connection.remote_ip, 
-												self.session.connection.remote_port,
-												message)
-		self.logQ.put(LogEntry(level, self.modulename, message))
+		message = '[%s] <-> [%s] %s' % (self.server_properties.listening_socket.get_print_address(),
+										self.session.connection.get_remote_print_address(),
+										message)
+		self.logQ.put(LogEntry(level, self.server_properties.module_name, message))
 
-	def logCredential(self, credential):
+	def log_credential(self, credential):
 		"""
 		Create a Result message and send it to the LogProcessor for procsesing
 		"""
@@ -62,21 +60,9 @@ class ResponderServer(abc.ABC):
 		credential.client_addr = self.session.connection.remote_ip
 		credential.client_rdns = self.session.connection.remote_ip
 		self.logQ.put(credential)
-
-	
-	#def logConnection(self):
-	#	"""
-	#	Create a Connection message and send it to the LogProcessor for procsesing
-	#	connection: A connection object that holds the connection info for the client
-	#	"""
-	#	if self.session.connection.status == ConnectionStatus.OPENED or self.session.connection.status == ConnectionStatus.STATELESS:
-	#		self.log(logging.INFO, 'New connection opened', self.session)
-	#	elif self.session.connection.status == ConnectionStatus.CLOSED:
-	#		self.log(logging.INFO, 'Connection closed', self.session)
-	#	self.logQ.put(self.session.connection)
 	
 
-	def logPoisonResult(self, requestName = None, poisonName = None, poisonIP = None):
+	def log_poisonresult(self, requestName = None, poisonName = None, poisonIP = None):
 		self.log('Resolv request in!')
 		pr = PoisonResult()
 		pr.module = self.modulename
@@ -89,15 +75,15 @@ class ResponderServer(abc.ABC):
 
 		self.logQ.put(pr)
 
-	def logEmail(self, emailEntry):
+	def log_email(self, emailEntry):
 		self.log('You got mail!', logging.INFO)
 		self.logQ.put(emailEntry)
 
-	def logProxy(self, data, laddr, raddr, level = logging.INFO):
+	def log_proxy(self, data, laddr, raddr, level = logging.INFO):
 		message = '[%s -> %s] %s' % ('%s:%d' % laddr, '%s:%d' % raddr, data)
 		self.logQ.put(LogEntry(level, self.modulename, message))
 
-	def logProxyData(self, data, laddr, raddr, isSSL, datatype):
+	def log_proxydata(self, data, laddr, raddr, isSSL, datatype):
 		pd = ProxyData()
 		pd.src_addr  = laddr
 		pd.dst_addr  = raddr
@@ -108,7 +94,7 @@ class ResponderServer(abc.ABC):
 
 		self.logQ.put(pd)
 
-	def logexception(self, message = None):
+	def log_exception(self, message = None):
 		sio = io.StringIO()
 		ei = sys.exc_info()
 		tb = ei[2]

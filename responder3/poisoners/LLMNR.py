@@ -39,12 +39,12 @@ class LLMNRSession(ResponderServerSession):
 	pass
 
 class LLMNR(ResponderServer):
-	def custom_socket(server_properties):
-		if server_properties.bind_family == socket.AF_INET:
+	def custom_socket(socket_config):
+		if socket_config.bind_family == 4:
 			ip = ipaddress.ip_address('224.0.0.252')
 			sock = setup_base_socket(
-				server_properties, 
-				bind_ip_override = ipaddress.ip_address('0.0.0.0') if server_properties.platform != ResponderPlatform.WINDOWS else None
+				socket_config,
+				bind_ip_override = ipaddress.ip_address('0.0.0.0') if socket_config.platform != ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", ip.packed, socket.INADDR_ANY)
@@ -53,14 +53,14 @@ class LLMNR(ResponderServer):
 		else:
 			ip = ipaddress.ip_address('FF02:0:0:0:0:0:1:3')
 			sock = setup_base_socket(
-				server_properties, 
-				bind_ip_override = ipaddress.ip_address('::') if server_properties.platform != ResponderPlatform.WINDOWS else None
+				socket_config,
+				bind_ip_override = ipaddress.ip_address('::') if socket_config.platform != ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			sock.setsockopt(
-				41 if server_properties.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6, 
+				41 if socket_config.platform == ResponderPlatform.WINDOWS else socket.IPPROTO_IPV6,
 				socket.IPV6_JOIN_GROUP,
-				struct.pack('16sI', ip.packed, server_properties.bind_iface_idx)
+				struct.pack('16sI', ip.packed, socket_config.bind_iface_idx)
 			)
 
 		return sock
