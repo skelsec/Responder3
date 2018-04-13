@@ -31,6 +31,7 @@ class SOCKS5Session(ResponderServerSession):
 		t += 'proxytable: %s\r\n' % repr(self.proxytable)
 		return t
 
+
 class SOCKS5(ResponderServer):
 	def init(self):
 		self.parser = SOCKS5CommandParser
@@ -75,16 +76,16 @@ class SOCKS5(ResponderServer):
 									prange = range(int(portrange),int(portrange)+1)
 								
 								if portranged[portrange].find(':') != -1:
-									#additional parsing to enable IPv6 addresses...
+									# additional parsing to enable IPv6 addresses...
 									marker = portranged[portrange].rfind(':')
-									self.session.proxytable[iprex].append({prange : (portranged[portrange][:marker], int(portranged[portrange][marker+1:]))})
+									self.session.proxytable[iprex].append({prange: (portranged[portrange][:marker], int(portranged[portrange][marker+1:]))})
 								else:
 									raise Exception('The target address MUST be supplied in IP:PORT format! Problem: %s' % portranged[portrange])
 
 	def fake_dest_lookup(self, dest_ip, dest_port):
-		for ipregx in self.proxyTable:
+		for ipregx in self.session.proxytable:
 			if ipregx.match(dest_ip):
-				for portranged in self.proxyTable[ipregx]:
+				for portranged in self.session.proxytable[ipregx]:
 					for portrange in portranged:
 						if dest_port in portrange:
 							return portranged[portrange]
@@ -93,9 +94,9 @@ class SOCKS5(ResponderServer):
 
 
 	@asyncio.coroutine
-	def parse_message(self, timeout = None):
+	def parse_message(self, timeout=None):
 		try:
-			req = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader, self.session), timeout = timeout)
+			req = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader, self.session), timeout=timeout)
 			return req
 		except asyncio.TimeoutError:
 			self.log('Timeout!', logging.DEBUG)
@@ -162,7 +163,7 @@ class SOCKS5(ResponderServer):
 					self.session.authHandler = SOCKS5AuthHandler(self.session.mutual_auth_type, self.session.creds) 
 
 					if self.session.mutual_auth_type == SOCKS5Method.NOAUTH:
-						self.session.current_state = SOCKS5ServerState.REQUEST #if no authentication is requred then we skip the auth part
+						self.session.current_state = SOCKS5ServerState.REQUEST # if no authentication is requred then we skip the auth part
 					else:
 						self.session.current_state = SOCKS5ServerState.NOT_AUTHENTICATED
 

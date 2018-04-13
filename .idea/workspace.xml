@@ -2,19 +2,14 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="6b046a7a-c87f-408b-8817-6a106a11060a" name="Default" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/Responder3.iml" afterPath="$PROJECT_DIR$/.idea/Responder3.iml" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" afterPath="$PROJECT_DIR$/.idea/workspace.xml" />
       <change beforePath="$PROJECT_DIR$/Responder3.py" afterPath="$PROJECT_DIR$/Responder3.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/clients/socks5.py" afterPath="$PROJECT_DIR$/responder3/clients/socks5.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/core/commons.py" afterPath="$PROJECT_DIR$/responder3/core/commons.py" />
+      <change beforePath="$PROJECT_DIR$/conf.py" afterPath="" />
       <change beforePath="$PROJECT_DIR$/responder3/core/interfaceutil.py" afterPath="$PROJECT_DIR$/responder3/core/interfaceutil.py" />
+      <change beforePath="$PROJECT_DIR$/responder3/core/logprocess.py" afterPath="$PROJECT_DIR$/responder3/core/logprocess.py" />
       <change beforePath="$PROJECT_DIR$/responder3/core/serverprocess.py" afterPath="$PROJECT_DIR$/responder3/core/serverprocess.py" />
       <change beforePath="$PROJECT_DIR$/responder3/core/servertemplate.py" afterPath="$PROJECT_DIR$/responder3/core/servertemplate.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/core/udpwrapper.py" afterPath="$PROJECT_DIR$/responder3/core/udpwrapper.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/poisoners/DHCP.py" afterPath="$PROJECT_DIR$/responder3/poisoners/DHCP.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/poisoners/DNS.py" afterPath="$PROJECT_DIR$/responder3/poisoners/DNS.py" />
       <change beforePath="$PROJECT_DIR$/responder3/poisoners/LLMNR.py" afterPath="$PROJECT_DIR$/responder3/poisoners/LLMNR.py" />
-      <change beforePath="$PROJECT_DIR$/responder3/poisoners/MDNS.py" afterPath="$PROJECT_DIR$/responder3/poisoners/MDNS.py" />
+      <change beforePath="$PROJECT_DIR$/responder3/servers/SOCKS5.py" afterPath="$PROJECT_DIR$/responder3/servers/SOCKS5.py" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="TRACKING_ENABLED" value="true" />
@@ -52,7 +47,7 @@
                 </provider>
               </entry>
             </file>
-            <file leaf-file-name="commons.py" pinned="false" current-in-tab="true">
+            <file leaf-file-name="commons.py" pinned="false" current-in-tab="false">
               <entry file="file://$PROJECT_DIR$/responder3/core/commons.py">
                 <provider selected="true" editor-type-id="text-editor">
                   <state relative-caret-position="496">
@@ -62,11 +57,11 @@
                 </provider>
               </entry>
             </file>
-            <file leaf-file-name="serverprocess.py" pinned="false" current-in-tab="false">
+            <file leaf-file-name="serverprocess.py" pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/responder3/core/serverprocess.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="100">
-                    <caret line="73" column="0" lean-forward="false" selection-start-line="73" selection-start-column="0" selection-end-line="73" selection-end-column="0" />
+                  <state relative-caret-position="144">
+                    <caret line="122" column="68" lean-forward="false" selection-start-line="122" selection-start-column="68" selection-end-line="122" selection-end-column="68" />
                     <folding>
                       <element signature="e#0#10#0" expanded="true" />
                     </folding>
@@ -96,10 +91,22 @@
       <file leaf-file-name="interfaceutil.py" pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/responder3/core/interfaceutil.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="348">
-              <caret line="38" column="31" lean-forward="true" selection-start-line="38" selection-start-column="31" selection-end-line="38" selection-end-column="31" />
+            <state relative-caret-position="-620">
+              <caret line="591" column="119" lean-forward="false" selection-start-line="591" selection-start-column="119" selection-end-line="591" selection-end-column="119" />
               <folding>
                 <element signature="e#0#15#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file leaf-file-name="logprocess.py" pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/responder3/core/logprocess.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="342">
+              <caret line="19" column="51" lean-forward="false" selection-start-line="19" selection-start-column="51" selection-end-line="19" selection-end-column="51" />
+              <folding>
+                <element signature="e#0#9#0" expanded="true" />
               </folding>
             </state>
           </provider>
@@ -108,8 +115,8 @@
       <file leaf-file-name="udpwrapper.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/responder3/core/udpwrapper.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="762">
-              <caret line="122" column="27" lean-forward="false" selection-start-line="122" selection-start-column="27" selection-end-line="122" selection-end-column="27" />
+            <state relative-caret-position="468">
+              <caret line="26" column="19" lean-forward="true" selection-start-line="26" selection-start-column="19" selection-end-line="26" selection-end-column="19" />
               <folding>
                 <element signature="e#0#14#0" expanded="true" />
               </folding>
@@ -120,8 +127,8 @@
       <file leaf-file-name="LLMNR.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/responder3/poisoners/LLMNR.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="216">
-              <caret line="23" column="0" lean-forward="false" selection-start-line="23" selection-start-column="0" selection-end-line="23" selection-end-column="0" />
+            <state relative-caret-position="1710">
+              <caret line="106" column="72" lean-forward="true" selection-start-line="106" selection-start-column="72" selection-end-line="106" selection-end-column="72" />
               <folding />
             </state>
           </provider>
@@ -130,8 +137,8 @@
       <file leaf-file-name="Responder3.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/Responder3.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="378">
-              <caret line="33" column="44" lean-forward="false" selection-start-line="33" selection-start-column="44" selection-end-line="33" selection-end-column="44" />
+            <state relative-caret-position="-612">
+              <caret line="38" column="16" lean-forward="false" selection-start-line="38" selection-start-column="16" selection-end-line="38" selection-end-column="16" />
               <folding>
                 <element signature="e#22#31#0" expanded="true" />
               </folding>
@@ -142,9 +149,11 @@
       <file leaf-file-name="servertemplate.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/responder3/core/servertemplate.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="126">
-              <caret line="19" column="0" lean-forward="false" selection-start-line="19" selection-start-column="0" selection-end-line="19" selection-end-column="0" />
-              <folding />
+            <state relative-caret-position="748">
+              <caret line="89" column="28" lean-forward="true" selection-start-line="89" selection-start-column="28" selection-end-line="89" selection-end-column="28" />
+              <folding>
+                <element signature="e#0#10#0" expanded="true" />
+              </folding>
             </state>
           </provider>
         </entry>
@@ -152,8 +161,8 @@
       <file leaf-file-name="SOCKS5.py" pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/responder3/servers/SOCKS5.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="627">
-              <caret line="161" column="108" lean-forward="false" selection-start-line="161" selection-start-column="101" selection-end-line="161" selection-end-column="108" />
+            <state relative-caret-position="36">
+              <caret line="80" column="81" lean-forward="true" selection-start-line="80" selection-start-column="81" selection-end-line="80" selection-end-column="81" />
               <folding>
                 <element signature="e#0#14#0" expanded="true" />
               </folding>
@@ -165,15 +174,6 @@
   </component>
   <component name="FindInProjectRecents">
     <findStrings>
-      <find>currentState</find>
-      <find>smtpxxxxcmd</find>
-      <find>toBytes</find>
-      <find>ResponderPlatform</find>
-      <find>SOCKS5PlainAuth</find>
-      <find>Client connected fro</find>
-      <find>SOCKS5NegoReply</find>
-      <find>authHandler</find>
-      <find>bind_porotcol</find>
       <find>bind_family</find>
       <find>networkinterface</find>
       <find>bind_</find>
@@ -181,10 +181,8 @@
       <find>connect_proxy</find>
       <find>bind_famil</find>
       <find>custom_soc</find>
-      <find>serverProcesses</find>
       <find>custom_socket</find>
       <find>ServerProperties</find>
-      <find>serverprops</find>
       <find>platform</find>
       <find>SOCKS5NegoRe</find>
       <find>print</find>
@@ -192,9 +190,20 @@
       <find>class connection</find>
       <find>sslcontexttable</find>
       <find>fromJSON</find>
-      <find>ConnectionStatus</find>
-      <find>self.protocol</find>
       <find>servers</find>
+      <find>sys</find>
+      <find>traceback</find>
+      <find>ConnectionStatus</find>
+      <find>from_dict</find>
+      <find>pprint</find>
+      <find>importlib</find>
+      <find>logging</find>
+      <find>atexit</find>
+      <find>authHandler</find>
+      <find>serverProcesses</find>
+      <find>serverprops</find>
+      <find>self.protocol</find>
+      <find>os</find>
     </findStrings>
     <replaceStrings>
       <replace>cmd</replace>
@@ -202,8 +211,9 @@
       <replace>current_state</replace>
       <replace>.to_bytes</replace>
       <replace>to_bytes</replace>
-      <replace>to_dict</replace>
+      <replace>server_process</replace>
       <replace>bind_protocol</replace>
+      <replace>to_dict</replace>
     </replaceStrings>
   </component>
   <component name="Git.Settings">
@@ -243,19 +253,20 @@
         <option value="$PROJECT_DIR$/responder3/servers/SMTP.py" />
         <option value="$PROJECT_DIR$/responder3/protocols/POP3.py" />
         <option value="$PROJECT_DIR$/responder3/tests/parser/kerberos_test.py" />
-        <option value="$PROJECT_DIR$/responder3/servers/SOCKS5.py" />
         <option value="$PROJECT_DIR$/responder3/protocols/SOCKS5.py" />
         <option value="$PROJECT_DIR$/responder3/clients/socks5.py" />
         <option value="$PROJECT_DIR$/responder3/poisoners/DHCP.py" />
         <option value="$PROJECT_DIR$/responder3/core/udpwrapper.py" />
         <option value="$PROJECT_DIR$/responder3/poisoners/DNS.py" />
-        <option value="$PROJECT_DIR$/Responder3.py" />
-        <option value="$PROJECT_DIR$/responder3/poisoners/LLMNR.py" />
         <option value="$PROJECT_DIR$/responder3/poisoners/MDNS.py" />
-        <option value="$PROJECT_DIR$/responder3/core/serverprocess.py" />
-        <option value="$PROJECT_DIR$/responder3/core/servertemplate.py" />
         <option value="$PROJECT_DIR$/responder3/core/commons.py" />
         <option value="$PROJECT_DIR$/responder3/core/interfaceutil.py" />
+        <option value="$PROJECT_DIR$/responder3/core/serverprocess.py" />
+        <option value="$PROJECT_DIR$/Responder3.py" />
+        <option value="$PROJECT_DIR$/responder3/core/servertemplate.py" />
+        <option value="$PROJECT_DIR$/responder3/poisoners/LLMNR.py" />
+        <option value="$PROJECT_DIR$/responder3/servers/SOCKS5.py" />
+        <option value="$PROJECT_DIR$/responder3/core/logprocess.py" />
       </list>
     </option>
   </component>
@@ -472,14 +483,6 @@
     <watches-manager />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/responder3/tests/server/smtp_noauth_test.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="36">
-          <caret line="2" column="20" lean-forward="false" selection-start-line="2" selection-start-column="20" selection-end-line="2" selection-end-column="20" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/responder3/tests/server/pop3s_test.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="18">
@@ -794,16 +797,6 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/responder3/servers/SOCKS5.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="627">
-          <caret line="161" column="108" lean-forward="false" selection-start-line="161" selection-start-column="101" selection-end-line="161" selection-end-column="108" />
-          <folding>
-            <element signature="e#0#14#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/responder3/clients/socks5.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="352">
@@ -842,58 +835,12 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/responder3/core/udpwrapper.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="762">
-          <caret line="122" column="27" lean-forward="false" selection-start-line="122" selection-start-column="27" selection-end-line="122" selection-end-column="27" />
-          <folding>
-            <element signature="e#0#14#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/responder3/poisoners/LLMNR.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="216">
-          <caret line="23" column="0" lean-forward="false" selection-start-line="23" selection-start-column="0" selection-end-line="23" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/responder3/protocols/SOCKS5.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="464">
           <caret line="304" column="0" lean-forward="false" selection-start-line="304" selection-start-column="0" selection-end-line="304" selection-end-column="0" />
           <folding>
             <element signature="e#113#122#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/responder3/core/serverprocess.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="100">
-          <caret line="73" column="0" lean-forward="false" selection-start-line="73" selection-start-column="0" selection-end-line="73" selection-end-column="0" />
-          <folding>
-            <element signature="e#0#10#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/responder3/core/servertemplate.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="126">
-          <caret line="19" column="0" lean-forward="false" selection-start-line="19" selection-start-column="0" selection-end-line="19" selection-end-column="0" />
-          <folding />
-        </state>
-      </provider>
-    </entry>
-    <entry file="file://$PROJECT_DIR$/Responder3.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="378">
-          <caret line="33" column="44" lean-forward="false" selection-start-line="33" selection-start-column="44" selection-end-line="33" selection-end-column="44" />
-          <folding>
-            <element signature="e#22#31#0" expanded="true" />
           </folding>
         </state>
       </provider>
@@ -906,10 +853,78 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/core/serverprocess.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="144">
+          <caret line="122" column="68" lean-forward="false" selection-start-line="122" selection-start-column="68" selection-end-line="122" selection-end-column="68" />
+          <folding>
+            <element signature="e#0#10#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/poisoners/LLMNR.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1710">
+          <caret line="106" column="72" lean-forward="true" selection-start-line="106" selection-start-column="72" selection-end-line="106" selection-end-column="72" />
+          <folding />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/Responder3.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="-612">
+          <caret line="38" column="16" lean-forward="false" selection-start-line="38" selection-start-column="16" selection-end-line="38" selection-end-column="16" />
+          <folding>
+            <element signature="e#22#31#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/core/servertemplate.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="748">
+          <caret line="89" column="28" lean-forward="true" selection-start-line="89" selection-start-column="28" selection-end-line="89" selection-end-column="28" />
+          <folding>
+            <element signature="e#0#10#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/servers/SOCKS5.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="36">
+          <caret line="80" column="81" lean-forward="true" selection-start-line="80" selection-start-column="81" selection-end-line="80" selection-end-column="81" />
+          <folding>
+            <element signature="e#0#14#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/core/udpwrapper.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="468">
+          <caret line="26" column="19" lean-forward="true" selection-start-line="26" selection-start-column="19" selection-end-line="26" selection-end-column="19" />
+          <folding>
+            <element signature="e#0#14#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/responder3/core/logprocess.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="342">
+          <caret line="19" column="51" lean-forward="false" selection-start-line="19" selection-start-column="51" selection-end-line="19" selection-end-column="51" />
+          <folding>
+            <element signature="e#0#9#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/responder3/core/interfaceutil.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="348">
-          <caret line="38" column="31" lean-forward="true" selection-start-line="38" selection-start-column="31" selection-end-line="38" selection-end-column="31" />
+        <state relative-caret-position="-620">
+          <caret line="591" column="119" lean-forward="false" selection-start-line="591" selection-start-column="119" selection-end-line="591" selection-end-column="119" />
           <folding>
             <element signature="e#0#15#0" expanded="true" />
           </folding>

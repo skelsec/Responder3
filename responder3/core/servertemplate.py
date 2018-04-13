@@ -19,7 +19,7 @@ class ResponderServerSession(abc.ABC):
 
 
 class ResponderServer(abc.ABC):
-	def __init__(self, connection, session, server_properties, globalsession = None, loop = None):
+	def __init__(self, connection, session, server_properties, globalsession=None, loop=None):
 		self.loop = loop
 		if self.loop is None:
 			self.loop = asyncio.get_event_loop()
@@ -39,14 +39,14 @@ class ResponderServer(abc.ABC):
 	def init(self):
 		pass
 
-	def log(self, message, level = logging.INFO):
+	def log(self, message, level=logging.INFO):
 		"""
-		Create a log message and send it to the LogProcessor for procsesing
+		Create a log message and send it to the LogProcessor for processing
 		"""
-		#if session is None or self.session.connection.remote_ip == None:
-		#	message = '[INIT] %s' %  message
-		#else:	
-		#	message = '[%s:%d] %s' % (self.session.connection.remote_ip, self.session.connection.remote_port, message)
+		# if session is None or self.session.connection.remote_ip == None:
+		# 	message = '[INIT] %s' %  message
+		# else:
+		# 	message = '[%s:%d] %s' % (self.session.connection.remote_ip, self.session.connection.remote_port, message)
 		message = '[%s] <-> [%s] %s' % (self.server_properties.listening_socket.get_print_address(),
 										self.session.connection.get_remote_print_address(),
 										message)
@@ -56,16 +56,15 @@ class ResponderServer(abc.ABC):
 		"""
 		Create a Result message and send it to the LogProcessor for procsesing
 		"""
-		credential.module = self.modulename
+		credential.module = self.server_properties.module_name
 		credential.client_addr = self.session.connection.remote_ip
 		credential.client_rdns = self.session.connection.remote_ip
 		self.logQ.put(credential)
-	
 
 	def log_poisonresult(self, requestName = None, poisonName = None, poisonIP = None):
 		self.log('Resolv request in!')
 		pr = PoisonResult()
-		pr.module = self.modulename
+		pr.module = self.server_properties.module_name
 		pr.target = self.session.connection.remote_ip
 		pr.request_name = requestName
 		pr.request_type = None
@@ -81,7 +80,7 @@ class ResponderServer(abc.ABC):
 
 	def log_proxy(self, data, laddr, raddr, level = logging.INFO):
 		message = '[%s -> %s] %s' % ('%s:%d' % laddr, '%s:%d' % raddr, data)
-		self.logQ.put(LogEntry(level, self.modulename, message))
+		self.logQ.put(LogEntry(level, self.server_properties.module_name, message))
 
 	def log_proxydata(self, data, laddr, raddr, isSSL, datatype):
 		pd = ProxyData()

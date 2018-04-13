@@ -36,7 +36,7 @@ class NetworkInterfaces:
 
 	def enumerate_interfaces(self):
 		"""
-		Enumerates all interfaces
+		Enumerates all interfaces on host
 		:return: None
 		"""
 		if self.platform == 'Windows':
@@ -79,10 +79,25 @@ class NetworkInterfaces:
 		return self.ip_name_lookup.get(str(ip), None)
 
 	def get_ip(self, ifname, ipversion = 4):
-
+		"""
+		Returns version 4 or 6 ip addresses for the interface specified by ifname.
+		:param ifname: Name of the interface
+		:type ifname: str
+		:param ipversion: Specified ip address version to return
+		:type ipversion: int
+		:return: list
+		"""
 		return self.name_ip_lookup.get((ifname, ipversion), None)
 
 	def get_socketconfig_from_ip(self, ip, port, protocol):
+		"""
+		Returns a SocketConfig object for the given ip, port, protocol
+		:param ip: IP address belonging to an existing interface
+		:param port: port numer
+		:param protocol: protocol type
+		:type protocol: socket.SOCK_STREAM or socket.SOCK_DGRAM
+		:return: SocketConfig
+		"""
 		sc = SocketConfig()
 		sc.bind_port = int(port)
 		if isinstance(ip, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
@@ -110,6 +125,17 @@ class NetworkInterfaces:
 		return sc
 
 	def get_socketconfig(self, ifname, port, protocol, ipversion = None):
+		"""
+		Returns a list of socketconfig objects to create server.
+		:param ifname: Interface name
+		:type ifname: str
+		:param port: Port number
+		:type port: int
+		:param protocol: Protocol type
+		:type protocol: str or int or socket.STREAM/socket.DGRAM
+		:param ipversion: IP address version
+		:return: list of SocketConfig
+		"""
 		if ifname not in self.interfaces:
 			raise Exception('Could not find ifname %s!' % ifname)
 
@@ -172,6 +198,9 @@ class NetworkInterfaces:
 
 class SocketConfig:
 	def __init__(self):
+		"""
+		Holds all necessary information to create a listening socket
+		"""
 		self.bind_iface  = None
 		self.bind_port   = None
 		self.bind_family = None
@@ -181,6 +210,10 @@ class SocketConfig:
 		self.platform = commons.get_platform()
 
 	def get_protocolname(self):
+		"""
+		Returns protocol type as string
+		:return: str
+		"""
 		if self.bind_protocol == socket.SOCK_STREAM:
 			return 'TCP'
 		elif self.bind_protocol == socket.SOCK_DGRAM:
@@ -189,12 +222,24 @@ class SocketConfig:
 			return 'UNKNOWN'
 
 	def get_address(self):
+		"""
+		Resturns address as tuple
+		:return: tuple
+		"""
 		return (str(self.bind_addr), self.bind_port)
 
 	def get_print_address(self):
+		"""
+		Returns address in a printable form
+		:return: str
+		"""
 		return '%s:%d' % (str(self.bind_addr), self.bind_port)
 
 	def get_server_kwargs(self):
+		"""
+		Returns a dict to be used in asyncio.create_server function
+		:return: dict
+		"""
 		return {
 			'host'         : str(self.bind_addr),
 			'port'         : self.bind_port,
@@ -217,6 +262,9 @@ class SocketConfig:
 
 class NetworkInterface:
 	def __init__(self):
+		"""
+		Container object to describe a network interface
+		"""
 		self.ifname = None
 		self.ifindex = None #zone_indices in windows
 		self.addresses = []
@@ -234,6 +282,10 @@ class NetworkInterface:
 		return t
 
 def get_linux_ifaddrs():
+	"""
+	Enumerates all network interfaces and all IP addresses assigned for each interfaces both IPv4 and IPv6 on Linux host
+	:return: list of NetworkInterface
+	"""
 	from socket import AF_INET, AF_INET6, inet_ntop
 	from ctypes import (
 		Structure, Union, POINTER,
@@ -321,10 +373,8 @@ def get_linux_ifaddrs():
 
 def get_win_ifaddrs():
 	"""
-	A method for retrieving info of the network
-	interfaces. Returns a nested dictionary of
-	interfaces in Windows. Supports both IPv4 
-	and IPv6 addresses
+	Enumerates all network interfaces and all IP addresses assigned for each interfaces both IPv4 and IPv6 on Windows host
+	:return: list of NetworkInterface
 	"""
 	import ctypes
 	import struct
@@ -538,6 +588,10 @@ def get_win_ifaddrs():
 	
 
 def get_darwin_ifaddrs():
+	"""
+	Enumerates all network interfaces and all IP addresses assigned for each interfaces both IPv4 and IPv6 on Macintosh host
+	:return: list of NetworkInterface
+	"""
 	from socket import AF_INET, AF_INET6, inet_ntop
 	from ctypes import (
 		Structure, Union, POINTER,

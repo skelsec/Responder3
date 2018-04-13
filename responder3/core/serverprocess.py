@@ -15,24 +15,14 @@ import platform
 
 from responder3.core import commons
 
-#TODO: enable additional fine-tuning of the SSL context from config file
-class ServerProperties():
-	"""
-	this class takes the settings dictionary, parses it an constructs all variables that are needed to:
-	1. set up server listener socket (including ssl context)
-	2. holds the server and session objects that will be instantiated when the server process starts
-	
-	input: session dictionary
 
-	settings dict MUST have a port the port, serverhandler, serversession parameters!!!
-	"""
+# TODO: enable additional fine-tuning of the SSL context from config file
+class ServerProperties:
 	def __init__(self):
-		# self.bind_addr     = None
-		# self.bind_port     = None
-		# self.bind_family   = None
-		# self.bind_protocol = None
-		# self.bind_iface    = None
-		# self.bind_iface_idx = None
+		"""
+		Describes all properties of a server.
+		Used to set up server processes.
+		"""
 		self.listener_socket = None
 		self.serverhandler = None
 		self.serversession = None
@@ -47,6 +37,12 @@ class ServerProperties():
 
 	@staticmethod
 	def from_dict(settings):
+		"""
+		Creates the ServerSettings object from a config dict
+		:param settings: Dictionary describing the object
+		:type settings: dict
+		:return: ServerProperties
+		"""
 		sp = ServerProperties()
 
 		if 'listener_socket' in settings and settings['listener_socket'] is not None:
@@ -89,7 +85,7 @@ class ServerProperties():
 		else:
 			raise Exception('shared_logQ MUST be specified!')
 
-		sp.module_name = '%s-%s' % (sp.serverhandler.__name__, sp.listening_socket.get_protocolname())
+		sp.module_name = '%s-%s' % (sp.serverhandler.__name__, sp.listener_socket.get_protocolname())
 		if sp.sslcontext is not None:
 			sp.module_name += '-SSL'
 
@@ -97,7 +93,8 @@ class ServerProperties():
 
 	def getserverkwargs(self):
 		"""
-		returns an kwargs dict that is ready to be used by asyncio.start_server
+		Creates a dict that is to be used by asyncio.start_server
+		:return: dict
 		"""
 		socket_kwargs = self.listener_socket.get_server_kwargs()
 		socket_kwargs['ssl'] = self.sslcontext
@@ -107,11 +104,7 @@ class ServerProperties():
 
 	def __repr__(self):
 		t  = '== ServerProperties ==\r\n'
-		t += 'bind_addr : %s \r\n' % repr(self.bind_addr)
-		t += 'bind_port : %s \r\n' % repr(self.bind_port)
-		t += 'bind_family : %s \r\n' % repr(self.bind_family)
-		t += 'bind_protocol : %s \r\n' % repr(self.bind_protocol)
-		t += 'bind_iface_idx : %s \r\n' % repr(self.bind_iface_idx)
+		t += 'listenersocket : %s \r\n' % repr(self.listener_socket)
 		t += 'serverhandler : %s \r\n' % repr(self.serverhandler)
 		t += 'serversession : %s \r\n' % repr(self.serversession)
 		t += 'serverglobalsession : %s \r\n' % repr(self.serverglobalsession)
@@ -119,17 +112,17 @@ class ServerProperties():
 		t += 'sslcontext : %s \r\n' % repr(self.sslcontext)
 		t += 'shared_rdns : %s \r\n' % repr(self.shared_rdns)
 		t += 'shared_logQ : %s \r\n' % repr(self.shared_logQ)
-		#t += 'interfaced : %s \r\n' % repr(self.interfaced)
-		#t += 'platform : %s \r\n' % repr(self.platform)
 		return t
 
 
 class ResponderServerProcess(multiprocessing.Process):
-	"""
-	The main server process for each server. Handles the incoming clients, maintains a table of active connections
-	Takes a ServerProperties class as input for init
-	"""
 	def __init__(self, serverentry):
+		"""
+		The main server process for each server. Handles the incoming clients, maintains a table of active connections
+
+		:param serverentry: Dictionary describing the server process
+		:type serverentry: dict
+		"""
 		multiprocessing.Process.__init__(self)
 		self.serverentry = serverentry
 		self.udpserver   = None
@@ -146,6 +139,11 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.connectionFactory = None
 
 	def import_packages(self):
+		"""
+		Imports necessary modules for the specific type of server.
+		This way we avoid importing all available modules before forking.
+		:return: None
+		"""
 		# print(self.serverentry['listener_socket'])
 		if self.serverentry['listener_socket'].bind_protocol == socket.SOCK_DGRAM:
 			self.udpserver = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
@@ -165,12 +163,23 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverentry['globalsession'] = getattr(servermodule, '%s%s' % (self.serverentry['handler'], 'GlobalSession'), None)
 
 	def accept_client(self, client_reader, client_writer):
+		"""
+		Handles incoming connection.
+		1. Creates connection obj
+		2. Log connection
+		3. Schedules a new task with the appropriate server template's run method
+		4. Performs cleanup after connection terminates
+		:param client_reader:
+		:type client_reader: asyncio.StreamReader
+		:param client_writer:
+		:type client_writer: asyncio.StreamWriter
+		:return: None
+		"""
 		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.listener_socket.bind_protocol)
-		self.logConnection(connection, commons.ConnectionStatus.OPENED)
+		self.log_connection(connection, commons.ConnectionStatus.OPENED)
 		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
 		task = asyncio.Task(server.run())
-		#task = asyncio.ensure_future(server.run())
 		self.clients[task] = (client_reader, client_writer)
 
 		def client_done(task):
@@ -181,10 +190,15 @@ class ResponderServerProcess(multiprocessing.Process):
 				self.log('UDP task cleanup not implemented!', logging.DEBUG)
 				pass
 				
-			self.logConnection(connection, commons.ConnectionStatus.CLOSED)
+			self.log_connection(connection, commons.ConnectionStatus.CLOSED)
 		task.add_done_callback(client_done)
 
 	def setup(self):
+		"""
+		Upsets the server. :)
+		Imports necessary modules, parses configuration dict, cereates session obj...
+		:return: None
+		"""
 		self.import_packages()
 		self.sprops = ServerProperties.from_dict(self.serverentry)
 		self.loop    = asyncio.get_event_loop()
@@ -232,11 +246,24 @@ class ResponderServerProcess(multiprocessing.Process):
 			self.logexception('Server is closing because of error!')
 			pass
 
+	@staticmethod
 	def from_dict(serverentry):
+		"""
+		Creates the server process with properties specified in serveerenty
+		:param serverentry: Configuration object
+		:type serverentry: dict
+		:return: ResponderServerProcess
+		"""
 		rsp = ResponderServerProcess(serverentry)
 		return rsp
 
 	def logexception(self, message = None):
+		"""
+		Custom exception handler to log exceptions via the logging interface
+		:param message: Extra message for the exception if any
+		:type message: str
+		:return: None
+		"""
 		sio = io.StringIO()
 		ei = sys.exc_info()
 		tb = ei[2]
@@ -250,15 +277,27 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.log(msg, level=logging.ERROR)
 
 	def log(self, message, level = logging.INFO):
+		"""
+		Sends the log messages onto the logqueue. If no logqueue is present then prints them out on console.
+		:param message: The message to be sent
+		:type message: LogEntry
+		:param level: Log level
+		:type level: int
+		:return: None
+		"""
 		if self.logQ is not None:
 			self.logQ.put(commons.LogEntry(level, self.modulename, message))
 		else:
 			print(str(commons.LogEntry(level, self.modulename, message)))
-	def logConnection(self, connection, status):
+
+	def log_connection(self, connection, status):
 		"""
-		Create a Connection message and send it to the LogProcessor for procsesing
-		connection: A connection object that holds the connection info for the client
-		status : The connection status (ConnectionStatus enum)
+		Logs incoming connection
+		:param connection: The Connection object to log
+		:type connection: Connection
+		:param status: Connection status
+		:type: ConnectionStatus
+		:return: None
 		"""
 		if status == commons.ConnectionStatus.OPENED or status == commons.ConnectionStatus.STATELESS:
 			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))

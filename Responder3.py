@@ -3,10 +3,7 @@
 import os
 import sys
 import copy
-import atexit
-import logging
 import itertools
-import importlib
 import multiprocessing
 from pathlib import Path
 
@@ -35,10 +32,10 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 					commons.handle_systemd(config.startup['mode']['pidfile'])
 
 			else:
-				#starting in standalone mode...
+				# starting in standalone mode...
 				pass
 		else:
-			#starting in standalone mode...
+			# starting in standalone mode...
 			pass
 
 		current_path = Path(__file__)
@@ -55,11 +52,9 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 
 		# Setting up and starting servers
 		servers = []
-		serverProcesses = []
+		server_process = []
 		
 		for serverentry in config.servers:
-			#handler = serverentry['handler']
-
 			if bind_ifaces is None:
 				ifaces = serverentry.get('bind_iface', None)
 				if ifaces is None:
@@ -97,7 +92,7 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 			for element in itertools.product(ifaces, portspecs):
 				socket_configs = interfaces.get_socketconfig(element[0], element[1][0], element[1][1], ipversion = bind_family)
 				for socket_config in socket_configs:
-					serverentry['listener_socket'] =  socket_config
+					serverentry['listener_socket'] = socket_config
 
 					temp = copy.deepcopy(serverentry)
 					temp['shared_rdns'] = rdns
@@ -112,12 +107,12 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 		for server in servers:
 			ss = serverprocess.ResponderServerProcess.from_dict(server)
 			ss.daemon = True
-			serverProcesses.append(ss)
+			server_process.append(ss)
 			ss.start()
 		
 
 		# print('Started everything!')
-		for server in serverProcesses:
+		for server in server_process:
 			server.join()
 		
 
@@ -127,7 +122,6 @@ def start_responder(bind_ifaces = None, bind_ipv4 = False, bind_ipv6 = False):
 
 def main(argv):
 	import argparse
-	import pprint
 	parser = argparse.ArgumentParser(description = 'Responder3',
 									 epilog      = 'list of available interfaces:\r\n' + str(interfaces),
 									 formatter_class = argparse.RawTextHelpFormatter)

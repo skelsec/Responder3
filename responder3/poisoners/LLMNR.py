@@ -35,10 +35,13 @@ class LLMNRGlobalSession():
 				for exp in self.settings['spooftable']:
 					self.spooftable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
+
 class LLMNRSession(ResponderServerSession):
 	pass
 
+
 class LLMNR(ResponderServer):
+	@staticmethod
 	def custom_socket(socket_config):
 		if socket_config.bind_family == 4:
 			ip = ipaddress.ip_address('224.0.0.252')
@@ -100,7 +103,7 @@ class LLMNR(ResponderServer):
 								raise Exception('This IP version scares me...')
 							answers.append(res)
 				
-				response = LLMNRPacket.construct(  TID = msg.TransactionID, 
+				response = LLMNRPacket.construct(TID = msg.TransactionID,
 									 response = LLMNRResponse.RESPONSE, 
 									 answers = answers,
 									 questions = msg.Questions
