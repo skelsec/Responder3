@@ -23,7 +23,7 @@ class ServerProperties:
 		Describes all properties of a server.
 		Used to set up server processes.
 		"""
-		self.listener_socket = None
+		self.listener_socket_config = None
 		self.serverhandler = None
 		self.serversession = None
 		self.serverglobalsession = None
@@ -45,8 +45,8 @@ class ServerProperties:
 		"""
 		sp = ServerProperties()
 
-		if 'listener_socket' in settings and settings['listener_socket'] is not None:
-			sp.listener_socket = settings['listener_socket']
+		if 'listener_socket_config' in settings and settings['listener_socket_config'] is not None:
+			sp.listener_socket_config = settings['listener_socket_config']
 		else:
 			raise Exception('Server listener socket MUST be defined!')
 
@@ -69,7 +69,7 @@ class ServerProperties:
 			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
 
 		if 'bind_sslctx' in settings:
-			sp.bind_protocol = commons.ServerProtocol.SSL
+			sp.listener_socket_config.is_ssl_wrapped = True
 			sslctx = settings['bind_sslctx'] if isinstance(settings['bind_sslctx'], dict) else settings['bind_sslctx'][0] #sometimes deepcpy creates a touple insted of dict here
 			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['bind_sslctx'], server_side= True)
 
@@ -85,7 +85,7 @@ class ServerProperties:
 		else:
 			raise Exception('shared_logQ MUST be specified!')
 
-		sp.module_name = '%s-%s' % (sp.serverhandler.__name__, sp.listener_socket.get_protocolname())
+		sp.module_name = '%s-%s' % (sp.serverhandler.__name__, sp.listener_socket_config.get_protocolname())
 		if sp.sslcontext is not None:
 			sp.module_name += '-SSL'
 
@@ -96,7 +96,7 @@ class ServerProperties:
 		Creates a dict that is to be used by asyncio.start_server
 		:return: dict
 		"""
-		socket_kwargs = self.listener_socket.get_server_kwargs()
+		socket_kwargs = self.listener_socket_config.get_server_kwargs()
 		socket_kwargs['ssl'] = self.sslcontext
 		socket_kwargs['reuse_address'] = True
 		socket_kwargs['reuse_port'] = True
@@ -104,7 +104,7 @@ class ServerProperties:
 
 	def __repr__(self):
 		t  = '== ServerProperties ==\r\n'
-		t += 'listenersocket : %s \r\n' % repr(self.listener_socket)
+		t += 'listenersocket : %s \r\n' % repr(self.listener_socket_config)
 		t += 'serverhandler : %s \r\n' % repr(self.serverhandler)
 		t += 'serversession : %s \r\n' % repr(self.serversession)
 		t += 'serverglobalsession : %s \r\n' % repr(self.serverglobalsession)
@@ -144,8 +144,8 @@ class ResponderServerProcess(multiprocessing.Process):
 		This way we avoid importing all available modules before forking.
 		:return: None
 		"""
-		# print(self.serverentry['listener_socket'])
-		if self.serverentry['listener_socket'].bind_protocol == socket.SOCK_DGRAM:
+		# print(self.serverentry['listener_socket_config'])
+		if self.serverentry['listener_socket_config'].bind_protocol == socket.SOCK_DGRAM:
 			self.udpserver = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
 		
 		handler_spec = importlib.util.find_spec('responder3.poisoners.%s' % self.serverentry['handler'])
@@ -175,7 +175,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		:type client_writer: asyncio.StreamWriter
 		:return: None
 		"""
-		connection = self.connectionFactory.from_streamwriter(client_writer, self.sprops.listener_socket.bind_protocol)
+		connection = self.connectionFactory.from_streamwriter(client_writer)
 		self.log_connection(connection, commons.ConnectionStatus.OPENED)
 		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
@@ -184,7 +184,7 @@ class ResponderServerProcess(multiprocessing.Process):
 
 		def client_done(task):
 			del self.clients[task]
-			if self.sprops.listener_socket.bind_protocol == socket.SOCK_STREAM:
+			if self.sprops.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
 				client_writer.close()
 			else:
 				self.log('UDP task cleanup not implemented!', logging.DEBUG)
@@ -211,22 +211,22 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.logQ    = self.sprops.shared_logQ
 		self.rdnsd   = self.sprops.shared_rdns
 		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
-		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, str(self.sprops.listener_socket.get_print_address()))
+		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, str(self.sprops.listener_socket_config.get_print_address()))
 		self.serverCoro = None
 
-		if self.sprops.listener_socket.bind_protocol == socket.SOCK_STREAM:
+		if self.sprops.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket)
+				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket_config)
 			else:
-				sock = commons.setup_base_socket(self.sprops.listener_socket)
+				sock = commons.setup_base_socket(self.sprops.listener_socket_config)
 			
 			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.sprops.sslcontext)
 		
-		elif self.sprops.listener_socket.bind_protocol == socket.SOCK_DGRAM:
+		elif self.sprops.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
 			sock = None
 			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket)
+				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket_config)
 			
 			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
 			self.serverCoro = udpserver.run()
@@ -243,7 +243,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		except KeyboardInterrupt:
 			sys.exit(0)
 		except Exception as e:
-			self.logexception('Server is closing because of error!')
+			self.log_exception('Server is closing because of error!')
 			pass
 
 	@staticmethod
@@ -257,7 +257,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		rsp = ResponderServerProcess(serverentry)
 		return rsp
 
-	def logexception(self, message = None):
+	def log_exception(self, message = None):
 		"""
 		Custom exception handler to log exceptions via the logging interface
 		:param message: Extra message for the exception if any

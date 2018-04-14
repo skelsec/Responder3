@@ -64,7 +64,7 @@ class NBTNS(ResponderServer):
 			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					self.logPoisonResult(requestName = q.QNAME.name)
+					self.log_poisonresult(requestName = q.QNAME.name)
 
 			else: #poisoning
 				answers = []
@@ -72,7 +72,7 @@ class NBTNS(ResponderServer):
 					for spoof_regx in self.globalsession.spooftable:
 						spoof_ip = self.globalsession.spooftable[spoof_regx]
 						if spoof_regx.match(q.QNAME.name.lower().strip()):
-							self.logPoisonResult(requestName = q.QNAME, poisonName = str(spoof_regx), poisonIP = spoof_ip)
+							self.log_poisonresult(requestName = q.QNAME, poisonName = str(spoof_regx), poisonIP = spoof_ip)
 							res = NBResource()
 							res.construct(q.QNAME, NBRType.NB, spoof_ip)
 							answers.append(res)

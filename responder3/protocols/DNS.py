@@ -3,8 +3,7 @@ import enum
 import io
 import asyncio
 import ipaddress
-
-from responder3.core.commons import ServerProtocol
+import socket
 
 class DNSResponseCode(enum.Enum):
 	NOERR = 0 #No error condition
@@ -118,7 +117,7 @@ class DNSResponse(enum.Enum):
 	RESPONSE = 1
 
 class DNSPacket():
-	def __init__(self, proto = ServerProtocol.UDP):
+	def __init__(self, proto = socket.SOCK_STREAM):
 		self.proto     = proto
 		self.PACKETLEN = None #this is for TCP
 		self.TransactionID = None
@@ -137,8 +136,8 @@ class DNSPacket():
 		self.Additionals = []
 
 	@asyncio.coroutine
-	def from_streamreader(reader, proto = ServerProtocol.UDP):
-		if proto == ServerProtocol.UDP:
+	def from_streamreader(reader, proto = socket.SOCK_DGRAM):
+		if proto == socket.SOCK_DGRAM:
 			data = yield from reader.read()
 			return DNSPacket.from_bytes(data)
 		else:
@@ -148,13 +147,13 @@ class DNSPacket():
 			return DNSPacket.from_bytes(plen_bytes + data, proto = proto)
 
 
-	def from_bytes(bbuff, proto = ServerProtocol.UDP):
+	def from_bytes(bbuff, proto = socket.SOCK_DGRAM):
 		return DNSPacket.from_buffer(io.BytesIO(bbuff), proto)
 
-	def from_buffer(buff, proto = ServerProtocol.UDP):
+	def from_buffer(buff, proto = socket.SOCK_DGRAM):
 		packet = DNSPacket()
 		packet.proto = proto
-		if packet.proto == ServerProtocol.TCP:
+		if packet.proto == socket.SOCK_STREAM:
 			packet.PACKETLEN = int.from_bytes(buff.read(2), byteorder = 'big', signed=False)
 			buff = io.BytesIO(buff.read()) #need to repack this to a new buffer because the length field is not taken into account when calculating compressed DNSName 
 
@@ -248,14 +247,14 @@ class DNSPacket():
 		for q in self.Additionals:
 			t += q.toBytes()
 		
-		if self.proto == ServerProtocol.TCP:
+		if self.proto == socket.SOCK_STREAM:
 			self.PACKETLEN = len(t)
 			t = self.PACKETLEN.to_bytes(2, byteorder = 'big', signed=False) + t
 
 		return t
 
 	def construct(TID, response,  flags = 0, opcode = DNSOpcode.QUERY, rcode = DNSResponseCode.NOERR, 
-					questions= [], answers= [], authorities = [], additionals = [], proto = ServerProtocol.UDP):
+					questions= [], answers= [], authorities = [], additionals = [], proto = socket.SOCK_DGRAM):
 		packet = DNSPacket()
 		packet.proto   = proto
 		packet.TransactionID = TID

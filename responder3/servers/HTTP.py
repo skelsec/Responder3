@@ -143,7 +143,7 @@ class HTTP(ResponderServer):
 				try:
 					remote_reader, remote_writer = yield from asyncio.wait_for(asyncio.open_connection(host=rhost, port=int(rport)), timeout=1)
 				except Exception as e:
-					self.logexception('Failed to create remote connection to %s:%s!' % (rhost, rport))
+					self.log_exception('Failed to create remote connection to %s:%s!' % (rhost, rport))
 					return
 
 				#indicating to the client that TCP socket has opened towards the remote host
@@ -199,7 +199,7 @@ class HTTP(ResponderServer):
 				try:
 					remote_reader, remote_writer = yield from asyncio.wait_for(asyncio.open_connection(host=rhost, port=int(rport)), timeout=1)
 				except Exception as e:
-					self.logexception()
+					self.log_exception()
 					return
 					
 
@@ -263,5 +263,5 @@ class HTTP(ResponderServer):
 				
 					
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			pass

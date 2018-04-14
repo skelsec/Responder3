@@ -47,7 +47,7 @@ class DHCPGlobalSession():
 	def parse_settings(self):
 		#default values
 		#defaults
-		self.serveraddress = self.server_properties.listener_socket.bind_addr
+		self.serveraddress = self.server_properties.listener_socket_config.bind_addr
 		self.subnetmask    = 'FF:FF:FF:00'
 		self.leasetime     = random.randint(600,1000)
 		self.offer_options = None

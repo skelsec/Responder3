@@ -97,7 +97,7 @@ class Socks5Client:
 		self.target = None
 		self.randomize_servers = False
 		self.cmdparser = SOCKS5SocketParser()
-		self.listening_socket = None
+		self.listener_socket_config = None
 
 		self.latest_tunnel = None
 		self.server_props = None
@@ -141,10 +141,10 @@ class Socks5Client:
 
 		return
 
-	def create_listening_socket(self):
+	def create_listener_socket_config(self):
 		try:
-			self.listening_socket = setup_base_socket(self.server_props)
-			#self.listening_socket.listen(500)
+			self.listener_socket_config = setup_base_socket(self.server_props)
+			#self.listener_socket_config.listen(500)
 		except Exception as e:
 			raise e
 
@@ -279,8 +279,8 @@ class Socks5Client:
 		
 	def run(self):
 		try:
-			self.create_listening_socket()
-			self.server_coro = asyncio.start_server(self.handle_client, sock=self.listening_socket)
+			self.create_listener_socket_config()
+			self.server_coro = asyncio.start_server(self.handle_client, sock=self.listener_socket_config)
 			logging.info('Server started!')
 			self.loop.run_until_complete(self.server_coro)
 			self.loop.run_forever()

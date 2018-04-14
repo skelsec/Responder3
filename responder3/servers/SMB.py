@@ -206,7 +206,7 @@ class SMB(ResponderServer):
 								elif status == NTStatus.STATUS_ACCOUNT_DISABLED:
 									if creds is not None:
 										for cred in creds:
-											self.logCredential(cred.toCredential())
+											self.log_credential(cred.toCredential())
 									
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_ACCOUNT_DISABLED, 
@@ -232,7 +232,7 @@ class SMB(ResponderServer):
 								elif status == NTStatus.STATUS_SUCCESS:
 									if creds is not None:
 										for cred in creds:
-											self.logCredential(cred.toCredential())
+											self.log_credential(cred.toCredential())
 									self.session.current_state = SMB2ServerState.AUTHENTICATED
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_SUCCESS, 
@@ -272,7 +272,7 @@ class SMB(ResponderServer):
 							status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.Buffer)
 							if creds is not None:
 								for cred in creds:
-									self.logCredential(cred.toCredential())
+									self.log_credential(cred.toCredential())
 								return
 							
 							resp = SMB2Message()
@@ -289,5 +289,5 @@ class SMB(ResponderServer):
 
 
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			return

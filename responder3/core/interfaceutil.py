@@ -207,6 +207,7 @@ class SocketConfig:
 		self.bind_protocol = None
 		self.bind_addr = None
 		self.bind_iface_idx = None
+		self.is_ssl_wrapped = False
 		self.platform = commons.get_platform()
 
 	def get_protocolname(self):

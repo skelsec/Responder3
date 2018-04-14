@@ -1,11 +1,6 @@
 import abc
-import hashlib
 import asyncio
 import logging
-import datetime
-import enum
-import socket
-import os
 import io
 import traceback
 import copy
@@ -47,7 +42,7 @@ class ResponderServer(abc.ABC):
 		# 	message = '[INIT] %s' %  message
 		# else:
 		# 	message = '[%s:%d] %s' % (self.session.connection.remote_ip, self.session.connection.remote_port, message)
-		message = '[%s] <-> [%s] %s' % (self.server_properties.listening_socket.get_print_address(),
+		message = '[%s] <-> [%s] %s' % (self.server_properties.listener_socket_config.get_print_address(),
 										self.session.connection.get_remote_print_address(),
 										message)
 		self.logQ.put(LogEntry(level, self.server_properties.module_name, message))

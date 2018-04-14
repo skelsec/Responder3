@@ -74,13 +74,12 @@ class GenericProxy(ResponderServer):
 				print('Connection closed!')
 				self.proxy_closed.set()
 				break
-			
 
-			self.logProxy('original data: %s' % data.hex(), laddr, raddr)
-			self.logProxyData(data, laddr, raddr, False, ProxyDataType.BINARY)
+			self.log_proxy('original data: %s' % data.hex(), laddr, raddr)
+			self.log_proxydata(data, laddr, raddr, False, ProxyDataType.BINARY)
 			modified_data = yield from self.modify_data(data)
 			if modified_data != data:
-				self.logProxy('modified data: %s' % repr(modified_data),laddr, raddr)
+				self.log_proxy('modified data: %s' % repr(modified_data), laddr, raddr)
 			
 			try:
 				writer.write(modified_data)
@@ -98,14 +97,14 @@ class GenericProxy(ResponderServer):
 		raddr = (self.remote_host, self.remote_port)
 		data = yield from self.creader.read()
 		
-		self.logProxy('original data: %s' % repr(data), laddr, raddr)
+		self.log_proxy('original data: %s' % repr(data), laddr, raddr)
 		
 		client = UDPClient((self.remote_host, self.remote_port))
 		self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(client.run(data), timeout=self.timeout)
 		
 		response_data = yield from self.proxy_reader.read()
 		
-		self.logProxy('original data: %s' % repr(response_data), raddr, laddr)
+		self.log_proxy('original data: %s' % repr(response_data), raddr, laddr)
 		yield from self.cwriter.write(response_data)
 		return
 
@@ -115,7 +114,7 @@ class GenericProxy(ResponderServer):
 		self.log('Setting up remote connection!', logging.DEBUG)
 		loop = asyncio.get_event_loop()
 		
-		if self.sprops.bind_porotcol in [ServerProtocol.TCP,ServerProtocol.SSL]:
+		if self.sprops.bind_porotcol == socket.SOCK_STREAM:
 			self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port, ssl=self.proxy_sslctx), timeout=self.timeout)
 			self.log('Connected!', logging.DEBUG)
 			loop.create_task(self.proxy_forwarder(self.proxy_reader, self.cwriter, (self.remote_host,int(self.remote_port)), self.caddr))

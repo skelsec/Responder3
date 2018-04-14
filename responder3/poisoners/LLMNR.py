@@ -87,14 +87,14 @@ class LLMNR(ResponderServer):
 			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					self.logPoisonResult(requestName = q.QNAME.name)
+					self.log_poisonresult(requestName = q.QNAME.name)
 
 			else:
 				answers = []
 				for targetRE, ip in self.globalsession.spooftable:
 					for q in msg.Questions:
 						if targetRE.match(q.QNAME.name):
-							self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+							self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 							if ip.version == 4:
 								res = DNSAResource.construct(q.QNAME.name, ip)
 							elif ip.version == 6:

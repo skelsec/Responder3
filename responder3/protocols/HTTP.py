@@ -583,7 +583,7 @@ class HTTPBasicAuth():
 			else:
 				httpserver.session.currentState = HTTPState.AUTHFAILED
 
-			httpserver.logCredential(self.userCreds.toCredential())
+			httpserver.log_credential(self.userCreds.toCredential())
 
 		else:
 			if self.isProxy:
@@ -649,13 +649,13 @@ class HTTPNTLMAuth():
 				#### and comment out the auth successful line!
 				#httpserver.session.currentState = HTTPState.AUTHFAILED
 				#for cred in creds:
-				#	httpserver.logCredential(cred.toCredential())
+				#	httpserver.log_credential(cred.toCredential())
 				httpserver.session.currentState = HTTPState.AUTHENTICATED
 
 			elif self.status == 1 and authStatus == NTStatus.STATUS_SUCCESS:
 				httpserver.session.currentState = HTTPState.AUTHENTICATED
 				for cred in creds:
-					httpserver.logCredential(cred.toCredential())
+					httpserver.log_credential(cred.toCredential())
 
 			else:
 				raise Exception('Unexpected status')

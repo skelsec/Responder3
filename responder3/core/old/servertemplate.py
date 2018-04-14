@@ -43,7 +43,7 @@ class ResponderServer(ABC):
 		"""
 		TODO: SSL over UDP ?
 		"""
-		if self.bind_proto in [ServerProtocol.TCP, ServerProtocol.SSL]:
+		if self.bind_proto in [socket.SOCK_STREAM, ServerProtocol.SSL]:
 			coro = self.loop.create_server(
 								protocol_factory=lambda: self.protocol(self),
 								host=str(self.bind_addr), 
@@ -54,7 +54,7 @@ class ResponderServer(ABC):
 								ssl=ssl_context
 			)
 
-		elif self.bind_proto == ServerProtocol.UDP:
+		elif self.bind_proto == socket.SOCK_DGRAM:
 			coro = self.loop.create_datagram_endpoint(
 							protocol_factory=lambda: self.protocol(self),
 							local_addr=(str(self.bind_addr), self.bind_port),
@@ -92,7 +92,7 @@ class ResponderServer(ABC):
 			self.log(logging.INFO, 'Connection closed', session)
 		self.logQ.put(session.connection)
 
-	def logPoisonResult(self, session, requestName = None, poisonName = None, poisonIP = None):
+	def log_poisonresult(self, session, requestName = None, poisonName = None, poisonIP = None):
 		self.log(logging.INFO, 'Resolv request in!', session)
 		pr = PoisonResult()
 		pr.module = self.modulename()

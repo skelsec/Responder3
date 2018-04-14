@@ -40,8 +40,16 @@ def sendto(loop, sock, data, addr, fut=None, registed=False):
 	return fut
 
 
-class UDPReader():
+class UDPReader:
 	def __init__(self, data, addr):
+		"""
+		Lightweight wrapper around a UDP socket to provide the same interface as asyncio.StreamReader
+
+		:param data: Data read from the socket
+		:type data: bytearray
+		:param addr: The socket address of the remote peer
+		:type addr: tuple
+		"""
 		self._ldata = len(data)
 		self._remaining = len(data)
 		self._addr = addr
@@ -68,13 +76,38 @@ class UDPReader():
 		return self._remaining == 0
 
 
-
-class UDPWriter():
+class UDPWriter:
 	def __init__(self, loop, sock, addr, laddr):
+		"""
+		Lightweight wrapper around a UDP socket to provide the same interface as asyncio.StreamWriter
+		:param loop: The main event loop
+		:param sock: Socket used to read data from client
+		:type sock: socket.socket
+		:param addr: Address of the remote peer
+		:type addr: tuple
+		:param laddr: Address of the local side of the socket
+		:type param: tuple
+		"""
 		self._laddr = laddr
 		self._addr = addr
 		self._loop = loop
 		self._sock = sock
+
+	# TODO: implement close function
+	def close(self):
+		return
+
+	def get_extra_info(self, info):
+		if info == 'socket':
+			return self._sock
+		elif info == 'peername':
+			return self.get_remote_address()
+
+	def get_remote_address(self):
+		return self._sock.getpeername()
+
+	def get_local_address(self):
+		return self._sock.getsockname()
 
 	@asyncio.coroutine
 	def drain(self):
@@ -87,8 +120,18 @@ class UDPWriter():
 		else:
 			yield from sendto(self._loop, self._sock, data, addr)
 
+
 class UDPClient:
 	def __init__(self, raddr, loop = None, sock = None):
+		"""
+		Implements a client for asynchronous UDP communications.
+		Don't fool yourself this is just a hackish solution to get asyncio streams-like functionality for UDP
+		:param raddr: Address to connect to
+		:type raddr: tuple
+		:param loop: Main event loop
+		:param sock: An already set-up socket to wrap
+		:type sock: socket.socket
+		"""
 		self._raddr  = raddr
 		self._socket = sock
 		self._loop   = loop
@@ -106,18 +149,34 @@ class UDPClient:
 
 	@asyncio.coroutine
 	def run(self, data):
+		"""
+		Main function.
+		:param data: data to send
+		:type data: bytearray
+		:return: UDPReader, UDPWriter
+		"""
 		if self._socket is None:
 			self.start_socket()
 		writer = UDPWriter(self._loop, self._socket, self._raddr, self._laddr)
 		yield from writer.write(data)
 		data, addr = yield from recvfrom(self._loop, self._socket, 65536)
 		reader = UDPReader(data, addr)
-		return (reader,writer)
+		return reader, writer
 
 
 # https://www.pythonsheets.com/notes/python-asyncio.html
 class UDPServer:
 	def __init__(self, callback, server_config, loop = None, sock = None):
+		"""
+
+		:param callback: Function to handle new clients
+		:type callback: fnc
+		:param server_config: Server configuration
+		:type server_config: ServerConfig
+		:param loop: Main event loop
+		:param sock: Already set-up socket object, if specified it will be used for comms
+		:type sock: socket.socket
+		"""
 		self._callback = callback
 		self.server_config = server_config
 		self._socket = sock
@@ -127,14 +186,18 @@ class UDPServer:
 				raise Exception('Either socket or server_properties MUST be defined!')
 			self._laddr  = self._socket.getsockname()
 		else:
-			self._laddr  = (str(self.server_config.listener_socket.bind_addr), self.server_config.listener_socket.bind_port)
+			self._laddr  = (str(self.server_config.listener_socket_config.bind_addr), self.server_config.listener_socket_config.bind_port)
 		if loop is None:
 			self._loop = asyncio.get_event_loop()
 
 	@asyncio.coroutine
 	def run(self):
+		"""
+		Main function. Create the reader and writer objects and calls the callback function.
+		:return: None
+		"""
 		if self._socket is None:
-			self._socket = commons.setup_base_socket(self.server_config.listener_socket)
+			self._socket = commons.setup_base_socket(self.server_config.listener_socket_config)
 		while True:
 			data, addr = yield from recvfrom(self._loop, self._socket, 65536)
 			reader = UDPReader(data, addr)

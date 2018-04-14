@@ -39,7 +39,7 @@ class AsyncSocketServer(multiprocessing.Process):
 
 	def setup(self):
 		self.loop = asyncio.get_event_loop()
-		if self.server.proto == ServerProtocol.TCP:
+		if self.server.proto == socket.SOCK_STREAM:
 			s = self.server.handler()
 			s._setup(self.server, self.loop)
 			s.run()
@@ -48,7 +48,7 @@ class AsyncSocketServer(multiprocessing.Process):
 			s = self.server.handler()
 			s._setup(self.server, self.loop)
 			s.run(context)
-		elif self.server.proto == ServerProtocol.UDP:
+		elif self.server.proto == socket.SOCK_DGRAM:
 			s = self.server.handler()
 			s._setup(self.server, self.loop)
 			s.run()

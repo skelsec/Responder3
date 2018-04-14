@@ -22,9 +22,9 @@ class MDNSGlobalSession():
 		self.spooftable = []
 		self.poisonermode = PoisonerMode.ANALYSE
 
-		self.maddr = ('224.0.0.251' , self.server_properties.listener_socket.bind_port)
-		if self.server_properties.listener_socket.bind_addr.version == 6:
-			self.maddr = ('FF02::FB' , self.server_properties.listener_socket. bind_port,0, self.server_properties.listener_socket.bind_iface_idx)
+		self.maddr = ('224.0.0.251' , self.server_properties.listener_socket_config.bind_port)
+		if self.server_properties.listener_socket_config.bind_addr.version == 6:
+			self.maddr = ('FF02::FB' , self.server_properties.listener_socket_config. bind_port,0, self.server_properties.listener_socket_config.bind_iface_idx)
 
 		self.parse_settings()
 
@@ -93,14 +93,14 @@ class MDNS(ResponderServer):
 			if msg.QR == DNSResponse.REQUEST:
 				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
-						self.logPoisonResult(requestName = q.QNAME.name)
+						self.log_poisonresult(requestName = q.QNAME.name)
 				else:
 					answers = []
 					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
 							if q.QTYPE == DNSType.A or q.QTYPE == DNSType.AAAA:
 								if targetRE.match(q.QNAME.name):
-									self.logPoisonResult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+									self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 									#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
 									if ip.version == 4:
 										res = DNSAResource.construct(q.QNAME.name, ip)

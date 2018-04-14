@@ -224,5 +224,5 @@ class SOCKS5(ResponderServer):
 						return				
 					
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			pass

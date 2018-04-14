@@ -70,7 +70,7 @@ class IMAP(ResponderServer):
 					if cmd.command == IMAPCommand.LOGIN:
 						self.session.authhandler = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)
 						res, cred = self.session.authhandler.do_AUTH(cmd)
-						self.logCredential(cred)
+						self.log_credential(cred)
 						if res is True:
 							self.session.current_state = IMAPState.AUTHENTICATED
 							yield from asyncio.wait_for(
@@ -110,5 +110,5 @@ class IMAP(ResponderServer):
 				
 					
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			return

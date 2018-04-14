@@ -55,7 +55,7 @@ class NTP(ResponderServer):
 				fmt = self.settings['fakeTimeFmt']
 			
 			self.fakeTime = datetime.datetime.strptime(self.settings['fakeTime'], fmt)
-		#if self.bind_proto == ServerProtocol.TCP:
+		#if self.bind_proto == socket.SOCK_STREAM:
 		#	self.protocol = NTPProtocolTCP
 
 	def handle(self, packet, addr, transport, session):
@@ -78,7 +78,7 @@ class NTPProtocolUDP(ResponderProtocolUDP):
 		self._session = NTPSession()
 
 	def _parsebuff(self, addr):
-		packet = NTPPacket.from_bytes(self._buffer, ServerProtocol.UDP)
+		packet = NTPPacket.from_bytes(self._buffer, socket.SOCK_DGRAM)
 		self._server.handle(packet, addr, self._transport, self._session)
 		self._buffer = b''
 
@@ -96,7 +96,7 @@ class NTPProtocolTCP(ResponderProtocolTCP):
 			self._session._parsed_length = int.from_bytes(self._buffer[:2], byteorder = 'big', signed=False)
 
 		if len(self._buffer) >= self._session._parsed_length:
-			packet = DNSPacket.from_bytes(self._buffer[:self._session._parsed_length + 2], ServerProtocol.TCP)
+			packet = DNSPacket.from_bytes(self._buffer[:self._session._parsed_length + 2], socket.SOCK_STREAM)
 			self._server.handle(packet, None, self._transport, self._session)
 			self._buffer = self._buffer[self._session._parsed_length + 2:]
 			self._session._parsed_length = None

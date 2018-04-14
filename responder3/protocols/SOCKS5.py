@@ -59,7 +59,7 @@ class SOCKS5ReplyType(enum.Enum):
 
 
 class SOCKS5SocketParser:
-	def __init__(self, protocol = ServerProtocol.TCP):
+	def __init__(self, protocol = socket.SOCK_STREAM):
 		self.protocol = protocol
 
 	def parse(self, soc, packet_type):
@@ -80,7 +80,7 @@ class SOCKS5SocketParser:
 class SOCKS5CommandParser:
 	# the reason we need this class is: SOCKS5 protocol messages doesn't have a type field,
 	# the messages are parsed in context of the session itself.
-	def __init__(self, protocol = ServerProtocol.TCP):
+	def __init__(self, protocol = socket.SOCK_STREAM):
 		self.protocol = protocol #not used atm
 
 	def parse(self, buff, session):

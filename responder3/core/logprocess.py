@@ -7,6 +7,9 @@ import logging.config
 import traceback
 import sys
 import importlib
+import uuid
+from pathlib import Path
+import io
 
 from responder3.core.commons import *
 
@@ -61,7 +64,7 @@ class LogProcessor(multiprocessing.Process):
 					handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
 
 				except Exception as e:
-					self.log('Error importing module %s Reason: %s' % (handlermodulename, e), logging.ERROR)
+					self.log('Error importing module %s Reason: %s' % (handler, e), logging.ERROR)
 					continue
 
 				try:
@@ -71,14 +74,13 @@ class LogProcessor(multiprocessing.Process):
 					hdl = handlerclass(tqueue, self.resultQ, self.logsettings[self.logsettings['handlers'][handler]])
 					hdl.start()
 				except Exception as e:
-					self.logexception('Error creating class %s Reason: %s' % (handlerclassname, e))
+					self.log_exception('Error creating class %s Reason: %s' % (handlerclassname, e))
 					continue
 	
 	def run(self):
 		try:
 			self.setup()		
 			self.log('setup done', logging.DEBUG)
-			#while not self.stopEvent.is_set():
 			while True:
 				result = self.resultQ.get()
 				if isinstance(result, Credential):
@@ -126,7 +128,7 @@ class LogProcessor(multiprocessing.Process):
 		self.logger.log(logging.INFO, str(con))
 		t = {}
 		t['type'] = 'Connection'
-		t['data'] = con.toDict()
+		t['data'] = con.to_dict()
 		for tqueue in self.extensionsQueues:
 			tqueue.put(t)
 
@@ -138,11 +140,11 @@ class LogProcessor(multiprocessing.Process):
 		:return: None
 		"""
 		if result.fingerprint not in self.resultHistory:
-			logging.log(logging.INFO, str(result.toDict()))
+			logging.log(logging.INFO, str(result.to_dict()))
 			self.resultHistory[result.fingerprint] = result
 			t = {}
 			t['type'] = 'Credential'
-			t['data'] = result.toDict()
+			t['data'] = result.to_dict()
 			for tqueue in self.extensionsQueues:
 				tqueue.put(t)
 		else:
@@ -168,7 +170,7 @@ class LogProcessor(multiprocessing.Process):
 		"""
 		Logs the poisonresult object arriving from logqueue
 		:param poisonresult:
-		:type posionresult: PoisonResult
+		:type poisonresult: PoisonResult
 		:return: None
 		"""
 		self.log(repr(poisonresult))
@@ -188,11 +190,11 @@ class LogProcessor(multiprocessing.Process):
 				self.proxyfilehandler.flush()
 				os.fsync(self.proxyfilehandler.fileno())
 			except Exception as e:
-				self.logexception('Error writing proxy data to file!')
+				self.log_exception('Error writing proxy data to file!')
 				return
 
-	#this function is a duplicate, clean it up!
-	def logexception(self, message = None):
+	# this function is a duplicate, clean it up!
+	def log_exception(self, message = None):
 		"""
 		Custom exception handler to log exceptions via the logging interface
 		:param message: Extra message for the exception if any
@@ -219,7 +221,6 @@ class LoggerExtension(ABC, threading.Thread):
 		self.logQ = logQ
 		self.config = config
 		self.logname = '%s-%s' % ('LogExt',self.modulename())
-		
 
 	def log(self, level, message):
 		self.logQ.put(LogEntry(level, self.logname, message))

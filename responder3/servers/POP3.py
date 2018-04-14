@@ -81,14 +81,14 @@ class POP3(ResponderServer):
 							res, cred = self.session.authhandler.do_AUTH(cmd)
 							print(res)
 							if cred is not None:
-								self.logCredential(cred)
+								self.log_credential(cred)
 							if res == POP3AuthStatus.MORE_DATA_NEEDED:
 								yield from asyncio.wait_for(
 									self.send_data(POP3OKResp.construct('').to_bytes()),
 									timeout=1)
 								continue
 							elif res == POP3AuthStatus.NO:
-								self.logCredential(cred)
+								self.log_credential(cred)
 								yield from asyncio.wait_for(
 									self.send_data(POP3ERRResp.construct('').to_bytes()),
 									timeout=1)
@@ -116,5 +116,5 @@ class POP3(ResponderServer):
 						raise Exception('Wrong POP3 command received for UPDATE state!')
 
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			return

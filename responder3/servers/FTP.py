@@ -75,13 +75,13 @@ class FTP(ResponderServer):
 							res, cred = self.session.authhandler.do_AUTH(cmd)
 							print(res)
 							if cred is not None:
-								self.logCredential(cred)
+								self.log_credential(cred)
 							if res == FTPAuthStatus.MORE_DATA_NEEDED:
 								yield from asyncio.wait_for(
 									self.send_data(FTPReply(331).to_bytes()), timeout=1)
 								continue
 							elif res == FTPAuthStatus.NO:
-								self.logCredential(cred)
+								self.log_credential(cred)
 								yield from asyncio.wait_for(
 									self.send_data(FTPReply(530).to_bytes()), timeout=1)
 								return
@@ -102,5 +102,5 @@ class FTP(ResponderServer):
 					raise Exception('Unknown FTP state!')
 
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			return

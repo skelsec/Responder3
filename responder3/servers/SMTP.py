@@ -117,7 +117,7 @@ class SMTP(ResponderServer):
 							if cmd.data is not None:
 								res, cred = self.session.authhandler.do_AUTH(cmd)
 								if cred is not None:
-									self.logCredential(cred)
+									self.log_credential(cred)
 								if res == SMTPAuthStatus.OK:
 									self.session.current_state = SMTPServerState.AUTHENTICATED
 									yield from asyncio.wait_for(
@@ -153,7 +153,7 @@ class SMTP(ResponderServer):
 					if cmd.command == SMTPCommand.XXXX:
 						res, cred = self.session.authhandler.do_AUTH(cmd)
 						if cred is not None:
-							self.logCredential(cred)
+							self.log_credential(cred)
 						if res == SMTPAuthStatus.MORE_DATA_NEEDED:
 							yield from asyncio.wait_for(
 								self.send_data(SMTPReply.construct(334).to_bytes()),
@@ -218,5 +218,5 @@ class SMTP(ResponderServer):
 					return
 
 		except Exception as e:
-			self.logexception()
+			self.log_exception()
 			return
