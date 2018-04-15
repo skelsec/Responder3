@@ -3,7 +3,7 @@ import socket
 import io
 import ipaddress
 
-from responder3.core import commons
+from responder3.core.sockets import setup_base_socket
 
 
 def recvfrom(loop, sock, n_bytes, fut=None, registed=False):
@@ -197,7 +197,7 @@ class UDPServer:
 		:return: None
 		"""
 		if self._socket is None:
-			self._socket = commons.setup_base_socket(self.server_config.listener_socket_config)
+			self._socket = setup_base_socket(self.server_config.listener_socket_config)
 		while True:
 			data, addr = yield from recvfrom(self._loop, self._socket, 65536)
 			reader = UDPReader(data, addr)

@@ -13,7 +13,10 @@ import traceback
 import ssl
 import platform
 
-from responder3.core import commons
+from responder3.core.asyncio_helpers import wait_mp_event
+from responder3.core.ssl import SSLContextBuilder
+from responder3.core.commons import LogEntry, ConnectionStatus, ConnectionFactory, get_platform
+from responder3.core.sockets import setup_base_socket
 
 
 # TODO: enable additional fine-tuning of the SSL context from config file
@@ -32,7 +35,7 @@ class ServerProperties:
 		self.shared_rdns   = None
 		self.shared_logQ   = None
 		self.interfaced    = None
-		self.platform      = commons.get_platform()
+		self.platform      = get_platform()
 		self.module_name   = None
 
 	@staticmethod
@@ -66,12 +69,12 @@ class ServerProperties:
 			sp.serverglobalsession = settings['globalsession']
 
 		if 'settings' in settings:
-			sp.settings  = copy.deepcopy(settings['settings'])     #making a deepcopy of the server-settings part of the settings dict
+			sp.settings  = copy.deepcopy(settings['settings'])     # making a deepcopy of the server-settings part of the settings dict
 
 		if 'bind_sslctx' in settings:
 			sp.listener_socket_config.is_ssl_wrapped = True
-			sslctx = settings['bind_sslctx'] if isinstance(settings['bind_sslctx'], dict) else settings['bind_sslctx'][0] #sometimes deepcpy creates a touple insted of dict here
-			sp.sslcontext = commons.SSLContextBuilder.from_dict(settings['bind_sslctx'], server_side= True)
+			sslctx = settings['bind_sslctx'] if isinstance(settings['bind_sslctx'], dict) else settings['bind_sslctx'][0] # sometimes deepcpy creates a touple insted of dict here
+			sp.sslcontext = SSLContextBuilder.from_dict(settings['bind_sslctx'], server_side= True)
 
 		if 'shared_rdns' in settings and settings['shared_rdns'] is not None:
 			sp.shared_rdns = settings['shared_rdns']
@@ -98,8 +101,6 @@ class ServerProperties:
 		"""
 		socket_kwargs = self.listener_socket_config.get_server_kwargs()
 		socket_kwargs['ssl'] = self.sslcontext
-		socket_kwargs['reuse_address'] = True
-		socket_kwargs['reuse_port'] = True
 		return socket_kwargs
 
 	def __repr__(self):
@@ -126,7 +127,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		multiprocessing.Process.__init__(self)
 		self.serverentry = serverentry
 		self.udpserver   = None
-		self.sprops      = None
+		self.server_properties      = None
 		self.loop        = None
 		self.clients     = None
 		self.server      = None
@@ -137,6 +138,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		self.serverCoro  = None
 		self.globalsession = None
 		self.connectionFactory = None
+		self.server_stop_event = None
 
 	def import_packages(self):
 		"""
@@ -176,59 +178,56 @@ class ResponderServerProcess(multiprocessing.Process):
 		:return: None
 		"""
 		connection = self.connectionFactory.from_streamwriter(client_writer)
-		self.log_connection(connection, commons.ConnectionStatus.OPENED)
-		server = self.server((client_reader, client_writer), self.session(connection), self.sprops, self.globalsession)
+		self.log_connection(connection, ConnectionStatus.OPENED)
+		server = self.server((client_reader, client_writer), self.session(connection), self.server_properties, self.globalsession)
 		self.log('Starting server task!', logging.DEBUG)
 		task = asyncio.Task(server.run())
 		self.clients[task] = (client_reader, client_writer)
 
 		def client_done(task):
 			del self.clients[task]
-			if self.sprops.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
-				client_writer.close()
-			else:
-				self.log('UDP task cleanup not implemented!', logging.DEBUG)
-				pass
+			client_writer.close()
 				
-			self.log_connection(connection, commons.ConnectionStatus.CLOSED)
+			self.log_connection(connection, ConnectionStatus.CLOSED)
 		task.add_done_callback(client_done)
 
 	def setup(self):
 		"""
 		Upsets the server. :)
-		Imports necessary modules, parses configuration dict, cereates session obj...
+		Imports necessary modules, parses configuration dict, creates session obj...
 		:return: None
 		"""
 		self.import_packages()
-		self.sprops = ServerProperties.from_dict(self.serverentry)
+		self.server_properties = ServerProperties.from_dict(self.serverentry)
 		self.loop    = asyncio.get_event_loop()
 		self.clients = {}
-		self.server  = self.sprops.serverhandler
-		self.session = self.sprops.serversession
-		self.globalsession = self.sprops.serverglobalsession
-		if self.sprops.serverglobalsession is not None:
-			self.globalsession = self.sprops.serverglobalsession(self.sprops)
-		self.logQ    = self.sprops.shared_logQ
-		self.rdnsd   = self.sprops.shared_rdns
-		self.connectionFactory = commons.ConnectionFactory(self.rdnsd)
-		self.modulename = '%s-%s' % (self.sprops.serverhandler.__name__, str(self.sprops.listener_socket_config.get_print_address()))
+		self.server  = self.server_properties.serverhandler
+		self.session = self.server_properties.serversession
+		self.globalsession = self.server_properties.serverglobalsession
+		if self.server_properties.serverglobalsession is not None:
+			self.globalsession = self.server_properties.serverglobalsession(self.server_properties)
+		self.logQ    = self.server_properties.shared_logQ
+		self.rdnsd   = self.server_properties.shared_rdns
+		self.connectionFactory = ConnectionFactory(self.rdnsd)
+		self.modulename = '%s-%s' % (self.server_properties.serverhandler.__name__, str(self.server_properties.listener_socket_config.get_print_address()))
 		self.serverCoro = None
+		self.server_stop_event = asyncio.Event()
 
-		if self.sprops.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
+		if self.server_properties.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
 			sock = None
-			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket_config)
+			if getattr(self.server_properties.serverhandler, "custom_socket", None) is not None and callable(getattr(self.server_properties.serverhandler, "custom_socket", None)):
+				sock = self.server_properties.serverhandler.custom_socket(self.server_properties.listener_socket_config)
 			else:
-				sock = commons.setup_base_socket(self.sprops.listener_socket_config)
+				sock = setup_base_socket(self.server_properties.listener_socket_config)
 			
-			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.sprops.sslcontext)
+			self.serverCoro = asyncio.start_server(self.accept_client, sock = sock, ssl=self.server_properties.sslcontext)
 		
-		elif self.sprops.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
+		elif self.server_properties.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
 			sock = None
-			if getattr(self.sprops.serverhandler, "custom_socket", None) is not None and callable(getattr(self.sprops.serverhandler, "custom_socket", None)):
-				sock = self.sprops.serverhandler.custom_socket(self.sprops.listener_socket_config)
+			if getattr(self.server_properties.serverhandler, "custom_socket", None) is not None and callable(getattr(self.server_properties.serverhandler, "custom_socket", None)):
+				sock = self.server_properties.serverhandler.custom_socket(self.server_properties.listener_socket_config)
 			
-			udpserver = self.udpserver(self.accept_client, self.sprops, sock = sock)
+			udpserver = self.udpserver(self.accept_client, self.server_properties, sock = sock)
 			self.serverCoro = udpserver.run()
 
 		else:
@@ -286,9 +285,9 @@ class ResponderServerProcess(multiprocessing.Process):
 		:return: None
 		"""
 		if self.logQ is not None:
-			self.logQ.put(commons.LogEntry(level, self.modulename, message))
+			self.logQ.put(LogEntry(level, self.modulename, message))
 		else:
-			print(str(commons.LogEntry(level, self.modulename, message)))
+			print(str(LogEntry(level, self.modulename, message)))
 
 	def log_connection(self, connection, status):
 		"""
@@ -299,7 +298,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		:type: ConnectionStatus
 		:return: None
 		"""
-		if status == commons.ConnectionStatus.OPENED or status == commons.ConnectionStatus.STATELESS:
+		if status == ConnectionStatus.OPENED or status == ConnectionStatus.STATELESS:
 			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
-		elif status == commons.ConnectionStatus.CLOSED:
+		elif status == ConnectionStatus.CLOSED:
 			self.log('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))

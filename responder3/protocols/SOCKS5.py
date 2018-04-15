@@ -5,9 +5,10 @@
 import io
 import enum
 import ipaddress
+import socket
 import asyncio
 
-from responder3.core.commons import *
+from responder3.core.asyncio_helpers import *
 
 
 class SOCKS5ServerMode(enum.Enum):

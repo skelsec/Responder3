@@ -10,8 +10,11 @@ from urllib.parse import urlparse
 import ipaddress
 
 from responder3.core.commons import *
+from responder3.core.sockets import setup_base_socket
+from responder3.core.serverprocess import ServerProperties
 from responder3.core.interfaceutil import interfaces
 from responder3.protocols.SOCKS5 import *
+
 
 class SOCKS5ServerConfig:
 	def __init__(self):
@@ -153,8 +156,12 @@ class Socks5Client:
 		print('Connecting to socks5 proxy %s:%d...' % serverconfig.get_addr())
 		try:
 			reader, writer = yield from asyncio.wait_for(
-				asyncio.open_connection(host=serverconfig.ip, port=serverconfig.port),
-				timeout=10)
+				asyncio.open_connection(
+					host=serverconfig.ip,
+					port=serverconfig.port
+				),
+				timeout=10
+			)
 			return reader, writer
 
 		except Exception as e:

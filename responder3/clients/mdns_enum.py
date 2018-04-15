@@ -25,7 +25,7 @@ class MDNSClient():
 	def setup_socket(self):
 		mcast_addr = ipaddress.ip_address(self._mcast_addr[0])
 		self._soc = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-		self._soc.setblocking(False)#SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
+		self._soc.setblocking(False) # SUPER IMPORTANT TO SET THIS FOR ASYNCIO!!!!
 		self._soc.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
 		self._soc.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
 		self._soc.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
@@ -74,8 +74,6 @@ class MDNSClient():
 		
 		return self.result
 
-
-		
 	def listen_responses(self, reader, writer):
 		msg = DNSPacket.from_buffer(reader.buff)
 		if msg.QR == DNSResponse.RESPONSE:
@@ -121,6 +119,7 @@ def main():
 		for address in res[name]:
 			for port in res[name][address]:
 				print('%s has the address of %s, advertising port %s' % (name, str(address), port ))
+
 
 if __name__ == '__main__':
 	main()

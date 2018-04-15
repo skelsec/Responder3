@@ -1,10 +1,22 @@
 #!/usr/bin/env python3.6
-
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import smtplib
+from responder3.core.test_helper import setup_test
+
+username = 'alma'
+password = 'alma'
+
+r3, global_config = setup_test(__file__)
+r3_process = r3.start_process()
+
+time.sleep(1)
 
 server = smtplib.SMTP('localhost', 25)
+
+# Next, log in to the server
+server.login(username, password)
 
 # Send the mail
 msg = MIMEMultipart()       # create a message

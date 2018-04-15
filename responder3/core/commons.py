@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 import os
 import sys
-import ssl
-import queue
-import base64
 import enum
 import json
 import atexit
@@ -12,122 +9,8 @@ import socket
 import platform
 import traceback
 import ipaddress
-import asyncio
-import importlib.machinery
-import importlib.util
 
 from responder3.crypto.hashing import *
-
-
-class Responder3Config:
-	CONFIG_OS_KEY = 'R3CONFIG'
-
-	def __init__(self):
-		self.startup = None
-		self.log_settings = None
-		self.server_settings = None
-
-	@staticmethod
-	def from_dict(config):
-		conf = Responder3Config()
-		conf.startup = config['startup']
-		conf.log_settings = config['logsettings']
-		conf.server_settings = config['servers']
-		return conf
-
-	@staticmethod
-	def from_json(config_data):
-		return Responder3Config.from_dict(json.loads(config_data))
-
-	@staticmethod
-	def from_file(file_path):
-		with open(file_path, 'r') as f:
-			config = json.load(f)
-		return Responder3Config.from_dict(config)
-
-	@staticmethod
-	def from_python_script(file_path):
-		loader = importlib.machinery.SourceFileLoader('responderconfig', file_path)
-		spec = importlib.util.spec_from_loader(loader.name, loader)
-		responderconfig = importlib.util.module_from_spec(spec)
-		loader.exec_module(responderconfig)
-		conf = Responder3Config()
-		conf.startup = responderconfig.startup
-		conf.log_settings = responderconfig.logsettings
-		conf.server_settings = responderconfig.servers
-
-		return conf
-
-	@staticmethod
-	def from_os_env():
-		config_file = os.environ.get(Responder3Config.CONFIG_OS_KEY)
-		if config_file is None:
-			raise Exception(
-				'Could not find configuration file path in os environment variables!'
-				'Name to be set: %s' % Responder3Config.CONFIG_OS_KEY
-			)
-		return Responder3Config.from_python_script(config_file)
-
-class SSLContextBuilder:
-	def __init__(self):
-		"""
-		Parses the user-supplied setting and create an ssl.SSLContext class
-		"""
-		pass
-
-	@staticmethod
-	def from_dict(sslsettings, server_side=False):
-		"""
-		Creates SSL context from dictionary-based configuration
-		:param sslsettings: configuration dictionary
-		:param server_side: decides that the context will be created as a server or client
-		:return: ssl.SSLContext
-		"""
-		protocols = [ssl.PROTOCOL_SSLv23]
-		options = []
-		verify_mode = ssl.CERT_NONE
-		ciphers = 'ALL'
-
-		if 'protocols' in sslsettings:
-			protocols = []
-			if isinstance(sslsettings['protocols'], list):
-				for proto in sslsettings['protocols']:
-					protocols.append(getattr(ssl, proto, 0))
-			else:
-				protocols.append(getattr(ssl, sslsettings['protocols'], 0))
-
-		if 'options' in sslsettings:
-			options = []
-			if isinstance(sslsettings['options'], list):
-				for option in sslsettings['options']:
-					options.append(getattr(ssl, proto, 0))
-			else:
-				options.append(getattr(ssl, sslsettings['options'], 0))
-
-		if 'verify_mode' in sslsettings:
-			verify_mode = getattr(ssl, sslsettings['verify_mode'], 0)
-
-		if 'ciphers' in sslsettings:
-			ciphers = sslsettings['ciphers']
-
-		if server_side is None:
-			if 'server_side' in sslsettings:
-				server_side = sslsettings['server_side']
-
-		context = ssl.SSLContext(protocols[0])
-		context.verify_mode = verify_mode
-		if server_side or 'certfile' in sslsettings: #server_side>you need certs, if you are a client, you might need certs
-			context.load_cert_chain(certfile=sslsettings['certfile'], 
-									keyfile=sslsettings['keyfile'])
-
-		context.protocol = 0
-		context.options = 0
-		for p in protocols:
-			context.protocol |= p
-		for o in options:
-			context.options |= o
-		context.set_ciphers(ciphers)
-		return context 
 
 
 class LogEntry:
@@ -165,7 +48,7 @@ class ConnectionFactory:
 		:param rdnsd: shared dictionary to speed up the rdns lookup
 		:type rdnsd: dict created via multiprocessing.Manager()
 		"""
-		self.rdnsd       = rdnsd
+		self.rdnsd = rdnsd
 
 	def from_streamwriter(self, writer):
 		"""
@@ -467,7 +350,7 @@ def timestamp2datetime(dt):
 	:return: datetime.datetime
 	"""
 	us = int.from_bytes(dt, byteorder='little')/ 10.
-	return datetime.datetime(1601,1,1) + datetime.timedelta(microseconds=us)
+	return datetime.datetime(1601, 1, 1) + datetime.timedelta(microseconds=us)
 
 
 class PoisonerMode(enum.Enum):
@@ -550,216 +433,6 @@ def get_platform():
 		return ResponderPlatform.MAC
 	else:
 		return ResponderPlatform.UNKNOWN
-
-
-def setup_base_socket(socket_config, bind_ip_override = None):
-	"""
-	This function provides a platform-independent way to create a socket based on the socket configuration
-	:param socket_config: Socket configuration object
-	:type socket_config: SocketConfig
-	:param bind_ip_override: Used to override the bind_addr value of the socket configuration,
-							and creates the socket with the overridden value
-	:return: socket.socket
-	"""
-	try:
-		sock = None
-		if socket_config.bind_protocol == socket.SOCK_DGRAM:
-			if socket_config.bind_family == 4:
-				sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-				if socket_config.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-				# print(str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr))
-				# print(int(socket_config.bind_port))
-				sock.bind(
-					(
-						str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
-						int(socket_config.bind_port)
-					)
-				)
-				
-			elif socket_config.bind_family == 6:
-				if not socket.has_ipv6:
-					raise Exception('IPv6 is NOT supported on this platform')
-				if str(bind_ip_override) == '0.0.0.0':
-					bind_ip_override = ipaddress.ip_address('::')
-				sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-				sock.setblocking(False)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-				
-				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-						
-				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
-							int(socket_config.bind_port),
-							socket_config.bind_iface_idx
-						)
-					)
-				elif socket_config.platform == ResponderPlatform.WINDOWS:
-					sock.bind(
-						(
-							str(socket_config) if bind_ip_override is not None else str(socket_config.bind_addr),
-							int(socket_config.bind_port)
-						)
-					)
-
-			else:
-				raise Exception('Unknown IP version')
-
-		elif socket_config.bind_protocol == socket.SOCK_STREAM:
-			if socket_config.bind_family == 4:
-				sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-				sock.setblocking(False)
-				if socket_config.platform == ResponderPlatform.LINUX:
-					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)		
-				sock.bind(
-					(
-						str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
-						int(socket_config.bind_port)
-					)
-				)
-
-			elif socket_config.bind_family == 6:
-				if not socket.has_ipv6:
-					raise Exception('IPv6 is NOT supported on this platform')
-				if str(bind_ip_override) == '0.0.0.0':
-					bind_ip_override = ipaddress.ip_address('::')
-				sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM, socket.IPPROTO_TCP)
-				sock.setblocking(False)
-				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.setsockopt(socket.SOL_SOCKET, 25, socket_config.bind_iface.encode())
-					sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT,1)
-				sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
-				if socket_config.platform in [ResponderPlatform.LINUX, ResponderPlatform.MAC]:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
-							int(socket_config.bind_port),
-							socket_config.bind_iface_idx
-						)
-					)
-				elif socket_config.platform == ResponderPlatform.WINDOWS:
-					sock.bind(
-						(
-							str(bind_ip_override) if bind_ip_override is not None else str(socket_config.bind_addr),
-							int(socket_config.bind_port)
-						)
-					)
-						
-			else:
-				raise Exception('Unknown IP version')
-		else:
-			raise Exception('Unknown protocol!')
-		
-		return sock
-	except Exception as e:
-		#print(socket_config)
-		raise type(e)(str(e) +
-				'Failed to set up socket for on IP %s PORT %s FAMILY %s IP_OVERRIDE %s' % (
-					str(socket_config.bind_addr),
-					socket_config.bind_port,
-					socket_config.bind_family,
-					str(bind_ip_override)),
-					sys.exc_info()[2]).with_traceback(sys.exc_info()[2])
-
-
-class ConnectionClosed(Exception):
-	pass
-
-
-@asyncio.coroutine
-def read_or_exc(reader, n, timeout = None):
-	"""
-	Helper function to read N amount of data from the wire.
-	:param reader: The reader object
-	:type reader: asyncio.StreamReader
-	:param n: The maximum amount of bytes to read. BEWARE: this will not read exactly that amount of data!
-	:type n: int
-	:param timeout: Time in seconds to wait for the reader to return data
-	:type timeout: int
-	:return: bytearray
-	"""
-	try:
-		data = yield from asyncio.wait_for(reader.read(n), timeout = timeout)
-	except:
-		raise ConnectionClosed()
-
-	if data == b'':
-		if reader.at_eof():
-			raise ConnectionClosed()
-
-	return data
-
-
-@asyncio.coroutine
-def readuntil_or_exc(reader, pattern, timeout = None):
-	"""
-	Helper function to read the wire until a certain pattern is reached.
-	:param reader: The reader object
-	:type reader: asyncio.StreamReader
-	:param pattern: The pattern marking the end of read
-	:type pattern: bytearray
-	:param timeout: Time in seconds to wait for the reader to reach the pattern
-	:type timeout: int
-	:return: bytearray
-	"""
-	try:
-		data = yield from asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
-	except:
-		raise ConnectionClosed()
-
-	if data == b'':
-		if reader.at_eof():
-			raise ConnectionClosed()
-
-	return data
-
-
-@asyncio.coroutine
-def readline_or_exc(reader, timeout = None):
-	"""
-	Helper function to read the wire until an end-of-line character is reached.
-	:param reader: The reader object
-	:type reader: asyncio.StreamReader
-	:param timeout: Time in seconds to wait for the reader to reach the pattern
-	:type timeout: int
-	:return: bytearray
-	"""
-	try:
-		data = yield from asyncio.wait_for(reader.readline(), timeout = timeout)
-	except:
-		raise ConnectionClosed()
-
-	if data == b'':
-		if reader.at_eof():
-			raise ConnectionClosed()
-
-	return data
-
-
-@asyncio.coroutine
-def sendall(writer, data):
-	"""
-	Helper function that writes all the data to the wire
-	:param writer: Writer object
-	:type writer: asyncio.StreamWriter
-	:param data: Data to be written
-	:type data: bytearray
-	:return: None
-	"""
-	try:
-		writer.write(data)
-		yield from writer.drain()
-	except Exception as e:
-		raise ConnectionClosed()
 
 
 # thank you Python developers who after A FUCKING DECADE

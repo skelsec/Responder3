@@ -1,13 +1,15 @@
 import os
 import sys
 import copy
+import json
 import logging
 import argparse
 import itertools
-import threading
 import multiprocessing
+import importlib.machinery
+import importlib.util
 
-from responder3.core.commons import Responder3Config, handle_systemd, defaultports
+from responder3.core.commons import handle_systemd, defaultports
 from responder3.core.interfaceutil import interfaces
 from responder3.core.logprocess import LogProcessor, LogEntry
 from responder3.core.serverprocess import ResponderServerProcess
@@ -26,6 +28,8 @@ class Responder3:
 		self.server_processes = []
 		self.rdns = None
 		self.logQ = None
+		self.started = multiprocessing.Event()
+		self.stop_event = multiprocessing.Event()
 
 	@staticmethod
 	def get_argparser():
@@ -100,6 +104,16 @@ class Responder3:
 				'No suitable configuration method was supplied!'
 				'Use either -e or -c or -p'
 			)
+		return responder
+
+	@staticmethod
+	def from_config(config, override_interfaces = None, override_ipv4 = None, override_ipv6=None, override_verb=None):
+		responder = Responder3()
+		responder.override_interfaces = override_interfaces
+		responder.override_ipv4 = override_ipv4
+		responder.override_ipv6 = override_ipv6
+		responder.override_verb = override_verb
+		responder.config = config
 		return responder
 
 	def start_process(self):
@@ -213,9 +227,60 @@ class Responder3:
 				ss.start()
 
 			self.log('Started all servers')
+			self.started.set()
 			for server in self.server_processes:
 				server.join()
 
 		except KeyboardInterrupt:
 			self.log('CTRL+C pressed, exiting!')
 			sys.exit(0)
+
+
+class Responder3Config:
+	CONFIG_OS_KEY = 'R3CONFIG'
+
+	def __init__(self):
+		self.startup = None
+		self.log_settings = None
+		self.server_settings = None
+
+	@staticmethod
+	def from_dict(config):
+		conf = Responder3Config()
+		conf.startup = config['startup']
+		conf.log_settings = config['logsettings']
+		conf.server_settings = config['servers']
+		return conf
+
+	@staticmethod
+	def from_json(config_data):
+		return Responder3Config.from_dict(json.loads(config_data))
+
+	@staticmethod
+	def from_file(file_path):
+		with open(file_path, 'r') as f:
+			config = json.load(f)
+		return Responder3Config.from_dict(config)
+
+	@staticmethod
+	def from_python_script(file_path):
+		loader = importlib.machinery.SourceFileLoader('responderconfig', file_path)
+		spec = importlib.util.spec_from_loader(loader.name, loader)
+		responderconfig = importlib.util.module_from_spec(spec)
+		loader.exec_module(responderconfig)
+		conf = Responder3Config()
+		conf.startup = responderconfig.startup
+		conf.log_settings = responderconfig.logsettings
+		conf.server_settings = responderconfig.servers
+
+		return conf
+
+	@staticmethod
+	def from_os_env():
+		config_file = os.environ.get(Responder3Config.CONFIG_OS_KEY)
+		if config_file is None:
+			raise Exception(
+				'Could not find configuration file path in os environment variables!'
+				'Name to be set: %s' % Responder3Config.CONFIG_OS_KEY
+			)
+		return Responder3Config.from_python_script(config_file)

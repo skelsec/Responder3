@@ -8,13 +8,13 @@ import datetime
 import collections
 
 from responder3.core.interfaceutil import interfaces
-from responder3.core.commons import *
+from responder3.core.commons import PoisonerMode
 from responder3.protocols.DNS import * 
 from responder3.core.udpwrapper import UDPClient
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
 
-class DNSGlobalSession():
+class DNSGlobalSession:
 	def __init__(self, server_properties):
 		self.server_properties = server_properties
 		self.settings = server_properties.settings

@@ -4,6 +4,7 @@ import logging
 import io
 import traceback
 import copy
+import sys
 
 from responder3.core.commons import *
 
@@ -81,7 +82,7 @@ class ResponderServer(abc.ABC):
 		pd = ProxyData()
 		pd.src_addr  = laddr
 		pd.dst_addr  = raddr
-		pd.proto     = self.protocol
+		pd.proto     = self.server_properties.listener_socket_config.bind_protocol
 		pd.isSSL     = isSSL
 		pd.data_type = datatype
 		pd.data      = data

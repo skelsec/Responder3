@@ -3,8 +3,9 @@
 import io
 import enum
 import asyncio
-from responder3.protocols import ProtocolBase
-from responder3.core.commons import readline_or_exc, read_element, Credential
+
+from responder3.core.commons import read_element, Credential
+from responder3.core.asyncio_helpers import *
 
 class IMAPVersion(enum.Enum):
 	IMAP    = 'IMAP'

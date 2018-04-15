@@ -8,7 +8,8 @@ import ipaddress
 import traceback
 from base64 import b64decode, b64encode
 
-from responder3.core.commons import read_element, readline_or_exc, Credential
+from responder3.core.commons import read_element, Credential
+from responder3.core.asyncio_helpers import *
 
 EMAIL_REGEX = re.compile(r"[^@]+@[^@]+\.[^@]+")
 

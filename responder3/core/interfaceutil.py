@@ -1,7 +1,7 @@
 import platform
 import ipaddress
 import socket
-from responder3.core import commons
+from responder3.core.sockets import SocketConfig
 
 """
 Linux implementation thankyous:
@@ -124,6 +124,68 @@ class NetworkInterfaces:
 
 		return sc
 
+	def get_client_socketconfig(self, ifname, protocol, ipversion = None, reuse_address = False, reuse_port= False):
+		if ifname not in self.interfaces:
+			raise Exception('Could not find ifname %s!' % ifname)
+
+		scl = []
+		try:
+			iv = []
+			if ipversion is None:
+				iv.append(4)
+				iv.append(6)
+			elif isinstance(ipversion, str):
+				if int(ipversion) in [4,6]:
+					iv.append(int(ipversion))
+				else:
+					raise Exception()
+
+			elif isinstance(ipversion, int):
+				if ipversion in [4,6]:
+					iv.append(ipversion)
+				else:
+					raise Exception()
+
+			elif isinstance(ipversion, list):
+				iv = ipversion
+
+		except Exception as e:
+			raise Exception('Unknown IP version %s' % repr(ipversion))
+
+		for version in iv:
+			for lookup_ifname, ver in self.name_ip_lookup:
+				if ifname != lookup_ifname:
+					continue
+				if ver != version:
+					break
+				for address in self.name_ip_lookup[(lookup_ifname, ver)]:
+					sc = SocketConfig()
+					sc.bind_port = 0
+					sc.bind_addr = address
+					sc.bind_family = sc.bind_addr.version
+
+					if isinstance(protocol, str):
+						if protocol.lower() == 'tcp':
+							sc.bind_protocol = socket.SOCK_STREAM
+						elif protocol.lower() == 'udp':
+							sc.bind_protocol = socket.SOCK_DGRAM
+						else:
+							raise Exception('Unknown protocol definition %s' % protocol)
+					elif isinstance(protocol, int):
+						sc.bind_protocol = protocol
+					else:
+						raise Exception('Unknown protocol definition %s' % protocol)
+
+					sc.bind_iface = ifname
+					sc.bind_iface_idx = self.interfaces[sc.bind_iface].ifindex
+					sc.is_server = False
+					sc.reuse_address = reuse_address
+					sc.reuse_port = reuse_port
+					scl.append(sc)
+
+		return scl
+
+
 	def get_socketconfig(self, ifname, port, protocol, ipversion = None):
 		"""
 		Returns a list of socketconfig objects to create server.
@@ -132,7 +194,7 @@ class NetworkInterfaces:
 		:param port: Port number
 		:type port: int
 		:param protocol: Protocol type
-		:type protocol: str or int or socket.STREAM/socket.DGRAM
+		:type protocol: str or int or socket.SOCK_STREAM/socket.SOCK_DGRAM
 		:param ipversion: IP address version
 		:return: list of SocketConfig
 		"""
@@ -189,76 +251,13 @@ class NetworkInterfaces:
 
 					sc.bind_iface = ifname
 					sc.bind_iface_idx = self.interfaces[sc.bind_iface].ifindex
+					sc.is_server = True
 					scl.append(sc)
 
 		return scl
 
 	def __str__(self):
 		return self.iface_help
-
-class SocketConfig:
-	def __init__(self):
-		"""
-		Holds all necessary information to create a listening socket
-		"""
-		self.bind_iface  = None
-		self.bind_port   = None
-		self.bind_family = None
-		self.bind_protocol = None
-		self.bind_addr = None
-		self.bind_iface_idx = None
-		self.is_ssl_wrapped = False
-		self.platform = commons.get_platform()
-
-	def get_protocolname(self):
-		"""
-		Returns protocol type as string
-		:return: str
-		"""
-		if self.bind_protocol == socket.SOCK_STREAM:
-			return 'TCP'
-		elif self.bind_protocol == socket.SOCK_DGRAM:
-			return 'UDP'
-		else:
-			return 'UNKNOWN'
-
-	def get_address(self):
-		"""
-		Resturns address as tuple
-		:return: tuple
-		"""
-		return (str(self.bind_addr), self.bind_port)
-
-	def get_print_address(self):
-		"""
-		Returns address in a printable form
-		:return: str
-		"""
-		return '%s:%d' % (str(self.bind_addr), self.bind_port)
-
-	def get_server_kwargs(self):
-		"""
-		Returns a dict to be used in asyncio.create_server function
-		:return: dict
-		"""
-		return {
-			'host'         : str(self.bind_addr),
-			'port'         : self.bind_port,
-			'family'       : self.bind_family,
-		}
-
-	def __repr__(self):
-		return str(self)
-
-	def __str__(self):
-		t = '==SocketConfig==\r\n'
-		t+= 'Interface: %s\r\n' % self.bind_iface
-		t+= 'Iface idx: %s\r\n' % self.bind_iface_idx
-		t+= 'Address  : %s\r\n' % str(self.bind_addr)
-		t+= 'Port     : %s\r\n' % self.bind_port
-		t+= 'Protocol : %s\r\n' % self.bind_protocol
-		t+= 'Family   : %s\r\n' % self.bind_family
-		return t
 
 
 class NetworkInterface:

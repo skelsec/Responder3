@@ -1,5 +1,5 @@
 
-#https://tools.ietf.org/html/rfc6762
+# https://tools.ietf.org/html/rfc6762
 import re
 import socket
 import struct
@@ -8,7 +8,8 @@ import asyncio
 import ipaddress
 import traceback
 
-from responder3.core.commons import *
+from responder3.core.sockets import setup_base_socket
+from responder3.core.commons import PoisonerMode, ResponderPlatform
 from responder3.core.udpwrapper import UDPClient
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 from responder3.protocols.DNS import *
@@ -41,12 +42,15 @@ class MDNSGlobalSession():
 				for exp in self.settings['spooftable']:
 					self.spooftable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
+
 class MDNSSession(ResponderServerSession):
 	pass
 
+
 class MDNS(ResponderServer):
+
+	@staticmethod
 	def custom_socket(socket_config):
-		print(socket_config)
 		if socket_config.bind_family == 4:
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = setup_base_socket(
@@ -81,8 +85,8 @@ class MDNS(ResponderServer):
 
 	@asyncio.coroutine
 	def send_data(self, data, addr):
-		#we need to set the addr here, because we are sending the packet to the multicast address, not to the clinet itself
-		#however there could be cases that the client accepts unicast, but it's ignored for now
+		# we need to set the addr here, because we are sending the packet to the multicast address, not to the clinet itself
+		# however there could be cases that the client accepts unicast, but it's ignored for now
 		yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		return
 	

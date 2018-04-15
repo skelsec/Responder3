@@ -7,7 +7,8 @@ import ipaddress
 import traceback
 import collections
 
-from responder3.core.commons import *
+from responder3.core.sockets import setup_base_socket
+from responder3.core.commons import PoisonerMode, ResponderPlatform
 from responder3.protocols.NetBIOS import * 
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
@@ -38,6 +39,7 @@ class NBTNSGlobalSession():
 
 class NBTNSSession(ResponderServerSession):
 	pass
+
 
 class NBTNS(ResponderServer):
 	def custom_socket(server_properties):

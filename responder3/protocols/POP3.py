@@ -3,7 +3,8 @@ import hashlib
 import io
 import enum
 import asyncio
-from responder3.core.commons import read_element, readline_or_exc, Credential
+from responder3.core.commons import read_element, Credential
+from responder3.core.asyncio_helpers import *
 
 
 class POP3AuthMethod(enum.Enum):
