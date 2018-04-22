@@ -9,8 +9,8 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 
 
 class IMAPSession(ResponderServerSession):
-	def __init__(self, *args):
-		ResponderServerSession.__init__(self, *args)
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.encoding     = 'utf-7'
 		self.parser       = IMAPCommandParser(encoding = self.encoding)
 		self.authhandler  = None
@@ -19,6 +19,8 @@ class IMAPSession(ResponderServerSession):
 		self.supported_auth_types = [IMAPAuthMethod.PLAIN]
 		self.creds = None
 		self.current_state = IMAPState.NOTAUTHENTICATED
+		self.welcome_message = 'hello from Honeyport IMAP server'
+		self.log_data = False
 
 	def __repr__(self):
 		t  = '== IMAPSession ==\r\n'
@@ -34,59 +36,62 @@ class IMAP(ResponderServer):
 		pass
 		#self.parse_settings()
 
-	@asyncio.coroutine
-	def parse_message(self, timeout = None):
+	async def parse_message(self, timeout = None):
 		try:
-			req = yield from asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = timeout)
+			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = timeout)
 			return req
 		except asyncio.TimeoutError:
-			self.log('Timeout!', logging.DEBUG)
+			await self.log('Timeout!', logging.DEBUG)
+			return None
+		except ConnectionClosed:
+			return None
 
-	@asyncio.coroutine
-	def send_data(self, data):
+	async def send_data(self, data):
 		self.cwriter.write(data)
-		yield from self.cwriter.drain()
+		await self.cwriter.drain()
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
 			# send hello
-			yield from asyncio.wait_for(
-				self.send_data(IMAPOKResp.construct('hello from Honeyport IMAP server').to_bytes()),
+			await asyncio.wait_for(
+				self.send_data(IMAPOKResp.construct(self.session.welcome_message).to_bytes()),
 				timeout = 1
 			)
 			
 			# main loop
 			while True:
-				cmd = yield from asyncio.wait_for(self.parse_message(), timeout = None)
+				cmd = await asyncio.wait_for(self.parse_message(), timeout = None)
 				if cmd is None:
-					#connection closed exception happened in the parsing
-					self.session.close_session.set()
-					continue
-				#print(cmd)
-				#print(self.session.current_state)
-				
+					return
+
+				if 'R3DEEPDEBUG' in os.environ:
+					await self.log(cmd, logging.DEBUG)
+					await self.log(self.session.current_state, logging.DEBUG)
+
+				if self.session.log_data:
+					pass
+
 				if self.session.current_state == IMAPState.NOTAUTHENTICATED:
 					if cmd.command == IMAPCommand.LOGIN:
 						self.session.authhandler = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)
 						res, cred = self.session.authhandler.do_AUTH(cmd)
-						self.log_credential(cred)
+						await self.log_credential(cred)
 						if res is True:
 							self.session.current_state = IMAPState.AUTHENTICATED
-							yield from asyncio.wait_for(
-								self.send_data(IMAPOKResp.construct('CreZ good!', cmd.tag).to_bytes())
-								, timeout = 1
+							await asyncio.wait_for(
+								self.send_data(IMAPOKResp.construct('LOGIN completed', cmd.tag).to_bytes()),
+								timeout = 1
 							)
 							continue
 						else:
-							yield from asyncio.wait_for(self.send_data(
+							await asyncio.wait_for(self.send_data(
 								IMAPNOResp.construct('wrong credZ!', cmd.tag).to_bytes()),
 								timeout = 1
 							)
 							return
 
 					elif cmd.command == IMAPCommand.CAPABILITY:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(
 								IMAPCAPABILITYResp.construct(
 									self.session.supported_versions,
@@ -94,7 +99,7 @@ class IMAP(ResponderServer):
 									self.session.additional_capabilities
 									).to_bytes()
 								), timeout = 1)
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(
 								IMAPOKResp.construct('Completed', cmd.tag).to_bytes()),
 								timeout = 1
@@ -106,9 +111,7 @@ class IMAP(ResponderServer):
 				
 				else:
 					raise NotImplementedError
-					return
-				
-					
+
 		except Exception as e:
-			self.log_exception()
+			await self.log_exception()
 			return

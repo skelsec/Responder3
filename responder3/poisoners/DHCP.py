@@ -10,9 +10,9 @@ import traceback
 from responder3.core.sockets import setup_base_socket
 from responder3.core.commons import PoisonerMode
 from responder3.protocols.DHCP import * 
-from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
 
-class DHCPResult():
+class DHCPResult:
 	def __init__(self):
 		self.offered_ip = None
 		self.dhcp_server_ip = None
@@ -34,10 +34,12 @@ class DHCPResult():
 	def __str__(self):
 		return repr(self)
 
-class DHCPGlobalSession():
-	def __init__(self, server_properties):
-		self.server_properties = server_properties
-		self.settings = server_properties.settings
+
+class DHCPGlobalSession(ResponderServerGlobalSession):
+	def __init__(self, listener_socket_config, settings, log_queue):
+		ResponderServerGlobalSession.__init__(self, log_queue, self.__class__.__name__)
+		self.listener_socket_config = listener_socket_config
+		self.settings = settings
 		self.sessions = {}
 		self.assigned_ips = {} #xid - ip
 		self.offer_mac = {}
@@ -48,7 +50,7 @@ class DHCPGlobalSession():
 	def parse_settings(self):
 		#default values
 		#defaults
-		self.serveraddress = self.server_properties.listener_socket_config.bind_addr
+		self.serveraddress = self.listener_socket_config.bind_addr
 		self.subnetmask    = 'FF:FF:FF:00'
 		self.leasetime     = random.randint(600,1000)
 		self.offer_options = None
@@ -60,7 +62,7 @@ class DHCPGlobalSession():
 		ipnet  = ipaddress.summarize_address_range(start, end)
 
 		if 'ip_pool' in self.settings:
-			#expected format: 192.168.1.100-200
+			# expected format: 192.168.1.100-200
 			start = ipaddress.IPv4Address(self.settings['ip_pool'].split('-')[0].strip())
 			m = self.settings['ip_pool'].rfind('.')
 			end   = ipaddress.IPv4Address(self.settings['ip_pool'][:m+1] + self.settings['ip_pool'].split('-')[1].strip())
@@ -101,10 +103,14 @@ class DHCPGlobalSession():
 				for code, data in self.settings['ack_options']:
 					self.ack_options.append(OPTCode2ClassName[int(code)].from_setting(data))
 
+
 class DHCPSession(ResponderServerSession):
-	pass
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
+
 
 class DHCP(ResponderServer):
+	@staticmethod
 	def custom_socket(socket_config):
 		if socket_config.bind_family == 6:
 			raise Exception('DHCP server should not be run on IPv6 (requires a different protocol)')
@@ -115,20 +121,17 @@ class DHCP(ResponderServer):
 	def init(self):
 		self.parser = DHCPMessage
 		
-	@asyncio.coroutine
-	def parse_message(self):
-		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+	async def parse_message(self):
+		msg = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
 		return msg
 
-	@asyncio.coroutine
-	def send_data(self, data, addr = None):
-		yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+	async def send_data(self, data, addr = None):
+		await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		return
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
-			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				print(msg.dhcpmessagetype)
 				#we only will see ACKs broadcasted from server to client
@@ -177,7 +180,7 @@ class DHCP(ResponderServer):
 					self.globalsession.offer_mac[self.globalsession.sessions[msg.xid][-1].chaddr] = 0
 
 					print('Sending offer!')
-					yield from self.send_data(dhcpoffer.toBytes()[:300], ('255.255.255.255', 68))
+					await self.send_data(dhcpoffer.toBytes()[:300], ('255.255.255.255', 68))
 
 				elif self.globalsession.sessions[msg.xid][-1].dhcpmessagetype == DHCPOptMessageType.DHCPREQUEST:
 
@@ -200,13 +203,13 @@ class DHCP(ResponderServer):
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 
 						print('Sending ACK to %s' % str(self.globalsession.assigned_ips[msg.xid]))
-						#yield from self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
+						#await self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
 						
 
 						if self.globalsession.sessions[msg.xid][-1].flags & DHCPFlags.B == 0 and self.cwriter._addr[0] != '0.0.0.0':
-							yield from self.send_data(dhcpack.toBytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
+							await self.send_data(dhcpack.toBytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
 						else:
-							yield from self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
+							await self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
 						
 
 					else:
@@ -231,7 +234,7 @@ class DHCP(ResponderServer):
 							siaddr = self.globalsession.serveraddress, 
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 						
-						yield from self.send_data(dhcpnak.toBytes(), ('255.255.255.255', 68))
+						await self.send_data(dhcpnak.toBytes(), ('255.255.255.255', 68))
 
 
 

@@ -5,52 +5,45 @@ import json
 import logging
 import argparse
 import datetime
-import asyncio
 import itertools
 import multiprocessing
 import importlib.machinery
 import importlib.util
-import warnings
 
-from responder3.core.commons import handle_systemd, defaultports, tracefunc
+from responder3.core.commons import handle_systemd, defaultports
 from responder3.core.interfaceutil import interfaces
-from responder3.core.logtask import LogProcessor, LogEntry
-from responder3.core.servertask import Responder3ServerTask
+from responder3.core.logprocess import LogProcessor, LogEntry
+from responder3.core.serverprocess import ResponderServerProcess
 
 
-class ServerTaskEntry:
+class ServerProcessEntry:
 	def __init__(self, taskid):
 		self.taskid = taskid
 		self.startup_config = None
-		self.task = None
-		self.command_channel_manager, self.command_channel_client = multiprocessing.Pipe()
+		self.process = None
+		self.command_channel_manager, self.self.command_channel_client = multiprocessing.Pipe()
 		self.created_at = datetime.datetime.utcnow()
 		self.started_at = None
 
 
-class Responder3(multiprocessing.Process):
-	def __init__(self):
-		multiprocessing.Process.__init__(self)
-		self.loop = asyncio.get_event_loop()
+class Responder3:
+	def __init__(self, command_queue = None):
+		self.command_queue = command_queue
 		self.config = None
-
-		self.reverse_domain_table = {}
-
-		self.log_queue = asyncio.Queue()
-		self.log_command_queue = asyncio.Queue()
-		self.logprocessor = None
-		self.test_output_queue = None
 
 		self.override_interfaces = None
 		self.override_ipv4 = None
 		self.override_ipv6 = None
 		self.override_verb = None
 
-		self.server_task_id = 0
+		self.server_task_id = 1
 		self.servers = []
 		self.server_tasks = {}
-		self.reverse_domain_table = None
-
+		self.rdns = None
+		self.logQ = None
+		self.output_queue = None
+		self.started = multiprocessing.Event()
+		self.stop_event = multiprocessing.Event()
 
 	@staticmethod
 	def get_argparser():
@@ -134,36 +127,46 @@ class Responder3(multiprocessing.Process):
 		responder.override_ipv4 = override_ipv4
 		responder.override_ipv6 = override_ipv6
 		responder.override_verb = override_verb
-		responder.test_output_queue = output_queue
+		responder.output_queue = output_queue
 		responder.config = config
 		return responder
 
-	async def aio_log(self, logentry):
-		await self.log_queue.put(logentry)
+	def start_process(self):
+		p = multiprocessing.Process(target=self.start, args=())
+		p.start()
+		return p
 
 	def log(self, message, level=logging.INFO):
 		log = LogEntry(level, 'Responder3 MAIN', message)
-		self.loop.create_task(self.aio_log(log))
+		self.logQ.put(log)
+
+	def setup(self):
+		man = multiprocessing.Manager()
+		self.rdns = man.dict()
+		self.logQ = multiprocessing.Queue()
+
+		# Setting up logging
+		lp = LogProcessor(self.config.log_settings, self.logQ)
+		lp.daemon = True
+		lp.start()
 
 	def get_taskid(self):
 		taskid = self.server_task_id
 		self.server_task_id += 1
 		return taskid
 
-	def start_server_task(self, serverconfig):
-		ste = ServerTaskEntry(self.get_taskid())
+	def start_server_process(self, serverconfig):
+		spe = ServerProcessEntry(self.get_taskid())
 		temp = copy.deepcopy(serverconfig)
-		ste.startup_config = temp
-		ste.task = Responder3ServerTask(
-			log_queue = self.log_queue,
-			reverse_domain_table=self.reverse_domain_table,
-			server_command_queue=None,
-			loop=self.loop
-		)
-		coro = ste.task.create_server_coro(temp)
-		self.server_tasks[ste.taskid] = ste
-		self.loop.create_task(coro)
-		ste.started_at = datetime.datetime.utcnow()
+		temp['shared_rdns'] = self.rdns
+		temp['shared_logQ'] = self.logQ
+		temp['command_channel'] = spe.command_channel
+		spe.startup_config = temp
+		spe.process = ResponderServerProcess.from_dict(temp)
+		spe.process.daemon = True
+		self.server_tasks[spe.taskid] = spe
+		spe.process.start()
+		spe.started_at = datetime.datetime.utcnow()
 		del temp
 
 	def get_server_process(self, taskid):
@@ -229,9 +232,14 @@ class Responder3(multiprocessing.Process):
 				)
 				for socket_config in socket_configs:
 					serverentry['listener_socket_config'] = socket_config
-					yield serverentry
 
-	def run(self):
+					temp = copy.deepcopy(serverentry)
+					temp['shared_rdns'] = self.rdns
+					temp['shared_logQ'] = self.logQ
+
+					self.servers.append(temp)
+
+	def start(self):
 		try:
 			if self.config.startup is not None:
 				if 'mode' in self.config.startup:
@@ -241,22 +249,12 @@ class Responder3(multiprocessing.Process):
 					elif self.config.startup['mode'] == 'DEV':
 						os.environ['PYTHONASYNCIODEBUG'] = '1'
 						os.environ['R3DEEPDEBUG'] = '1'
-						self.loop.set_debug(True)
-
-						# Make the threshold for "slow" tasks very very small for
-						# illustration. The default is 0.1, or 100 milliseconds.
-						self.loop.slow_callback_duration = 0.001
-
-						# Report all mistakes managing asynchronous resources.
-						warnings.simplefilter('always', ResourceWarning)
-
-						# sys.settrace(tracefunc)
 
 					elif self.config.startup['mode'] == 'TEST':
 						os.environ['PYTHONASYNCIODEBUG'] = '1'
 						os.environ['R3DEEPDEBUG'] = '1'
-						if self.test_output_queue is None:
-							self.test_output_queue = multiprocessing.Queue()
+						if self.output_queue is None:
+							self.output_queue = multiprocessing.Queue()
 						if 'extensions' not in self.config.log_settings:
 							self.config.log_settings['handlers'] = {}
 						if 'TEST' not in self.config.log_settings['handlers']:
@@ -264,7 +262,7 @@ class Responder3(multiprocessing.Process):
 						if 'TEST' not in self.config.log_settings:
 							self.config.log_settings['TEST'] = {}
 						if 'output_queue' not in self.config.log_settings['TEST']:
-							self.config.log_settings['TEST']['output_queue'] = self.test_output_queue
+							self.config.log_settings['TEST']['output_queue'] = self.output_queue
 
 					elif self.config.startup['mode'] == 'SERVICE':
 						if 'pidfile' not in self.config.startup['mode']:
@@ -278,14 +276,28 @@ class Responder3(multiprocessing.Process):
 				# starting in standalone mode...
 				pass
 
-			self.logprocessor = LogProcessor(self.config.log_settings, self.log_queue)
-			self.loop.create_task(self.logprocessor.run())
-
 			for serverconfig in self.get_serverconfigs():
-				self.start_server_task(serverconfig)
+				self.start_server_process(serverconfig)
+
+
+			if len(self.servers) == 0:
+				raise Exception(
+					'Did not start any servers! '
+					'Possible reasons:'
+					'1. config file is wrong'
+					'2. the interface you specified is not up/doesnt have any IP configured'
+				)
+
+			for server in self.servers:
+				ss = ResponderServerProcess.from_dict(server)
+				ss.daemon = True
+				self.server_processes.append(ss)
+				ss.start()
 
 			self.log('Started all servers')
-			self.loop.run_forever()
+			self.started.set()
+			for server in self.server_processes:
+				server.join()
 
 		except KeyboardInterrupt:
 			self.log('CTRL+C pressed, exiting!')
@@ -340,3 +352,18 @@ class Responder3Config:
 				'Name to be set: %s' % Responder3Config.CONFIG_OS_KEY
 			)
 		return Responder3Config.from_python_script(config_file)
+
+
+class Responder3Manager:
+	def __init__(self):
+		self.r3 = None
+		self.r3config = None
+		self.control_queue = None
+
+	def main(self):
+		# start responder3 with startup config
+		# create servers from config file
+		# if configured, listen on socket for commands
+		pass
+
+

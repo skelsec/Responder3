@@ -16,8 +16,8 @@ class SMB2ServerState(enum.Enum):
 	AUTHENTICATED = enum.auto()
 
 class SMBSession(ResponderServerSession):
-	def __init__(self, *args):
-		ResponderServerSession.__init__(self, *args)
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.SMBprotocol  = None
 		#self.SMBdialect   = 'SMB 2.002'
 		self.SMBdialect   = ['NT LM 0.12']
@@ -81,41 +81,37 @@ class SMB(ResponderServer):
 
 
 
-	@asyncio.coroutine
-	def parse_message(self, timeout = 10):
+	async def parse_message(self, timeout = 10):
 		try:
-			smbtransport = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout = timeout)
+			smbtransport = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout = timeout)
 			return smbtransport.smbmessage
 		except asyncio.TimeoutError:
-			self.log('Timeout!', logging.DEBUG)
+			await self.log('Timeout!', logging.DEBUG)
 
-	@asyncio.coroutine
-	def send_data(self, smbmessage):
+	async def send_data(self, smbmessage):
 		data = self.parser.construct(smbmessage)
 		self.cwriter.write(data.toBytes())
-		yield from self.cwriter.drain()
+		await self.cwriter.drain()
 
-	@asyncio.coroutine
-	def send_authfailed(self, smbmessage):
+	async def send_authfailed(self, smbmessage):
 		return
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
 			while True:
-				msg = yield from asyncio.wait_for(self.parse_message(None), timeout = None)
+				msg = await asyncio.wait_for(self.parse_message(None), timeout = None)
 				if self.session.current_state == SMB2ServerState.UNAUTHENTICATED:
 					#this could be SMB/NegotiateProtocol or SMB2/NegotiateProtocol or SMB2/SessionSetup
 					if msg.type == 1:
 						if msg.header.Command == SMBCommand.SMB_COM_NEGOTIATE:
 							#the first message could be SMBv1/NegotiateProtocol to identiy smbv2 capabilities
-							self.log([dialect.DialectString for dialect in msg.command.Dialects], logging.DEBUG)
+							await self.log([dialect.DialectString for dialect in msg.command.Dialects], logging.DEBUG)
 							#selecting the dialect which is common to both server and client in order of server dialect list prefereances
 							clinet_dialects = set([dialect.DialectString for dialect in msg.command.Dialects])
 							server_dialects = set(self.session.SMBdialect)
 							common_dialects = server_dialects.intersection(clinet_dialects)
 							if common_dialects is None:
-								self.log('No matching dialects between client and server, terminating connection!')
+								await self.log('No matching dialects between client and server, terminating connection!')
 								return
 							preferred_dialect = None
 							for dialect in self.session.SMBdialect:
@@ -134,12 +130,12 @@ class SMB(ResponderServer):
 									break
 								preferred_dialect_idx += 1
 
-							self.log(preferred_dialect_idx, logging.INFO)
+							await self.log(preferred_dialect_idx, logging.INFO)
 
 							self.session.commondialect = preferred_dialect
 
 							if self.session.commondialect == 'SMB 2.002':
-								self.log('client is capable of smbv2, using SMBv2', logging.DEBUG)
+								await self.log('client is capable of smbv2, using SMBv2', logging.DEBUG)
 								status, data, t = self.session.gssapihandler.do_AUTH()
 								resp = SMB2Message()
 								resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.SMBMessageCnt)
@@ -147,10 +143,10 @@ class SMB(ResponderServer):
 									NegotiateDialects.SMB202, self.session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
 								#MessageCn t should not be incremented here
-								a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+								a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 							
 							else:
-								self.log('using SMBv1', logging.DEBUG)
+								await self.log('using SMBv1', logging.DEBUG)
 								status, data, t = self.session.gssapihandler.do_AUTH(smbv1 = True)
 								resp = SMBMessage()
 								resp.header = SMBHeader.construct(SMBCommand.SMB_COM_NEGOTIATE, 
@@ -175,7 +171,7 @@ class SMB(ResponderServer):
 																self.session.serverUUID, data,
 															)
 
-								a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+								a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 								continue
 						else:
 							if msg.header.Command == SMBCommand.SMB_COM_SESSION_SETUP_ANDX:
@@ -200,13 +196,13 @@ class SMB(ResponderServer):
 																							  nativeos = 'Windows 2003', 
 																							  nativelanman = 'blabla'
 																							)
-									a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+									a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 									continue
 
 								elif status == NTStatus.STATUS_ACCOUNT_DISABLED:
 									if creds is not None:
 										for cred in creds:
-											self.log_credential(cred.toCredential())
+											await self.log_credential(cred.toCredential())
 									
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_ACCOUNT_DISABLED, 
@@ -226,13 +222,13 @@ class SMB(ResponderServer):
 																							  nativeos = 'Windows 2003', 
 																							  nativelanman = 'blabla'
 																							)
-									a = yield from asyncio.wait_for(self.send_data(resp), timeout=1)
+									a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 									continue
 								
 								elif status == NTStatus.STATUS_SUCCESS:
 									if creds is not None:
 										for cred in creds:
-											self.log_credential(cred.toCredential())
+											await self.log_credential(cred.toCredential())
 									self.session.current_state = SMB2ServerState.AUTHENTICATED
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_SUCCESS, 
@@ -266,13 +262,13 @@ class SMB(ResponderServer):
 							resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 								NegotiateDialects.SMB202, self.session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
-							a = yield from asyncio.wait_for(send_data(resp), timeout=1)
+							a = await asyncio.wait_for(send_data(resp), timeout=1)
 						
 						elif msg.header.Command == SMB2Command.SESSION_SETUP:
 							status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.Buffer)
 							if creds is not None:
 								for cred in creds:
-									self.log_credential(cred.toCredential())
+									await self.log_credential(cred.toCredential())
 								return
 							
 							resp = SMB2Message()
@@ -280,7 +276,7 @@ class SMB(ResponderServer):
 								Credit = 1, CreditCharge = 1, SessionId= self.session.SMBSessionID)
 							resp.command = SESSION_SETUP_REPLY.construct(data,0)
 
-							a = yield from asyncio.wait_for(send_data(resp), timeout=1)
+							a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 						else:
 							raise Exception('Dunno!')
 
@@ -289,5 +285,5 @@ class SMB(ResponderServer):
 
 
 		except Exception as e:
-			self.log_exception()
+			await self.log_exception()
 			return

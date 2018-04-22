@@ -1,5 +1,5 @@
 startup = {
-	'mode' : 'DEV',
+	'mode' : 'TEST',
 	}
 
 logsettings = {
@@ -79,6 +79,15 @@ sslctx_nofile = {
 servers = [
 	{
 		'handler'  : 'HTTP',
+	},
+	{
+		'handler'  : 'HTTP',
+		'bind_port':[(81, 'tcp')],
+		'settings' : {
+			'authentication':{
+				'authmecha': 'NTLM',
+			},
+		},
 	},
 	{
 		'handler'  : 'HTTP',

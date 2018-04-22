@@ -8,13 +8,15 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 
 
 class FTPSession(ResponderServerSession):
-	def __init__(self, *args):
-		ResponderServerSession.__init__(self, *args)
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.encoding = 'ascii'
 		self.parser = FTPCommandParser(encoding=self.encoding)
 		self.authhandler = None
 		self.creds = None
 		self.current_state = FTPState.AUTHORIZATION
+		self.log_data = False
+		self.welcome_message = 'hello from Honeypot POP3 server'
 
 	def __repr__(self):
 		t = '== FTP Session ==\r\n'
@@ -31,40 +33,46 @@ class FTP(ResponderServer):
 
 	# self.parse_settings()
 
-	@asyncio.coroutine
-	def parse_message(self, timeout=None):
+	async def parse_message(self, timeout=None):
 		try:
-			req = yield from asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
+			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
 			return req
 		except asyncio.TimeoutError:
-			self.log('Timeout!', logging.DEBUG)
+			await self.log('Timeout!', logging.DEBUG)
+			return None
+		except ConnectionClosed:
+			return None
+		except Exception:
+			await self.log_exception()
+			return None
 
-	@asyncio.coroutine
-	def send_data(self, data):
+	async def send_data(self, data):
 		self.cwriter.write(data)
-		yield from self.cwriter.drain()
+		await self.cwriter.drain()
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
 			# send hello
-			yield from asyncio.wait_for(
-				self.send_data(FTPReply(220, 'Honeypot FTP server').to_bytes()), timeout=1)
+			await asyncio.wait_for(
+				self.send_data(FTPReply(220, self.session.welcome_message).to_bytes()), timeout=1)
 
 			# main loop
 			while True:
-				cmd = yield from asyncio.wait_for(self.parse_message(), timeout=None)
+				cmd = await asyncio.wait_for(self.parse_message(), timeout=None)
 				if cmd is None:
-					# connection closed exception happened in the parsing
-					self.session.close_session.set()
-					continue
-				print(cmd)
-				print(self.session.current_state)
+					return
+
+				if 'R3DEEPDEBUG' in os.environ:
+					await self.log(cmd, logging.DEBUG)
+					await self.log(self.session.current_state, logging.DEBUG)
+
+				if self.session.log_data:
+					pass
 
 				if self.session.current_state == FTPState.AUTHORIZATION:
 					if cmd.command in [FTPCommand.USER, FTPCommand.PASS, FTPCommand.QUIT]:
 						if cmd.command == FTPCommand.QUIT:
-							yield from asyncio.wait_for(
+							await asyncio.wait_for(
 								self.send_data(FTPReply(200).to_bytes()),
 								timeout=1)
 							return
@@ -73,25 +81,24 @@ class FTP(ResponderServer):
 								self.session.authhandler = FTPAuthHandler(FTPAuthMethod.PLAIN, self.session.creds)
 
 							res, cred = self.session.authhandler.do_AUTH(cmd)
-							print(res)
 							if cred is not None:
-								self.log_credential(cred)
+								await self.log_credential(cred)
 							if res == FTPAuthStatus.MORE_DATA_NEEDED:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(FTPReply(331).to_bytes()), timeout=1)
 								continue
 							elif res == FTPAuthStatus.NO:
-								self.log_credential(cred)
-								yield from asyncio.wait_for(
+								await self.log_credential(cred)
+								await asyncio.wait_for(
 									self.send_data(FTPReply(530).to_bytes()), timeout=1)
 								return
 							elif res == FTPAuthStatus.OK:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(FTPReply(200).to_bytes()), timeout=1)
 								self.session.current_state = FTPState.AUTHENTICATED
 								continue
 					else:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(FTPReply(503).to_bytes()), timeout=1)
 						return
 
@@ -102,5 +109,5 @@ class FTP(ResponderServer):
 					raise Exception('Unknown FTP state!')
 
 		except Exception as e:
-			self.log_exception()
+			await self.log_exception()
 			return

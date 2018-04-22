@@ -95,14 +95,14 @@ FTPReplyCode = {
 	'553' : "Requested action not taken." #File name not allowed.
 }
 
-class FTPCommandParser():
+
+class FTPCommandParser:
 	def __init__(self, strict = False, encoding = 'ascii'):
 		self.strict      = strict
 		self.encoding    = encoding
 
-	@asyncio.coroutine
-	def from_streamreader(self, reader, timeout = 60):
-		cmd = yield from readline_or_exc(reader, timeout=timeout)
+	async def from_streamreader(self, reader, timeout = 60):
+		cmd = await readline_or_exc(reader, timeout=timeout)
 		return self.from_bytes(cmd)
 
 	def from_bytes(self, bbuff):
@@ -119,7 +119,6 @@ class FTPCommandParser():
 
 		except Exception as e:
 			traceback.print_exc()
-			#print(str(e))
 			return FTPXXXCmd.from_bytes(line)
 
 
@@ -290,16 +289,16 @@ class FTPPlainAuth:
 	def verify_creds(self):
 		c = FTPPlainCred(self.username, self.password)
 		if self.creds is None:
-			return FTPAuthStatus.OK, c.toCredential()
+			return FTPAuthStatus.OK, c.to_credential()
 		else:
 			if c.username in self.creds:
-				if self.creds[c.username] == c.passwrod:
-					return FTPAuthStatus.OK, c.toCredential()
+				if self.creds[c.username] == c.password:
+					return FTPAuthStatus.OK, c.to_credential()
 
 			else:
-				return FTPAuthStatus.NO, c.toCredential()
+				return FTPAuthStatus.NO, c.to_credential()
 
-		return FTPAuthStatus.NO, c.toCredential()
+		return FTPAuthStatus.NO, c.to_credential()
 
 
 class FTPPlainCred:
@@ -307,7 +306,7 @@ class FTPPlainCred:
 		self.username = username
 		self.password = password
 
-	def toCredential(self):
+	def to_credential(self):
 		return Credential('PLAIN',
 						  username=self.username,
 						  password=self.password,

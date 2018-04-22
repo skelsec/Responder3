@@ -279,7 +279,7 @@ class ResponderServerProcess(multiprocessing.Process):
 		"""
 		Sends the log messages onto the logqueue. If no logqueue is present then prints them out on console.
 		:param message: The message to be sent
-		:type message: LogEntry
+		:type message: str
 		:param level: Log level
 		:type level: int
 		:return: None

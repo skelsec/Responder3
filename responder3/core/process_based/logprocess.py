@@ -56,12 +56,17 @@ class LogProcessor(multiprocessing.Process):
 		if 'handlers' in self.logsettings:
 			for handler in self.logsettings['handlers']:
 				try:
-					handlerclassname  = '%sHandler' % self.logsettings['handlers'][handler]
-					handlermodulename = 'responder3_log_%s' % handler.replace('-','_').lower()
-					handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
-					
-					self.log('Importing handler module: %s , %s' % (handlermodulename, handlerclassname), logging.DEBUG)
-					handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
+					if handler == 'TEST':
+						print('TEST!')
+						handlerclass = TestExtension
+						handlerclassname = 'TEST'
+					else:
+						handlerclassname  = '%sHandler' % self.logsettings['handlers'][handler]
+						handlermodulename = 'responder3_log_%s' % handler.replace('-','_').lower()
+						handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
+
+						self.log('Importing handler module: %s , %s' % (handlermodulename, handlerclassname), logging.DEBUG)
+						handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
 
 				except Exception as e:
 					self.log('Error importing module %s Reason: %s' % (handler, e), logging.ERROR)
@@ -83,6 +88,9 @@ class LogProcessor(multiprocessing.Process):
 			self.log('setup done', logging.DEBUG)
 			while True:
 				result = self.resultQ.get()
+				for tqueue in self.extensionsQueues:
+					self.log('sent')
+					tqueue.put(result)
 				if isinstance(result, Credential):
 					self.handle_credential(result)
 				elif isinstance(result, LogEntry):
@@ -126,11 +134,6 @@ class LogProcessor(multiprocessing.Process):
 		:return: None
 		"""
 		self.logger.log(logging.INFO, str(con))
-		t = {}
-		t['type'] = 'Connection'
-		t['data'] = con.to_dict()
-		for tqueue in self.extensionsQueues:
-			tqueue.put(t)
 
 	def handle_credential(self, result):
 		"""
@@ -142,11 +145,6 @@ class LogProcessor(multiprocessing.Process):
 		if result.fingerprint not in self.resultHistory:
 			logging.log(logging.INFO, str(result.to_dict()))
 			self.resultHistory[result.fingerprint] = result
-			t = {}
-			t['type'] = 'Credential'
-			t['data'] = result.to_dict()
-			for tqueue in self.extensionsQueues:
-				tqueue.put(t)
 		else:
 			self.log('Duplicate result found! Filtered.')
 
@@ -220,20 +218,20 @@ class LoggerExtension(ABC, threading.Thread):
 		self.resQ = resQ
 		self.logQ = logQ
 		self.config = config
-		self.logname = '%s-%s' % ('LogExt',self.modulename())
-
-	def log(self, level, message):
-		self.logQ.put(LogEntry(level, self.logname, message))
+		self.modulename = '%s-%s' % ('LogExt', self.__class__.__name__)
 
 	def run(self):
-		self.init(self.config)
-		self.setup()
-		self.log(logging.DEBUG,'Started!')
-		self.main()
-		self.log(logging.DEBUG,'Exiting!')
+		try:
+			self.init()
+			self.setup()
+			self.log('Started!', logging.DEBUG)
+			self.main()
+			self.log('Exiting!', logging.DEBUG)
+		except Exception:
+			self.log_exception('Exception in main function!')
 
 	@abstractmethod
-	def init(self, config):
+	def init(self):
 		pass
 
 	@abstractmethod
@@ -241,9 +239,53 @@ class LoggerExtension(ABC, threading.Thread):
 		pass
 
 	@abstractmethod
-	def modulename(self):
-		pass
-
-	@abstractmethod
 	def setup(self):
 		pass
+
+	def log_exception(self, message = None):
+		"""
+		Custom exception handler to log exceptions via the logging interface
+		:param message: Extra message for the exception if any
+		:type message: str
+		:return: None
+		"""
+		sio = io.StringIO()
+		ei = sys.exc_info()
+		tb = ei[2]
+		traceback.print_exception(ei[0], ei[1], tb, None, sio)
+		msg = sio.getvalue()
+		if msg[-1] == '\n':
+			msg = msg[:-1]
+		sio.close()
+		if message is not None:
+			msg = message + msg
+		self.log(msg, level=logging.ERROR)
+
+	def log(self, message, level = logging.INFO):
+		"""
+		Sends the log messages onto the logqueue. If no logqueue is present then prints them out on console.
+		:param message: The message to be sent
+		:type message: str
+		:param level: Log level
+		:type level: int
+		:return: None
+		"""
+		if self.logQ is not None:
+			self.logQ.put(LogEntry(level, self.modulename, message))
+		else:
+			print(str(LogEntry(level, self.modulename, message)))
+
+
+class TestExtension(LoggerExtension):
+	def init(self):
+		self.output_queue = self.config['output_queue']
+
+	def setup(self):
+		pass
+
+	def main(self):
+		while True:
+			result = self.resQ.get()
+			self.output_queue.put(result)
+
+

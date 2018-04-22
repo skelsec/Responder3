@@ -1,20 +1,16 @@
 import asyncio
 
 
-
-@asyncio.coroutine
-def generic_read(reader, n):
+async def generic_read(reader, n):
 	return reader.read(n)
 
 
-@asyncio.coroutine
-def generic_write(writer, data):
+async def generic_write(writer, data):
 	writer.write(data)
-	yield from writer.drain()
+	await writer.drain()
 
 
-@asyncio.coroutine
-def readexactly_or_exc(reader, n, timeout = None):
+async def readexactly_or_exc(reader, n, timeout = None):
 	"""
 	Helper function to read exactly N amount of data from the wire.
 	:param reader: The reader object
@@ -26,7 +22,7 @@ def readexactly_or_exc(reader, n, timeout = None):
 	:return: bytearray
 	"""
 	try:
-		data = yield from asyncio.wait_for(reader.readexactly(n), timeout = timeout)
+		data = await asyncio.wait_for(reader.readexactly(n), timeout = timeout)
 	except:
 		raise ConnectionClosed()
 
@@ -37,8 +33,7 @@ def readexactly_or_exc(reader, n, timeout = None):
 	return data
 
 
-@asyncio.coroutine
-def read_or_exc(reader, n, timeout = None):
+async def read_or_exc(reader, n, timeout = None):
 	"""
 	Helper function to read N amount of data from the wire.
 	:param reader: The reader object
@@ -50,7 +45,7 @@ def read_or_exc(reader, n, timeout = None):
 	:return: bytearray
 	"""
 	try:
-		data = yield from asyncio.wait_for(reader.read(n), timeout = timeout)
+		data = await asyncio.wait_for(reader.read(n), timeout = timeout)
 	except:
 		raise ConnectionClosed()
 
@@ -61,8 +56,7 @@ def read_or_exc(reader, n, timeout = None):
 	return data
 
 
-@asyncio.coroutine
-def readuntil_or_exc(reader, pattern, timeout = None):
+async def readuntil_or_exc(reader, pattern, timeout = None):
 	"""
 	Helper function to read the wire until a certain pattern is reached.
 	:param reader: The reader object
@@ -74,7 +68,7 @@ def readuntil_or_exc(reader, pattern, timeout = None):
 	:return: bytearray
 	"""
 	try:
-		data = yield from asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
+		data = await asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
 	except:
 		raise ConnectionClosed()
 
@@ -85,8 +79,7 @@ def readuntil_or_exc(reader, pattern, timeout = None):
 	return data
 
 
-@asyncio.coroutine
-def readline_or_exc(reader, timeout = None):
+async def readline_or_exc(reader, timeout = None):
 	"""
 	Helper function to read the wire until an end-of-line character is reached.
 	:param reader: The reader object
@@ -96,7 +89,7 @@ def readline_or_exc(reader, timeout = None):
 	:return: bytearray
 	"""
 	try:
-		data = yield from asyncio.wait_for(reader.readline(), timeout = timeout)
+		data = await asyncio.wait_for(reader.readline(), timeout = timeout)
 	except:
 		raise ConnectionClosed()
 
@@ -107,8 +100,7 @@ def readline_or_exc(reader, timeout = None):
 	return data
 
 
-@asyncio.coroutine
-def sendall(writer, data):
+async def sendall(writer, data):
 	"""
 	Helper function that writes all the data to the wire
 	:param writer: Writer object
@@ -119,7 +111,7 @@ def sendall(writer, data):
 	"""
 	try:
 		writer.write(data)
-		yield from writer.drain()
+		await writer.drain()
 	except Exception as e:
 		raise ConnectionClosed()
 
@@ -129,7 +121,7 @@ class ConnectionClosed(Exception):
 
 
 @asyncio.coroutine
-def wait_mp_event(event, aio_event):
+async def wait_mp_event(event, aio_event):
 	event.wait(timeout = None)
 	aio_event.set()
 	return

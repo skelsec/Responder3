@@ -10,13 +10,14 @@ from responder3.core.sockets import setup_base_socket
 from responder3.core.commons import PoisonerMode, ResponderPlatform
 from responder3.protocols.LLMNR import * 
 from responder3.protocols.DNS import * 
-from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
 
 
-class LLMNRGlobalSession():
-	def __init__(self, server_properties):
-		self.server_properties = server_properties
-		self.settings = server_properties.settings
+class LLMNRGlobalSession(ResponderServerGlobalSession):
+	def __init__(self, listener_socket_config, settings, log_queue):
+		ResponderServerGlobalSession.__init__(self, log_queue, self.__class__.__name__)
+		self.listener_socket_config = listener_socket_config
+		self.settings = settings
 
 		self.spooftable = []
 		self.poisonermode = PoisonerMode.ANALYSE
@@ -27,18 +28,19 @@ class LLMNRGlobalSession():
 		if self.settings is None:
 			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
 		else:
-			#parse the poisoner mode
+			# parse the poisoner mode
 			if isinstance(self.settings['mode'], str):
 				self.poisonermode = PoisonerMode[self.settings['mode'].upper()]
 
-			#compiling re strings to actual re objects and converting IP strings to IP objects
+			# compiling re strings to actual re objects and converting IP strings to IP objects
 			if self.poisonermode == PoisonerMode.SPOOF:
 				for exp in self.settings['spooftable']:
 					self.spooftable.append((re.compile(exp),ipaddress.ip_address(self.settings['spooftable'][exp])))
 
 
 class LLMNRSession(ResponderServerSession):
-	pass
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 
 
 class LLMNR(ResponderServer):
@@ -72,30 +74,29 @@ class LLMNR(ResponderServer):
 	def init(self):
 		self.parser = LLMNRPacket
 
-	@asyncio.coroutine
-	def parse_message(self):
-		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+	async def parse_message(self):
+		msg = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
 		return msg
 
-	@asyncio.coroutine
-	def send_data(self, data):
-		yield from asyncio.wait_for(self.cwriter.write(data), timeout=1)
+	async def send_data(self, data):
+		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
 		return
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
-			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+			await self.log('here?')
+			print('Here!')
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					self.log_poisonresult(requestName = q.QNAME.name)
+					await self.log_poisonresult(requestName = q.QNAME.name)
 
 			else:
 				answers = []
 				for targetRE, ip in self.globalsession.spooftable:
 					for q in msg.Questions:
 						if targetRE.match(q.QNAME.name):
-							self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+							await self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 							if ip.version == 4:
 								res = DNSAResource.construct(q.QNAME.name, ip)
 							elif ip.version == 6:
@@ -109,9 +110,10 @@ class LLMNR(ResponderServer):
 									 answers = answers,
 									 questions = msg.Questions
 								  )
-				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
+				await asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
-			raise e
+			print(str(e))
+			await self.log_exception()
 
 

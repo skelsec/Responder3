@@ -11,21 +11,22 @@ import traceback
 from responder3.core.sockets import setup_base_socket
 from responder3.core.commons import PoisonerMode, ResponderPlatform
 from responder3.core.udpwrapper import UDPClient
-from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 from responder3.protocols.DNS import *
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
 
 
-class MDNSGlobalSession():
-	def __init__(self, server_properties):
-		self.server_properties = server_properties
-		self.settings = server_properties.settings
+class MDNSGlobalSession(ResponderServerGlobalSession):
+	def __init__(self, listener_socket_config, settings, log_queue):
+		ResponderServerGlobalSession.__init__(self, log_queue, self.__class__.__name__)
+		self.listener_socket_config = listener_socket_config
+		self.settings = settings
 
 		self.spooftable = []
 		self.poisonermode = PoisonerMode.ANALYSE
 
-		self.maddr = ('224.0.0.251' , self.server_properties.listener_socket_config.bind_port)
-		if self.server_properties.listener_socket_config.bind_addr.version == 6:
-			self.maddr = ('FF02::FB' , self.server_properties.listener_socket_config. bind_port,0, self.server_properties.listener_socket_config.bind_iface_idx)
+		self.maddr = ('224.0.0.251' , self.listener_socket_config.bind_port)
+		if self.listener_socket_config.bind_addr.version == 6:
+			self.maddr = ('FF02::FB' , self.listener_socket_config. bind_port,0, self.listener_socket_config.bind_iface_idx)
 
 		self.parse_settings()
 
@@ -44,7 +45,8 @@ class MDNSGlobalSession():
 
 
 class MDNSSession(ResponderServerSession):
-	pass
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 
 
 class MDNS(ResponderServer):
@@ -78,33 +80,30 @@ class MDNS(ResponderServer):
 	def init(self):
 		self.parser = DNSPacket
 
-	@asyncio.coroutine
-	def parse_message(self):
-		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
+	async def parse_message(self):
+		msg = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=1)
 		return msg
 
-	@asyncio.coroutine
-	def send_data(self, data, addr):
+	async def send_data(self, data, addr):
 		# we need to set the addr here, because we are sending the packet to the multicast address, not to the clinet itself
 		# however there could be cases that the client accepts unicast, but it's ignored for now
-		yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+		await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		return
 	
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
-			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if msg.QR == DNSResponse.REQUEST:
 				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
-						self.log_poisonresult(requestName = q.QNAME.name)
+						await self.log_poisonresult(requestName = q.QNAME.name)
 				else:
 					answers = []
 					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
 							if q.QTYPE == DNSType.A or q.QTYPE == DNSType.AAAA:
 								if targetRE.match(q.QNAME.name):
-									self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+									await self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 									#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
 									if ip.version == 4:
 										res = DNSAResource.construct(q.QNAME.name, ip)
@@ -120,7 +119,7 @@ class MDNS(ResponderServer):
 													 answers   = answers
 													 )
 
-					yield from asyncio.wait_for(self.send_data(response.toBytes(), self.globalsession.maddr), timeout=1)
+					await asyncio.wait_for(self.send_data(response.toBytes(), self.globalsession.maddr), timeout=1)
 
 		except Exception as e:
 			raise e

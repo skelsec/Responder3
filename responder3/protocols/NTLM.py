@@ -587,6 +587,7 @@ class NTLMNegotiate():
 	def from_bytes(bbuff):
 		return NTLMNegotiate.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		t = NTLMNegotiate()
 		t.Signature         = buff.read(8).decode('ascii')
@@ -601,12 +602,23 @@ class NTLMNegotiate():
 		currPos = buff.tell()
 		
 		if t.DomainNameFields.length != 0:
-			buff.seek(t.DomainNameFields.offset,io.SEEK_SET)
-			self.Domain = buff.read(t.DomainNameFields.length).decode('utf-16le')
+			buff.seek(t.DomainNameFields.offset, io.SEEK_SET)
+			raw_data = buff.read(t.WorkstationFields.length)
+			try:
+				t.Domain = raw_data.decode('utf-16le')
+			except UnicodeDecodeError:
+				# yet another cool bug. some homebrew-NTLM clients discard the MSDN docu and send the text as ASCII
+				t.Domain = raw_data.decode('utf-8')
+
 		if t.WorkstationFields.length != 0:
-			buff.seek(t.WorkstationFields.offset,io.SEEK_SET)
-			self.Workstation = buff.read(t.WorkstationFields.length).decode('utf-16le')
-		
+			buff.seek(t.WorkstationFields.offset, io.SEEK_SET)
+			raw_data = buff.read(t.WorkstationFields.length)
+			try:
+				t.Workstation = raw_data.decode('utf-16le')
+			except UnicodeDecodeError:
+				# yet another cool bug. some homebrew-NTLM clients discard the MSDN docu and send the text as ASCII
+				t.Workstation = raw_data.decode('utf-8')
+
 		buff.seek(currPos, io.SEEK_SET)
 		return t
 

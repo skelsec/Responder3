@@ -4,16 +4,14 @@ import asyncio
 class ProtocolBase(ABC):
 	@staticmethod
 	@abstractmethod
-	@asyncio.coroutine
-	def from_streamreader(reader):
+	async def from_streamreader(reader):
 		"""
 		this method needs to be decorated with @asyncio.coroutine
 		"""
 		raise NotImplementedError
 
 	@staticmethod
-	@abstractmethod
-	def from_bytes(bbuff):
+	async def from_bytes(bbuff):
 		"""
 		takes bytes, returns the instentiated class
 		"""

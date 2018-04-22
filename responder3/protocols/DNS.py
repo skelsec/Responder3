@@ -135,15 +135,14 @@ class DNSPacket():
 		self.Authorities = []
 		self.Additionals = []
 
-	@asyncio.coroutine
-	def from_streamreader(reader, proto = socket.SOCK_DGRAM):
+	async def from_streamreader(reader, proto = socket.SOCK_DGRAM):
 		if proto == socket.SOCK_DGRAM:
-			data = yield from reader.read()
+			data = await reader.read()
 			return DNSPacket.from_bytes(data)
 		else:
-			plen_bytes = yield from reader.readexactly(2)
+			plen_bytes = await reader.readexactly(2)
 			plen = int.from_bytes(plen_bytes, byteorder = 'big', signed=False)
-			data = yield from reader.readexactly(plen)
+			data = await reader.readexactly(plen)
 			return DNSPacket.from_bytes(plen_bytes + data, proto = proto)
 
 

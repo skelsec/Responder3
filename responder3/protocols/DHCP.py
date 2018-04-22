@@ -67,8 +67,7 @@ class DHCPMessage():
 		#helper variables, not part of the standard
 		self.dhcpmessagetype = None
 
-	@asyncio.coroutine
-	def from_streamreader(reader):
+	async def from_streamreader(reader):
 		#running on UDP with no fragmentation possible, we just read everything from buffer and parse it
 		return DHCPMessage.from_buffer(reader.buff)
 

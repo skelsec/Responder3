@@ -8,8 +8,8 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 
 
 class SMTPSession(ResponderServerSession):
-	def __init__(self, *args):
-		ResponderServerSession.__init__(self, *args)
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.creds = None # {'alma':'alma2'}
 		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
 		self.encoding = 'utf8'  # THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
@@ -24,6 +24,7 @@ class SMTPSession(ResponderServerSession):
 		self.capabilities = []
 		self.helo_msg = 'Honypot SMTP at your service'
 		self.ehlo_msg = 'Honypot SMTP at your service'
+		self.log_data = False
 
 
 	def __repr__(self):
@@ -46,35 +47,42 @@ class SMTP(ResponderServer):
 		if self.session.supported_auth_types is not None:
 			self.session.capabilities.append('AUTH ' + ' '.join([a.name for a in self.session.supported_auth_types]))
 
-	@asyncio.coroutine
-	def parse_message(self, timeout=None):
+	async def parse_message(self, timeout=None):
 		try:
-			req = yield from asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
+			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
 			return req
 		except asyncio.TimeoutError:
-			self.log('Timeout!', logging.DEBUG)
+			await self.log('Timeout!', logging.DEBUG)
+			return None
+		except ConnectionClosed:
+			return None
+		except Exception:
+			await self.log_exception()
+			return None
 
-	@asyncio.coroutine
-	def send_data(self, data):
+
+	async def send_data(self, data):
 		self.cwriter.write(data)
-		yield from self.cwriter.drain()
+		await self.cwriter.drain()
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
 			# send hello
-			yield from asyncio.wait_for(
+			await asyncio.wait_for(
 				self.send_data(SMTPReply.construct(220, 'hello from Honeyport SMTP server %s' % self.session.salt).to_bytes()), timeout=1)
 
 			# main loop
 			while True:
-				cmd = yield from asyncio.wait_for(self.parse_message(), timeout=None)
+				cmd = await asyncio.wait_for(self.parse_message(), timeout=None)
 				if cmd is None:
-					# connection closed exception happened in the parsing
-					self.session.close_session.set()
-					continue
-				print(cmd)
-				print(self.session.current_state)
+					return
+
+				if 'R3DEEPDEBUG' in os.environ:
+					await self.log(cmd, logging.DEBUG)
+					await self.log(self.session.current_state, logging.DEBUG)
+
+				if self.session.log_data:
+					pass
 
 				if self.session.current_state == SMTPServerState.START:
 					if cmd.command == SMTPEHLOCmd or cmd.command == SMTPHELOCmd:
@@ -82,28 +90,27 @@ class SMTP(ResponderServer):
 							self.session.current_state = SMTPServerState.AUTHENTICATED
 
 					if cmd.command == SMTPCommand.HELO:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(
 								SMTPReply.construct(250, [self.session.helo_msg] + self.session.capabilities).to_bytes()),
 							timeout=1)
 						continue
 
 					elif cmd.command == SMTPCommand.EHLO:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(
 								SMTPReply.construct(250, [self.session.ehlo_msg] + self.session.capabilities).to_bytes()),
 							timeout=1)
 						continue
 
-
 					elif cmd.command == SMTPCommand.EXPN:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(502).to_bytes()),
 							timeout=1)
 						continue
 
 					elif cmd.command == SMTPCommand.VRFY:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(502).to_bytes()),
 							timeout=1)
 						continue
@@ -117,30 +124,30 @@ class SMTP(ResponderServer):
 							if cmd.data is not None:
 								res, cred = self.session.authhandler.do_AUTH(cmd)
 								if cred is not None:
-									self.log_credential(cred)
+									await self.log_credential(cred)
 								if res == SMTPAuthStatus.OK:
 									self.session.current_state = SMTPServerState.AUTHENTICATED
-									yield from asyncio.wait_for(
+									await asyncio.wait_for(
 										self.send_data(SMTPReply.construct(235).to_bytes()),
 										timeout=1)
 									continue
 								else:
-									yield from asyncio.wait_for(
+									await asyncio.wait_for(
 										self.send_data(SMTPReply.construct(535).to_bytes()),
 										timeout=1)
 									return
 							else:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(SMTPReply.construct(334).to_bytes()),
 									timeout=1)
 								continue
 						else:
-							yield from asyncio.wait_for(
+							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(535).to_bytes()),
 								timeout=1)
 							raise Exception('Not supported auth mechanism')
 					else:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(503).to_bytes()),
 							timeout=1)
 						continue
@@ -153,21 +160,21 @@ class SMTP(ResponderServer):
 					if cmd.command == SMTPCommand.XXXX:
 						res, cred = self.session.authhandler.do_AUTH(cmd)
 						if cred is not None:
-							self.log_credential(cred)
+							await self.log_credential(cred)
 						if res == SMTPAuthStatus.MORE_DATA_NEEDED:
-							yield from asyncio.wait_for(
+							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(334).to_bytes()),
 								timeout=1)
 							continue
 						else:
 							if res == SMTPAuthStatus.OK:
 								self.session.current_state = SMTPServerState.AUTHENTICATED
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(SMTPReply.construct(235).to_bytes()),
 									timeout=1)
 								continue
 							else:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(SMTPReply.construct(535).to_bytes()),
 									timeout=1)
 								return
@@ -176,14 +183,14 @@ class SMTP(ResponderServer):
 				elif self.session.current_state == SMTPServerState.AUTHENTICATED:
 					if cmd.command == SMTPCommand.MAIL:
 						self.session.emailFrom = cmd.emailaddress
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(250).to_bytes()),
 							timeout=1)
 						continue
 
 					elif cmd.command == SMTPCommand.RCPT:
 						self.session.emailTo.append(cmd.emailaddress)
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(250).to_bytes()),
 							timeout=1)
 						continue
@@ -191,7 +198,7 @@ class SMTP(ResponderServer):
 					elif cmd.command == SMTPCommand.DATA:
 						# we get data command, switching current_state and sending a reply to client can send data
 						if cmd.emaildata is None:
-							yield from asyncio.wait_for(
+							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(354).to_bytes()),
 								timeout=1)
 							continue
@@ -200,23 +207,23 @@ class SMTP(ResponderServer):
 							em.email = self.session.emailparser.parsestr(cmd.emaildata)
 							em.fromAddress = self.session.emailFrom  # string
 							em.toAddress = self.session.emailTo  # list
-							self.logEmail(em)
-							yield from asyncio.wait_for(
+							await self.log_email(em)
+							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(250).to_bytes()),
 								timeout=1)
 							continue
 					else:
-						yield from asyncio.wait_for(
+						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(503).to_bytes()),
 							timeout=1)
 						return
 
 				else:
-					yield from asyncio.wait_for(
+					await asyncio.wait_for(
 						self.send_data(SMTPReply.construct(503).to_bytes()),
 						timeout=1)
 					return
 
 		except Exception as e:
-			self.log_exception()
+			await self.log_exception()
 			return

@@ -147,8 +147,7 @@ class UDPClient:
 		self._socket.bind(('', 0))
 		self._laddr  = self._socket.getsockname()
 
-	@asyncio.coroutine
-	def run(self, data):
+	async def run(self, data):
 		"""
 		Main function.
 		:param data: data to send
@@ -158,15 +157,15 @@ class UDPClient:
 		if self._socket is None:
 			self.start_socket()
 		writer = UDPWriter(self._loop, self._socket, self._raddr, self._laddr)
-		yield from writer.write(data)
-		data, addr = yield from recvfrom(self._loop, self._socket, 65536)
+		await writer.write(data)
+		data, addr = await recvfrom(self._loop, self._socket, 65536)
 		reader = UDPReader(data, addr)
 		return reader, writer
 
 
 # https://www.pythonsheets.com/notes/python-asyncio.html
 class UDPServer:
-	def __init__(self, callback, server_config, loop = None, sock = None):
+	def __init__(self, callback, listener_socket_config, loop = None, sock = None):
 		"""
 
 		:param callback: Function to handle new clients
@@ -178,28 +177,30 @@ class UDPServer:
 		:type sock: socket.socket
 		"""
 		self._callback = callback
-		self.server_config = server_config
+		self.listener_socket_config = listener_socket_config
 		self._socket = sock
 		self._loop   = loop
-		if self.server_config is None:
+		if self.listener_socket_config is None:
 			if self._socket is None:
 				raise Exception('Either socket or server_properties MUST be defined!')
 			self._laddr  = self._socket.getsockname()
 		else:
-			self._laddr  = (str(self.server_config.listener_socket_config.bind_addr), self.server_config.listener_socket_config.bind_port)
+			self._laddr  = (str(self.listener_socket_config.bind_addr), self.listener_socket_config.bind_port)
 		if loop is None:
 			self._loop = asyncio.get_event_loop()
 
-	@asyncio.coroutine
-	def run(self):
+	async def main(self):
+		if self._socket is None:
+			self._socket = setup_base_socket(self.listener_socket_config)
+		while True:
+			data, addr = await recvfrom(self._loop, self._socket, 65536)
+			reader = UDPReader(data, addr)
+			writer = UDPWriter(self._loop, self._socket, addr, self._laddr)
+			self._callback(reader, writer)
+
+	async def run(self):
 		"""
 		Main function. Create the reader and writer objects and calls the callback function.
 		:return: None
 		"""
-		if self._socket is None:
-			self._socket = setup_base_socket(self.server_config.listener_socket_config)
-		while True:
-			data, addr = yield from recvfrom(self._loop, self._socket, 65536)
-			reader = UDPReader(data, addr)
-			writer = UDPWriter(self._loop, self._socket, addr, self._laddr)
-			self._callback(reader, writer)
+		return await self.main()

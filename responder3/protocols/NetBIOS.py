@@ -78,9 +78,8 @@ class NBTNSPacket():
 		self.Authorities = []
 		self.Additionals = []
 
-	@asyncio.coroutine
-	def from_streamreader(reader):
-		data = yield from reader.read()
+	async def from_streamreader(reader):
+		data = await reader.read()
 		return NBTNSPacket.from_bytes(data)
 
 	def from_bytes(bbuff):

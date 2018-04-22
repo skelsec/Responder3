@@ -8,21 +8,26 @@ import asyncio
 import collections
 
 from responder3.core.commons import *
+from responder3.core.asyncio_helpers import *
 from responder3.protocols.NTLM import NTLMAUTHHandler
 from responder3.protocols.SMB.ntstatus import *
+
 
 class HTTPVersion(enum.Enum):
 	HTTP10 = 'HTTP/1.0'
 	HTTP11 = 'HTTP/1.1'
+
 
 class HTTPState(enum.Enum):
 	UNAUTHENTICATED = enum.auto()
 	AUTHENTICATED   = enum.auto()
 	AUTHFAILED      = enum.auto()
 
+
 class HTTPAuthType(enum.Enum):
 	BASIC = enum.auto()
 	NTLM  = enum.auto()
+
 
 class HTTPContentEncoding(enum.Enum):
 	IDENTITY = enum.auto()
@@ -31,8 +36,8 @@ class HTTPContentEncoding(enum.Enum):
 	DEFLATE  = enum.auto()
 	BR       = enum.auto()
 
-HTTPResponseReasons = {
 
+HTTPResponseReasons = {
 	100 : 'Continue',
 	101 : 'Switching Protocols',
 	200 : 'OK',
@@ -75,6 +80,7 @@ HTTPResponseReasons = {
 	505 : 'HTTP Version not supported',
 
 }
+
 
 def decompress_body(req_resp, modify_internal = False):
 	if req_resp.headers[req_resp.cenc] == HTTPContentEncoding.IDENTITY:
@@ -140,7 +146,7 @@ def compress_body(req_resp, modify_internal = False):
 			return req_resp.body.encode()
 	
 
-class HTTPRequest():
+class HTTPRequest:
 	def __init__(self):
 		self.method  = None
 		self.uri     = None
@@ -190,19 +196,19 @@ class HTTPRequest():
 		if self.body is not None:
 			t+= t_body
 		return t
-		
-	@asyncio.coroutine
-	def from_streamreader(reader, timeout = None):
+
+	@staticmethod
+	async def from_streamreader(reader, timeout = None):
 		try:
 			req = HTTPRequest()
-			firstline = yield from readline_or_exc(reader, timeout = timeout)
+			firstline = await readline_or_exc(reader, timeout = timeout)
 			try:
 				req.method, req.uri, t = firstline.decode('ascii').strip().split(' ')
 				req.version = HTTPVersion(t.upper())
 			except Exception as e:
 				raise e
 
-			hdrs = yield from readuntil_or_exc(reader, b'\r\n\r\n', timeout = timeout)
+			hdrs = await readuntil_or_exc(reader, b'\r\n\r\n', timeout = timeout)
 			hdrs = hdrs[:-4].decode('ascii').split('\r\n')
 			for hdr in hdrs:
 				marker = hdr.find(': ')
@@ -230,7 +236,7 @@ class HTTPRequest():
 				return req
 
 			else:
-				req.body = yield from read_or_exc(reader, int(req.headers[req.clen]), timeout = timeout)
+				req.body = await read_or_exc(reader, int(req.headers[req.clen]), timeout = timeout)
 				if req.cenc is not None:
 					decompress_body(req, modify_internal=True)
 			return req
@@ -241,10 +247,11 @@ class HTTPRequest():
 				return
 			raise e
 
-
+	@staticmethod
 	def from_bytes(bbuff):
 		HTTPRequest.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		#not tested, the actively used code is in from_streamreader!!!
 		req = HTTPRequest()
@@ -287,7 +294,7 @@ class HTTPRequest():
 			return req
 
 		else:
-			req.body = yield from reader.read(int(req.headers[req.clen]))
+			req.body = buff.read(int(req.headers[req.clen]))
 			if req.cenc is not None:
 				decompress_body(req, modify_internal=True)
 		return req
@@ -312,18 +319,18 @@ class HTTPResponse():
 		self.cenc = None
 		self.ccon = None
 
-	@asyncio.coroutine
-	def from_streamreader(reader, timeout = None):
+	@staticmethod
+	async def from_streamreader(reader, timeout = None):
 		resp = HTTPResponse()
-		t = yield from readuntil_or_exc(reader, b' ', timeout = timeout)
+		t = await readuntil_or_exc(reader, b' ', timeout = timeout)
 		resp.version = HTTPVersion(t.decode().upper().strip())
-		t = yield from readuntil_or_exc(reader, b' ', timeout = timeout)
+		t = await readuntil_or_exc(reader, b' ', timeout = timeout)
 		resp.code = int(t.decode().strip())
-		t = yield from readline_or_exc(reader, timeout = timeout)
+		t = await readline_or_exc(reader, timeout = timeout)
 		resp.reason = t.decode().strip()
 
 		resp.headers = collections.OrderedDict()
-		hdrs = yield from reader.readuntil(b'\r\n\r\n', timeout = timeout)
+		hdrs = await reader.readuntil(b'\r\n\r\n', timeout = timeout)
 		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
 		for hdr in hdrs:
 			marker = hdr.find(': ')
@@ -350,14 +357,16 @@ class HTTPResponse():
 			return resp
 
 		else:
-			resp.body = yield from reader.read(int(resp.headers[resp.clen]), timeout = timeout)
+			resp.body = await reader.read(int(resp.headers[resp.clen]), timeout = timeout)
 			if resp.cenc is not None:
 				decompress_body(resp, modify_internal=True)
 		return resp
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return HTTPResponse.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		resp = HTTPResponse()
 		firstline = buff.readline().decode().strip()
@@ -412,10 +421,10 @@ class HTTPResponse():
 		t += 'body: %s \r\n' % repr(self.body)
 		return t
 
-
 	def __str__(self):
 		return self.__repr__()
 
+	@staticmethod
 	def construct(code, body = None, httpversion = HTTPVersion.HTTP11, headers = collections.OrderedDict(), reason = None):
 		resp = HTTPResponse()
 		resp.version = httpversion
@@ -473,7 +482,6 @@ class HTTPResponse():
 		return t
 
 
-
 class HTTP200Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
 						headers = collections.OrderedDict(), reason = None):
@@ -483,6 +491,7 @@ class HTTP200Resp(HTTPResponse):
 		self.reason  = reason
 		self.body    = body
 		self.headers = headers
+
 
 class HTTP301Resp(HTTPResponse):
 	def __init__(self,redirectURL, body = None, httpversion = HTTPVersion.HTTP11, 
@@ -495,6 +504,7 @@ class HTTP301Resp(HTTPResponse):
 		self.headers = collections.OrderedDict()
 		self.headers['Location'] = redirectURL
 
+
 class HTTP400Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
 						headers = collections.OrderedDict(), reason = None):
@@ -504,6 +514,7 @@ class HTTP400Resp(HTTPResponse):
 		self.reason  = reason
 		self.body    = body
 		self.headers = headers
+
 
 class HTTP401Resp(HTTPResponse):
 	def __init__(self, authType,authChallenge = None, body = None, 
@@ -521,6 +532,7 @@ class HTTP401Resp(HTTPResponse):
 		else:
 			self.headers['WWW-Authenticate'] = '%s' % authType
 
+
 class HTTP403Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
 						headers = collections.OrderedDict(), reason = None):
@@ -530,6 +542,7 @@ class HTTP403Resp(HTTPResponse):
 		self.reason  = reason
 		self.body    = body
 		self.headers = headers
+
 
 class HTTP407Resp(HTTPResponse):
 	def __init__(self, authType,authChallenge = None, body = None, httpversion = HTTPVersion.HTTP11, 
@@ -547,7 +560,7 @@ class HTTP407Resp(HTTPResponse):
 			self.headers['Proxy-Authenticate'] = '%s' % authType
 
 
-class HTTPBasicAuth():
+class HTTPBasicAuth:
 	"""
 	Handling HTTP basic Auth
 	verifyCreds: can be a  1. dictionary with user:password pairs.
@@ -559,10 +572,9 @@ class HTTPBasicAuth():
 		self._iterations = 0
 		self.isProxy = isProxy
 		self.verifyCreds = verifyCreds
-		self.userCreds   = None
+		self.user_creds   = None
 
-	@asyncio.coroutine
-	def do_AUTH(self, httpReq, httpserver):
+	async def do_AUTH(self, httpReq, httpserver):
 		authHdr = 'Authorization'
 		if self.isProxy:
 			authHdr = 'Proxy-Authorization'
@@ -571,51 +583,53 @@ class HTTPBasicAuth():
 			#print('Authdata in! %s' % (base64.b64decode(httpReq.headers['authorization'][5:]).decode('ascii')))
 			temp = base64.b64decode(httpReq.headers[authHdr][5:]).decode('ascii')
 			marker = temp.find(':')
-			self.userCreds   = BASICUserCredentials()
-			self.userCreds.username = temp[:marker]
-			self.userCreds.password = temp[marker+1:]
+			self.user_creds   = BASICUserCredentials()
+			self.user_creds.username = temp[:marker]
+			self.user_creds.password = temp[marker+1:]
 
-			#print(self.userCreds.username)
-			#print(self.userCreds.password)
+			#print(self.user_creds.username)
+			#print(self.user_creds.password)
 
 			if self.verify():
-				httpserver.session.currentState = HTTPState.AUTHENTICATED
+				httpserver.session.current_state = HTTPState.AUTHENTICATED
 			else:
-				httpserver.session.currentState = HTTPState.AUTHFAILED
+				httpserver.session.current_state = HTTPState.AUTHFAILED
 
-			httpserver.log_credential(self.userCreds.toCredential())
+			await httpserver.log_credential(self.user_creds.to_credential())
 
 		else:
 			if self.isProxy:
-				a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').toBytes()), timeout = 1)
 			else:
-				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').toBytes()), timeout = 1)
 			return
 
 	def verify(self):
 		if self.verifyCreds is None:
 			return True
 		else:
-			if self.userCreds.username in self.verifyCreds:
-				return self.verifyCreds[self.userCreds.username] == self.userCreds.password
+			if self.user_creds.username in self.verifyCreds:
+				return self.verifyCreds[self.user_creds.username] == self.user_creds.password
 			else:
 				return False
-		return False
 
-class BASICUserCredentials():
+
+class BASICUserCredentials:
 	def __init__(self):
 		self.username = None
 		self.password = None
 
-	def toCredential(self):
-		cred = Credential('Cleartext',
-							username = self.username, 
-							password = self.password, 
-							fullhash = '%s:%s' % (self.username, self.password)
-						)
+	def to_credential(self):
+		cred = Credential(
+			'Cleartext',
+			username = self.username,
+			password = self.password,
+			fullhash = '%s:%s' % (self.username, self.password)
+		)
 		return cred
 
-class HTTPNTLMAuth():
+
+class HTTPNTLMAuth:
 	def __init__(self, verifyCreds = None, isProxy = False):
 		self.isProxy = isProxy
 		self.hander = NTLMAUTHHandler()
@@ -628,8 +642,7 @@ class HTTPNTLMAuth():
 		self.hander.setup(settings)
 		return
 
-	@asyncio.coroutine
-	def do_AUTH(self, httpRequest, httpserver):
+	async def do_AUTH(self, httpRequest, httpserver):
 		authHdr = 'Authorization'
 		if self.isProxy:
 			authHdr = 'Proxy-Authorization'
@@ -639,29 +652,29 @@ class HTTPNTLMAuth():
 			if self.status == 0 and authStatus == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
 				self.status += 1
 				if self.isProxy:
-					a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
+					a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
 				else:
-					a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
+					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
 				return
 			
 			elif self.status == 1 and authStatus == NTStatus.STATUS_ACCOUNT_DISABLED:
 				#### TODO!!!! When NTLM credential verification is implemented, uncomment the lines below!!!
 				#### and comment out the auth successful line!
-				#httpserver.session.currentState = HTTPState.AUTHFAILED
+				#httpserver.session.current_state = HTTPState.AUTHFAILED
 				#for cred in creds:
-				#	httpserver.log_credential(cred.toCredential())
-				httpserver.session.currentState = HTTPState.AUTHENTICATED
+				#	httpserver.log_credential(cred.to_credential())
+				httpserver.session.current_state = HTTPState.AUTHENTICATED
 
 			elif self.status == 1 and authStatus == NTStatus.STATUS_SUCCESS:
-				httpserver.session.currentState = HTTPState.AUTHENTICATED
+				httpserver.session.current_state = HTTPState.AUTHENTICATED
 				for cred in creds:
-					httpserver.log_credential(cred.toCredential())
+					httpserver.log_credential(cred.to_credential())
 
 			else:
 				raise Exception('Unexpected status')
 		else:
 			if self.isProxy:
-				a = yield from asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').toBytes()), timeout = 1)
 			else:
-				a = yield from asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').toBytes()), timeout = 1)
 			return

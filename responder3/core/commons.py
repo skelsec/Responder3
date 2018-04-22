@@ -31,6 +31,16 @@ class LogEntry:
 		self.name  = name
 		self.msg   = msg
 
+	def to_dict(self):
+		t = {}
+		t['level'] = self.level
+		t['name'] = self.name
+		t['msg'] = self.msg
+		return t
+
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
+
 	def __str__(self):
 		return "[%s] %s" % (self.name, self.msg)
 
@@ -49,6 +59,7 @@ class ConnectionFactory:
 		:type rdnsd: dict created via multiprocessing.Manager()
 		"""
 		self.rdnsd = rdnsd
+		self.connection_id = 0
 
 	def from_streamwriter(self, writer):
 		"""
@@ -58,7 +69,11 @@ class ConnectionFactory:
 		:return: responder3.core.commons.Connection.
 		"""
 		protocoltype = writer.get_extra_info('socket').getsockopt(socket.SOL_SOCKET, socket.SO_TYPE)
+		cid = self.connection_id
+		self.connection_id += 1
 		con = Connection()
+		con.writer = writer
+		con.connection_id = cid
 		con.timestamp = datetime.datetime.utcnow()
 		if protocoltype == socket.SOCK_STREAM:
 			soc = writer.get_extra_info('socket')
@@ -191,12 +206,14 @@ class Connection:
 		"""
 		Keeps all the connection related information that is used for logging and/or connection purposes
 		"""
+		self.connection_id = None
 		self.remote_ip   = None
 		self.remote_dns  = None
 		self.remote_port = None
 		self.local_ip    = None
 		self.local_port  = None
 		self.timestamp   = None
+		self.writer = None
 
 	def get_remote_print_address(self):
 		"""
@@ -240,6 +257,9 @@ class Connection:
 		t['timestamp']   = self.timestamp
 		return t
 
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
+
 	def __repr__(self):
 		return str(self)
 
@@ -281,7 +301,7 @@ class Credential:
 		:return: dict
 		"""
 		t = {}
-		t['type'] = self.credtype
+		t['credtype'] = self.credtype
 		t['domain'] = self.domain
 		t['username'] = self.username
 		t['password'] = self.password
@@ -291,8 +311,11 @@ class Credential:
 		t['client_rdns'] = self.client_rdns
 		return t
 
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
+
 	def __str__(self):
-		return '%s %s %s' % (self.type, self.domain, self.fullhash)
+		return '%s %s %s' % (self.credtype, self.domain, self.fullhash)
 
 
 class PoisonResult:
@@ -307,6 +330,20 @@ class PoisonResult:
 		self.poison_name = None
 		self.poison_addr = None
 		self.mode = None
+
+	def to_dict(self):
+		t = {}
+		t['module'] = self.module
+		t['target'] = self.target
+		t['request_name'] = self.request_name
+		t['request_type'] = self.request_type
+		t['poison_name'] = self.poison_name
+		t['poison_addr'] = self.poison_addr
+		t['mode'] = self.mode
+		return t
+
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
 
 	def __repr__(self):
 		return str(self)
@@ -389,6 +426,7 @@ defaultports = {
 	"LLMNR": [(5355, 'udp')],
 	"MDNS" : [(5353, 'udp')],
 	"HTTPProxy":[(8080, 'tcp')],
+	"R3M":[(55551,'tcp')]
 }
 
 
@@ -569,3 +607,14 @@ def read_element(line, marker = ' ', marker_end = None, toend = False):
 		element = line[start:end]
 		line = line[end:]
 		return element, line
+
+
+def tracefunc(frame, event, arg, indent=[0]):
+	if event == "call":
+		indent[0] += 2
+		print("-" * indent[0] + "> call function", frame.f_code.co_name)
+	elif event == "return":
+		print("<" + "-" * indent[0], "exit function", frame.f_code.co_name)
+		indent[0] -= 2
+	return tracefunc
+

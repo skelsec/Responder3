@@ -6,6 +6,7 @@ def main():
 	parser = Responder3.get_argparser()
 	responder3 = Responder3.from_args(parser.parse_args())
 	responder3.start()
+	responder3.join()
 
 if __name__ == '__main__':
 	main()

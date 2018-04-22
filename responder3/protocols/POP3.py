@@ -67,9 +67,8 @@ class POP3CommandParser:
 		self.encoding = encoding
 		self.timeout = timeout
 
-	@asyncio.coroutine
-	def from_streamreader(self, reader):
-		cmd = yield from readline_or_exc(reader, timeout=self.timeout)
+	async def from_streamreader(self, reader):
+		cmd = await readline_or_exc(reader, timeout=self.timeout)
 		return self.from_bytes(cmd)
 
 	def from_bytes(self, bbuff):
@@ -513,19 +512,18 @@ class POP3ResponseParser():
 
 	# POP3ResponseStatus
 
-	@asyncio.coroutine
-	def from_streamreader(self, reader, is_multiline=False):
+	async def from_streamreader(self, reader, is_multiline=False):
 		if is_multiline:
 			resp = b''
 			while True:
-				t = yield from readline_or_exc(reader, timeout=self.timeout)
+				t = await readline_or_exc(reader, timeout=self.timeout)
 				resp += t
 				if t.strip() == b'.':
 					break
 			return self.from_bytes(resp)
 
 		else:
-			resp = yield from readline_or_exc(reader, timeout=self.timeout)
+			resp = await readline_or_exc(reader, timeout=self.timeout)
 			return self.from_bytes(resp)
 
 	def from_bytes(self, bbuff, is_multiline=False):

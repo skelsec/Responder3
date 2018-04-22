@@ -42,17 +42,15 @@ class GenericProxy(ResponderServer):
 		self.remote_host = self.settings['remote_host']
 		self.remote_port = int(self.settings['remote_port'])
 
-	@asyncio.coroutine
-	def modify_data(self, data):
+	async def modify_data(self, data):
 		return data
 
-	@asyncio.coroutine
-	def proxy_forwarder(self, reader, writer, laddr, raddr):
+	async def proxy_forwarder(self, reader, writer, laddr, raddr):
 		while not self.proxy_closed.is_set():
 			try:
-				data = yield from asyncio.wait_for(generic_read(reader, self.read_size), timeout=self.timeout)
+				data = await asyncio.wait_for(generic_read(reader, self.read_size), timeout=self.timeout)
 			except asyncio.TimeoutError:
-				self.log('Timeout!', logging.DEBUG)
+				await self.log('Timeout!', logging.DEBUG)
 				self.proxy_closed.set()
 				break	
 			
@@ -61,51 +59,49 @@ class GenericProxy(ResponderServer):
 				self.proxy_closed.set()
 				break
 
-			self.log_proxy('original data: %s' % data.hex(), laddr, raddr)
-			self.log_proxydata(data, laddr, raddr, False, ProxyDataType.BINARY)
-			modified_data = yield from self.modify_data(data)
+			await self.log_proxy('original data: %s' % data.hex(), laddr, raddr)
+			await self.log_proxydata(data, laddr, raddr, False, ProxyDataType.BINARY)
+			modified_data = await self.modify_data(data)
 			if modified_data != data:
-				self.log_proxy('modified data: %s' % repr(modified_data), laddr, raddr)
+				await self.log_proxy('modified data: %s' % repr(modified_data), laddr, raddr)
 			
 			try:
-				yield from asyncio.wait_for(generic_write(writer, modified_data), timeout=self.timeout)
+				await asyncio.wait_for(generic_write(writer, modified_data), timeout=self.timeout)
 			except asyncio.TimeoutError:
-				self.log('Timeout!', logging.DEBUG)
+				await self.log('Timeout!', logging.DEBUG)
 				self.proxy_closed.set()
 				break
 
 		return
 
-	@asyncio.coroutine
-	def udp_proxy(self):
+	async def udp_proxy(self):
 		laddr = (self.creader._addr[0], self.creader._addr[1])
 		raddr = (self.remote_host, self.remote_port)
-		data = yield from self.creader.read()
+		data = await self.creader.read()
 		
-		self.log_proxy('original data: %s' % repr(data), laddr, raddr)
+		await self.log_proxy('original data: %s' % repr(data), laddr, raddr)
 		
 		client = UDPClient((self.remote_host, self.remote_port))
-		self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(client.run(data), timeout=self.timeout)
+		self.proxy_reader, self.proxy_writer = await asyncio.wait_for(client.run(data), timeout=self.timeout)
 		
-		response_data = yield from self.proxy_reader.read()
+		response_data = await self.proxy_reader.read()
 		
-		self.log_proxy('original data: %s' % repr(response_data), raddr, laddr)
-		yield from self.cwriter.write(response_data)
+		await self.log_proxy('original data: %s' % repr(response_data), raddr, laddr)
+		await self.cwriter.write(response_data)
 		return
 
-	@asyncio.coroutine
-	def run(self):
-		self.log('Starting task!', logging.DEBUG)
-		self.log('Setting up remote connection!', logging.DEBUG)
+	async def run(self):
+		await self.log('Starting task!', logging.DEBUG)
+		await self.log('Setting up remote connection!', logging.DEBUG)
 		loop = asyncio.get_event_loop()
 		
-		if self.server_properties.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
-			self.proxy_reader, self.proxy_writer = yield from asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port, ssl=self.proxy_sslctx), timeout=self.timeout)
-			self.log('Connected!', logging.DEBUG)
+		if self.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
+			self.proxy_reader, self.proxy_writer = await asyncio.wait_for(asyncio.open_connection(host=self.remote_host,port = self.remote_port, ssl=self.proxy_sslctx), timeout=self.timeout)
+			await self.log('Connected!', logging.DEBUG)
 			loop.create_task(self.proxy_forwarder(self.proxy_reader, self.cwriter, (self.remote_host,int(self.remote_port)), self.caddr))
 			loop.create_task(self.proxy_forwarder(self.creader, self.proxy_writer, self.caddr, (self.remote_host,int(self.remote_port))))
 			
-			yield from asyncio.wait_for(self.proxy_closed.wait(), timeout = None)
+			await self.proxy_closed.wait()
 
 		else:
 			loop.create_task(self.udp_proxy())

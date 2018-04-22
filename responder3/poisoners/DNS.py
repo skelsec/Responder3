@@ -11,13 +11,14 @@ from responder3.core.interfaceutil import interfaces
 from responder3.core.commons import PoisonerMode
 from responder3.protocols.DNS import * 
 from responder3.core.udpwrapper import UDPClient
-from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
 
 
-class DNSGlobalSession:
-	def __init__(self, server_properties):
-		self.server_properties = server_properties
-		self.settings = server_properties.settings
+class DNSGlobalSession():
+	def __init__(self, listener_socket_config, settings, log_queue):
+		ResponderServerGlobalSession.__init__(self, log_queue, self.__class__.__name__)
+		self.listener_socket_config = listener_socket_config
+		self.settings = settings
 		self.spooftable = collections.OrderedDict()
 		self.poisonermode = PoisonerMode.ANALYSE
 
@@ -36,15 +37,15 @@ class DNSGlobalSession:
 				self.passthru_server = ipaddress.ip_address(self.settings['passthru']['dnsserver'])
 				self.passthru_port   = 53
 			
-			self.passthru_iface  = self.settings['passthru']['bind_iface'] if 'bind_iface' in self.settings['passthru'] else self.server_properties.listener_socket_config.bind_iface
-			self.passthru_iface_idx = self.server_properties.listener_socket_config.bind_iface_idx
-			self.passthru_proto  = self.settings['passthru']['bind_protocol'] if 'bind_protocol' in self.settings['passthru'] else self.server_properties.listener_socket_config.bind_protocol
+			self.passthru_iface  = self.settings['passthru']['bind_iface'] if 'bind_iface' in self.settings['passthru'] else self.listener_socket_config.bind_iface
+			self.passthru_iface_idx = self.listener_socket_config.bind_iface_idx
+			self.passthru_proto  = self.settings['passthru']['bind_protocol'] if 'bind_protocol' in self.settings['passthru'] else self.listener_socket_config.bind_protocol
 			self.passthru_ip     = ipaddress.ip_address(self.settings['passthru']['bind_addr']) if 'bind_addr' in self.settings['passthru'] else None
 
-			if self.passthru_ip is None and self.passthru_iface != self.server_properties.listener_socket_config.bind_iface:
+			if self.passthru_ip is None and self.passthru_iface != self.listener_socket_config.bind_iface:
 				self.passthru_ip = interfaces.get_ip(self.passthru_iface, self.passthru_server.version)[0]
 			else:
-				self.passthru_ip = self.server_properties.listener_socket_config.bind_addr
+				self.passthru_ip = self.listener_socket_config.bind_addr
 
 		if self.settings is None:
 			self.log('No settings defined, adjusting to Analysis functionality!')
@@ -61,30 +62,28 @@ class DNSGlobalSession:
 						self.spooftable[re.compile(regx)] = ipaddress.ip_address(entry[regx])
 
 class DNSSession(ResponderServerSession):
-	pass
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 
 
 class DNS(ResponderServer):
 	def init(self):
 		self.parser = DNSPacket
 
-	@asyncio.coroutine
-	def parse_message(self):
-		msg = yield from asyncio.wait_for(self.parser.from_streamreader(self.creader, self.globalsession.server_properties.bind_protocol), timeout = 1)
+	async def parse_message(self):
+		msg = await asyncio.wait_for(self.parser.from_streamreader(self.creader, self.globalsession.listener_socket_config.bind_protocol), timeout = 1)
 		return msg
 
-	@asyncio.coroutine
-	def send_data(self, data, addr = None):
-		if self.globalsession.server_properties.bind_protocol == socket.SOCK_DGRAM:
-			yield from asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+	async def send_data(self, data, addr = None):
+		if self.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
+			await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		else:
 			self.cwriter.write(data)
-			yield from self.cwriter.drain()
+			await self.cwriter.drain()
 		return
 
-	@asyncio.coroutine
-	def poll_dnsserver(self, msg):
-		self.log('Polling passthru server at %s!' % (str(self.globalsession.passthru_server),))
+	async def poll_dnsserver(self, msg):
+		await self.log('Polling passthru server at %s!' % (str(self.globalsession.passthru_server),))
 		if self.globalsession.passthru_proto == socket.SOCK_DGRAM:
 			if self.globalsession.passthru_ip.version == 4:
 				sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -99,7 +98,7 @@ class DNS(ResponderServer):
 				sock.bind((str(self.globalsession.passthru_ip), 0, self.globalsession.passthru_iface_idx ))
 
 			client = UDPClient((str(self.globalsession.passthru_server), self.globalsession.passthru_port), sock = sock)
-			reader, writer = yield from asyncio.wait_for(client.run(msg.toBytes()), timeout = 1)
+			reader, writer = await asyncio.wait_for(client.run(msg.toBytes()), timeout = 1)
 
 		else:
 			if self.globalsession.passthru_ip.version == 4:
@@ -115,22 +114,21 @@ class DNS(ResponderServer):
 				sock.bind((str(self.globalsession.passthru_ip), 0, self.globalsession.passthru_iface_idx ))
 				sock.connect((str(self.globalsession.passthru_server), self.globalsession.passthru_port))
 			
-			reader, writer = yield from asyncio.wait_for(asyncio.open_connection(sock = sock), timeout = 1)
+			reader, writer = await asyncio.wait_for(asyncio.open_connection(sock = sock), timeout = 1)
 		
 			writer.write(msg.toBytes())
-			yield from writer.drain()
+			await writer.drain()
 		
-		passthru_packet = yield from asyncio.wait_for(DNSPacket.from_streamreader(reader, self.globalsession.passthru_proto), timeout = 1)
-		self.log('Passthru packet recieved!')
+		passthru_packet = await asyncio.wait_for(DNSPacket.from_streamreader(reader, self.globalsession.passthru_proto), timeout = 1)
+		await self.log('Passthru packet recieved!')
 		return passthru_packet
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
-			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					self.log_poisonresult(requestName = q.QNAME.name)
+					await self.log_poisonresult(requestName = q.QNAME.name)
 
 			else:
 				answers = []
@@ -138,7 +136,7 @@ class DNS(ResponderServer):
 					for spoof_regx in self.globalsession.spooftable:
 						spoof_ip = self.globalsession.spooftable[spoof_regx]
 						if spoof_regx.match(q.QNAME.name):
-							self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip)
+							await self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip)
 							if spoof_ip.version == 4:
 								res = DNSAResource.construct(q.QNAME.name, spoof_ip)
 							elif spoof_ip.version == 6:
@@ -151,11 +149,11 @@ class DNS(ResponderServer):
 						elif self.globalsession.passthru:
 							#if ANY of the query names requested doesnt match our spoof table, then we ask an actual DNS server
 							#this completely overrides any match from the spooftable!
-							passthru_ans = yield from asyncio.wait_for(self.poll_dnsserver(msg), timeout=1)
+							passthru_ans = await asyncio.wait_for(self.poll_dnsserver(msg), timeout=1)
 							#modify response here!
 							passthru_ans_modified = passthru_ans
 							#print(passthru_ans_modified)
-							yield from asyncio.wait_for(self.send_data(passthru_ans_modified.toBytes()), timeout=1)
+							await asyncio.wait_for(self.send_data(passthru_ans_modified.toBytes()), timeout=1)
 							return
 
 				if len(answers) == 0 :
@@ -169,7 +167,7 @@ class DNS(ResponderServer):
 												 questions = msg.Questions,
 												 proto = self.globalsession.passthru_proto)
 			
-				yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
+				await asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
 			raise e

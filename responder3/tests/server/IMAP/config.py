@@ -1,5 +1,5 @@
 startup = {
-	'mode' : 'DEV',
+	'mode' : 'TEST',
 	}
 
 logsettings = {

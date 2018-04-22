@@ -6,14 +6,14 @@ import datetime
 
 from responder3.core.commons import *
 from responder3.protocols.NTP import * 
-from responder3.core.udpwrapper import UDPClient
-from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
 
 
-class NTPGlobalSession():
-	def __init__(self, server_properties):
-		self.server_properties = server_properties
-		self.settings = server_properties.settings
+class NTPGlobalSession(ResponderServerGlobalSession):
+	def __init__(self, listener_socket_config, settings, log_queue):
+		ResponderServerGlobalSession.__init__(self, log_queue, self.__class__.__name__)
+		self.listener_socket_config = listener_socket_config
+		self.settings = settings
 
 		self.refid = ipaddress.IPv4Address('127.0.0.1')
 		self.faketime = datetime.datetime.now()
@@ -35,6 +35,7 @@ class NTPGlobalSession():
 			
 			self.faketime = datetime.datetime.strptime(self.settings['faketime'], fmt)
 
+
 class NTPSession(ResponderServerSession):
 	pass
 
@@ -43,25 +44,22 @@ class NTP(ResponderServer):
 	def init(self):
 		self.parser = NTPmsg
 
-	@asyncio.coroutine
-	def parse_message(self):
+	async def parse_message(self):
 		return self.parser.from_buffer(self.creader.buff)
 
-	@asyncio.coroutine
-	def send_data(self, data):
-		yield from asyncio.wait_for(self.cwriter.write(data), timeout=1)
+	async def send_data(self, data):
+		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
 		return
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
-			msg = yield from asyncio.wait_for(self.parse_message(), timeout=1)
-			self.log('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
+			await self.log('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
 			response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
 			
-			yield from asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
+			await asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()
-			self.log('Exception! %s' % (str(e),))
+			await self.log('Exception! %s' % (str(e),))
 			pass

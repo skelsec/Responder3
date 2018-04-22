@@ -90,13 +90,10 @@ class SMTPCommandParser:
 		self.multiline_cmd = None
 		self.multiline_buffer = None
 
-	@asyncio.coroutine
-	def from_streamreader(self, reader):
+	async def from_streamreader(self, reader):
 		if self.is_mulitline:
 			while True:
-				temp = yield from readline_or_exc(reader, timeout=self.timeout)
-				print(repr(temp))
-				print(temp == b'.\r\n')
+				temp = await readline_or_exc(reader, timeout=self.timeout)
 				self.multiline_buffer += temp
 				if temp == b'.\r\n':
 					self.is_mulitline = False
@@ -104,7 +101,7 @@ class SMTPCommandParser:
 					self.multiline_buffer = None
 					return cmd
 
-		buff = yield from readline_or_exc(reader, timeout=self.timeout)
+		buff = await readline_or_exc(reader, timeout=self.timeout)
 
 		command, *params = buff.strip().decode(self.encoding).upper().split(' ')
 		if command in SMTPCommand.__members__:
@@ -227,7 +224,6 @@ class SMTPMAILCmd:
 		cmd.command = SMTPCommand[t.upper()]
 		t, bbuff = read_element(bbuff, marker=':')
 		temp_email = bbuff.strip()
-		print(temp_email)
 		if temp_email[0] == '<':
 			temp_email = temp_email[1:]
 			cmd.emailaddress, bbuff = read_element(temp_email, marker='>', toend= True)
@@ -282,7 +278,6 @@ class SMTPRCPTCmd:
 		cmd.command = SMTPCommand[t.upper()]
 		t, bbuff = read_element(bbuff, marker=':')
 		temp_email = bbuff.strip()
-		print(temp_email)
 		if temp_email[0] == '<':
 			temp_email = temp_email[1:]
 			cmd.emailaddress, bbuff = read_element(temp_email, marker='>', toend=True)
@@ -323,13 +318,12 @@ class SMTPResponseParser:
 		self.timeout = timeout
 		self.multiline_buffer_size_limit = multiline_buffer_size_limit
 
-	@asyncio.coroutine
-	def from_streamreader(self, reader):
+	async def from_streamreader(self, reader):
 		is_multiline = True
 		multiline_buffer = b''
 
 		while True:
-			buff = yield from readline_or_exc(reader, timeout=self.timeout)
+			buff = await readline_or_exc(reader, timeout=self.timeout)
 			line = buff.strip().decode(self.encoding)
 			if line[3] == '-':
 				is_multiline = True
@@ -374,7 +368,6 @@ class SMTPResponseParser:
 	def from_buffer(self, buff):
 		response = None
 		lines = buff.readlines()
-		print(lines)
 		for line in lines:
 			try:
 				temp = line.strip().decode(self.encoding)
@@ -393,7 +386,6 @@ class SMTPResponseParser:
 					response.parameter.append(temp[4:])
 
 			except Exception as e:
-				print(str(e))
 				raise e
 
 		return response
@@ -677,9 +669,6 @@ class SMTPDATACmd:
 
 	@staticmethod
 	def from_bytes(bbuff, encoding='ascii'):
-		print('----------------')
-		print(bbuff)
-		print('----------------')
 		if bbuff is None:
 			# we return an empty instance, as this command is muliline
 			return SMTPDATACmd()
@@ -689,7 +678,6 @@ class SMTPDATACmd:
 		cmd.command = SMTPCommand[t.strip().upper()]
 		cmd.emaildata = ''
 		for line in bbuff.split('\n'):
-			print(repr(line))
 			if line.strip() == '.':
 				break
 			cmd.emaildata += line + '\n'
@@ -720,12 +708,9 @@ class SMTPPlainAuth:
 		self.password = None
 
 	def update_creds(self, cmd):
-		print(cmd)
-		print(cmd.data)
 		if cmd.command == SMTPCommand.AUTH:
 			if cmd.data is not None:
 				authdata = b64decode(cmd.data).split(b'\x00')[1:]
-				print(authdata)
 				self.username = authdata[0].decode('ascii')
 				self.password = authdata[1].decode('ascii')
 			else:
@@ -733,7 +718,6 @@ class SMTPPlainAuth:
 
 		else:
 			authdata = b64decode(cmd.data).split(b'\x00')[1:]
-			print(authdata)
 			self.username = authdata[0].decode('ascii')
 			self.password = authdata[1].decode('ascii')
 

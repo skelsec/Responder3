@@ -7,8 +7,8 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 
 
 class POP3Session(ResponderServerSession):
-	def __init__(self, *args):
-		ResponderServerSession.__init__(self, *args)
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.encoding = 'ascii'
 		self.parser = POP3CommandParser(encoding=self.encoding)
 		self.authhandler = None
@@ -16,6 +16,8 @@ class POP3Session(ResponderServerSession):
 		self.creds = {'alma':'alma2'}
 		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
 		self.current_state = POP3State.AUTHORIZATION
+		self.log_data = False
+		self.welcome_message = 'hello from Honeypot POP3 server'
 
 	def __repr__(self):
 		t = '== POP3 Session ==\r\n'
@@ -32,40 +34,47 @@ class POP3(ResponderServer):
 
 	# self.parse_settings()
 
-	@asyncio.coroutine
-	def parse_message(self, timeout=None):
+	async def parse_message(self, timeout=None):
 		try:
-			req = yield from asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
+			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
 			return req
 		except asyncio.TimeoutError:
-			self.log('Timeout!', logging.DEBUG)
+			await self.log('Timeout!', logging.DEBUG)
 
-	@asyncio.coroutine
-	def send_data(self, data):
+	async def send_data(self, data):
 		self.cwriter.write(data)
-		yield from self.cwriter.drain()
+		await self.cwriter.drain()
 
-	@asyncio.coroutine
-	def run(self):
+	async def run(self):
 		try:
 			# send hello
-			yield from asyncio.wait_for(
-				self.send_data(POP3OKResp.construct('hello from Honeyport POP3 server %s' % self.session.salt).to_bytes()), timeout=1)
+			await asyncio.wait_for(
+				self.send_data(
+					POP3OKResp.construct(
+						'%s %s' % (self.session.welcome_message, self.session.salt)).to_bytes()
+					),
+					timeout=1
+			)
 
 			# main loop
 			while True:
-				cmd = yield from asyncio.wait_for(self.parse_message(), timeout=None)
+				cmd = await asyncio.wait_for(self.parse_message(), timeout=None)
 				if cmd is None:
 					# connection closed exception happened in the parsing
 					self.session.close_session.set()
 					continue
-				print(cmd)
-				print(self.session.current_state)
+
+				if 'R3DEEPDEBUG' in os.environ:
+					await self.log(cmd, logging.DEBUG)
+					await self.log(self.session.current_state, logging.DEBUG)
+
+				if self.session.log_data:
+					pass
 
 				if self.session.current_state == POP3State.AUTHORIZATION:
 					if cmd.command in POP3AuthorizationStateCommands:
 						if cmd.command == POP3Command.QUIT:
-							yield from asyncio.wait_for(
+							await asyncio.wait_for(
 								self.send_data(POP3OKResp.construct('').to_bytes()),
 								timeout=1)
 							return
@@ -79,22 +88,21 @@ class POP3(ResponderServer):
 									raise Exception('Auth type not supported!')
 
 							res, cred = self.session.authhandler.do_AUTH(cmd)
-							print(res)
 							if cred is not None:
-								self.log_credential(cred)
+								await self.log_credential(cred)
 							if res == POP3AuthStatus.MORE_DATA_NEEDED:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(POP3OKResp.construct('').to_bytes()),
 									timeout=1)
 								continue
 							elif res == POP3AuthStatus.NO:
-								self.log_credential(cred)
-								yield from asyncio.wait_for(
+								await self.log_credential(cred)
+								await asyncio.wait_for(
 									self.send_data(POP3ERRResp.construct('').to_bytes()),
 									timeout=1)
 								return
 							elif res == POP3AuthStatus.OK:
-								yield from asyncio.wait_for(
+								await asyncio.wait_for(
 									self.send_data(POP3OKResp.construct('User has no new messages').to_bytes()),
 									timeout=1)
 								self.session.current_state = POP3State.TRANSACTION
@@ -116,5 +124,5 @@ class POP3(ResponderServer):
 						raise Exception('Wrong POP3 command received for UPDATE state!')
 
 		except Exception as e:
-			self.log_exception()
+			await self.log_exception()
 			return

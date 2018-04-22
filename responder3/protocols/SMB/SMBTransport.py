@@ -15,9 +15,11 @@ class SMBTransport():
 		self.length = None
 		self.smbmessage = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SMBTransport.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		smbt = SMBTransport()
 		smbt.zero       = int.from_bytes(buff.read(1), byteorder='little', signed = False)
@@ -33,14 +35,14 @@ class SMBTransport():
 
 		return smbt
 
-	@asyncio.coroutine
-	def from_streamreader(reader):
+	@staticmethod
+	async def from_streamreader(reader):
 		smbt = SMBTransport()
-		t = yield from asyncio.wait_for(reader.readexactly(1), timeout = None)
+		t = await asyncio.wait_for(reader.readexactly(1), timeout = None)
 		smbt.zero       = int.from_bytes(t, byteorder='big', signed = False)
-		t = yield from asyncio.wait_for(reader.readexactly(3), timeout = None)
+		t = await asyncio.wait_for(reader.readexactly(3), timeout = None)
 		smbt.length     = int.from_bytes(t, byteorder='big', signed = False)
-		t = yield from asyncio.wait_for(reader.readexactly(smbt.length), timeout = None)
+		t = await asyncio.wait_for(reader.readexactly(smbt.length), timeout = None)
 		version = SMBVersion(t[0])
 		if version == SMBVersion.V2:
 			smbt.smbmessage = SMB2Message.from_bytes(t)
@@ -51,6 +53,7 @@ class SMBTransport():
 
 		return smbt
 
+	@staticmethod
 	def construct(smbmessage):
 		smbt = SMBTransport()
 		smbt.zero       = 0
@@ -58,7 +61,7 @@ class SMBTransport():
 		smbt.smbmessage = smbmessage
 		return smbt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.zero.to_bytes(1, byteorder = 'big', signed=False)
 		t += self.length.to_bytes(3, byteorder = 'big', signed=False)
 		t += self.smbmessage.toBytes()
