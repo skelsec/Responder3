@@ -115,7 +115,7 @@ class LLMNRPacket():
 
 		return t
 
-	def toBytes(self):
+	def to_bytes(self):
 		t = b''
 		t += self.TransactionID
 
@@ -131,16 +131,16 @@ class LLMNRPacket():
 		t += self.ARCOUNT.to_bytes(2, byteorder = 'big', signed=False)
 
 		for q in self.Questions:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Answers:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Authorities:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Additionals:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		return t
 

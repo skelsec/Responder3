@@ -13,6 +13,11 @@ from responder3.protocols.NTLM import NTLMAUTHHandler
 from responder3.protocols.SMB.ntstatus import *
 
 
+class HTTPConnection(enum.Enum):
+	CLOSE = 'close'
+	KEEP_ALIVE = 'keep-alive'
+
+
 class HTTPVersion(enum.Enum):
 	HTTP10 = 'HTTP/1.0'
 	HTTP11 = 'HTTP/1.1'
@@ -83,68 +88,84 @@ HTTPResponseReasons = {
 
 
 def decompress_body(req_resp, modify_internal = False):
-	if req_resp.headers[req_resp.cenc] == HTTPContentEncoding.IDENTITY:
-		if modify_internal:
-			req_resp.body = req_resp.body
-		else:
-			return req_resp.body
-	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.GZIP:
-		if modify_internal:
-			req_resp.body = gzip.decompress(req_resp.body)
-		else:
-			return gzip.decompress(req_resp.body)
+	tbuff = None
+	if req_resp.props.content_encoding == HTTPContentEncoding.IDENTITY:
+		tbuff = req_resp.body
 
-		#self.httprequest.body = zlib.decompress(body, 16+zlib.MAX_WBITS)
+	elif req_resp.props.content_encoding == HTTPContentEncoding.GZIP:
+		tbuff = gzip.decompress(req_resp.body)
 
-	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.COMPRESS:
+	elif req_resp.props.content_encoding == HTTPContentEncoding.COMPRESS:
 		raise Exception('Not Implemented!')
 
-	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.DEFLATE:
-		if modify_internal:
-			req_resp.body = zlib.decompress(req_resp.body)
-		else:
-			return zlib.decompress(req_resp.body)
+	elif req_resp.props.content_encoding == HTTPContentEncoding.DEFLATE:
+		tbuff = zlib.decompress(req_resp.body)
 		
-	elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.BR:
+	elif req_resp.props.content_encoding == HTTPContentEncoding.BR:
 		raise Exception('Not Implemented!')
+
 	else:
 		raise Exception('Encoding format not recognized!')
-		
+
+	if modify_internal:
+		req_resp.body = tbuff
+	else:
+		return tbuff
 
 def compress_body(req_resp, modify_internal = False):
-	if req_resp.cenc is not None:
-		if req_resp.headers[req_resp.cenc] == HTTPContentEncoding.IDENTITY:
-			if modify_internal:
-				req_resp.body = req_resp.body
-			else:
-				return req_resp.body.encode()
+	tbuff = None
+	if req_resp.props.content_encoding is not None:
+		if req_resp.props.content_encoding == HTTPContentEncoding.IDENTITY:
+			tbuff = req_resp.body
 			
-		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.GZIP:
-			if modify_internal:
-				req_resp.body = gzip.compress(req_resp.body)
-			else:
-				return gzip.compress(req_resp.body,  compresslevel=1)
+		elif req_resp.props.content_encoding == HTTPContentEncoding.GZIP:
+			tbuff = gzip.compress(req_resp.body)
 
-		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.COMPRESS:
+		elif req_resp.props.content_encoding == HTTPContentEncoding.COMPRESS:
 			raise Exception('COMPRESS Not Implemented!')
 
-		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.DEFLATE:
-			if modify_internal:
-				req_resp.body = zlib.compress(req_resp.body)
-			else:
-				return zlib.compress(req_resp.body)
+		elif req_resp.props.content_encoding == HTTPContentEncoding.DEFLATE:
+			tbuff = zlib.compress(req_resp.body)
 
-		elif req_resp.headers[req_resp.cenc] == HTTPContentEncoding.BR:
+		elif req_resp.props.content_encoding == HTTPContentEncoding.BR:
 			raise Exception('BR Not Implemented!')
 		else:
 			raise Exception('Encoding format not recognized!')
 
 	else:
-		if modify_internal:
-			req_resp.body = req_resp.body.encode()
-		else:
-			return req_resp.body.encode()
-	
+		tbuff = req_resp.body
+
+	if modify_internal:
+		req_resp.body = tbuff
+	else:
+		return tbuff
+
+
+class HTTPRequestProps:
+	def __init__(self):
+		self.content_length = None
+		self.content_encoding = None
+		self.connection = None
+		self.encoding = None
+		self.compression = None
+
+	@staticmethod
+	def from_request(req):
+		p = HTTPRequestProps()
+		for key in req.headers:
+			if key.lower() == 'content-encoding':
+				# TODO: THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
+				p.content_encoding = HTTPContentEncoding[req.headers[key].upper()]
+			elif key.lower() == 'content-length':
+				p.content_length = int(req.headers[key])
+
+			elif key.lower() == 'connection':
+				try:
+					p.connection = HTTPConnection(req.headers[key].lower())
+				except:
+					p.connection = HTTPConnection.KEEP_ALIVE
+		return p
+
 
 class HTTPRequest:
 	def __init__(self):
@@ -154,10 +175,9 @@ class HTTPRequest:
 		self.headers = collections.OrderedDict()
 		self.body    = None
 
-		#helper variables
-		self.clen = None
-		self.cenc = None
-		self.ccon = None
+		# helper variables
+		self.header_key_lookup_table = {}
+		self.props = None
 
 	def construct(method, uri, headers, body = None, version = HTTPVersion.HTTP11):
 		req = HTTPRequest()
@@ -165,36 +185,52 @@ class HTTPRequest:
 		req.uri = uri
 		req.version = version
 		req.headers = headers
-		req.body = body #this will be bytes!
+		req.body = body # this will be bytes!
+		req.props = HTTPRequestProps.from_request(req)
 		return req
 
-	def toBytes(self):
-		for hdr in self.headers:
-			if hdr.lower() == 'content-encoding':
-				self.cenc = hdr
-			elif hdr.lower() == 'content-length':
-				self.clen = hdr
+	def get_header(self, key):
+		"""
+		Function to map canonized header names (all lower) to the original header key values as they were recieved
+		:param key: header key to lookup
+		:return: header value or None
+		"""
+		if key.lower() not in self.header_key_lookup_table:
+			return None
+		original_key = self.header_key_lookup_table[key.lower()]
+		return self.headers[original_key]
 
-		if self.clen is None:
-			self.clen = 'Content-Length'
+	def update_header(self, key, value):
+		if key.lower() not in self.header_key_lookup_table:
+			self.headers[key] = value
+		else:
+			self.headers[self.header_key_lookup_table[key.lower()]] = value
+		self.props = HTTPRequestProps.from_request(self)
+
+	def to_bytes(self):
+		if self.props is None:
+			self.props = HTTPRequestProps.from_request(self)
+
+		if self.props.content_length is None:
+			self.update_header('Content-Length', 0)
 
 		t_body = self.body
 		if self.body is not None:
-			if self.cenc in self.headers:
+			if self.props.content_encoding is not None:
 				t_body = compress_body(self)
 			else:
 				t_body = self.body
-			self.headers[self.clen] = int(len(t_body))
+			self.update_header('Content-Length', int(len(t_body)))
 
 		t = '%s %s %s%s' % (self.method, self.uri, self.version.value, '\r\n')
 		for hdr in self.headers:
-			t+= '%s: %s\r\n' % (hdr, self.headers[hdr])
+			t += '%s: %s\r\n' % (hdr, self.headers[hdr])
 
-		t+= '\r\n'
+		t += '\r\n'
 		t = t.encode('ascii')
-		#now to deal with the body
+		# now to deal with the body
 		if self.body is not None:
-			t+= t_body
+			t += t_body
 		return t
 
 	@staticmethod
@@ -214,33 +250,19 @@ class HTTPRequest:
 				marker = hdr.find(': ')
 				key   = hdr[:marker]
 				value = hdr[marker+2:]
-				if key.lower() == 'content-encoding':
-					#TODO
-					#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-					req.headers[key] = HTTPContentEncoding[value.upper()]
-					req.cenc = key
-				elif key.lower() == 'content-length':
-					req.headers[key] = int(value)
-					req.clen = key
+				req.header_key_lookup_table[key.lower()] = key
+				req.headers[key] = value
 
-				elif key.lower() == 'connection':
-					req.headers[key] = value
-					req.ccon = key
-				
-				else:
-					req.headers[key] = value
+			req.props = HTTPRequestProps.from_request(req)
 
-			#this 'guessing' is needed to keep the original header names, you never know what might crash
-			if req.clen is None or req.headers[req.clen] == 0:
-				#at this point the request did not have a content-length field
+			if req.props.content_length is None or req.props.content_length == 0:
 				return req
 
 			else:
-				req.body = await read_or_exc(reader, int(req.headers[req.clen]), timeout = timeout)
-				if req.cenc is not None:
+				req.body = await read_or_exc(reader, req.props.content_length, timeout = timeout)
+				if req.props.content_encoding is not None:
 					decompress_body(req, modify_internal=True)
 			return req
-
 
 		except Exception as e:
 			if isinstance(e, ConnectionClosed):
@@ -249,55 +271,9 @@ class HTTPRequest:
 
 	@staticmethod
 	def from_bytes(bbuff):
-		HTTPRequest.from_buffer(io.BytesIO(bbuff))
-
-	@staticmethod
-	def from_buffer(buff):
-		#not tested, the actively used code is in from_streamreader!!!
-		req = HTTPRequest()
-		req.method, req.uri, t = buff.readline().strip().decode('ascii').split(b' ')
-		req.version = HTTPVersion(t.upper())
-		
-		#end = False
-		while True:
-			hdr = buff.readline().strip().decode('ascii')
-			if hdr == '':
-				hdr = buff.readline().strip().decode('ascii')
-				if hdr == '':
-					break
-				else:
-					raise Exception('Empty header')
-
-			marker = hdr.find(': ')
-			key   = hdr[:marker]
-			value = hdr[marker+2:]
-			if key.lower() == 'content-encoding':
-				#TODO
-				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				req.headers[key] = HTTPContentEncoding[value.upper()]
-				req.cenc = key
-			elif key.lower() == 'content-length':
-				req.headers[key] = int(value)
-				req.clen = key
-
-			elif key.lower() == 'connection':
-					req.headers[key] = value
-					req.ccon = key
-				
-			
-			else:
-				req.headers[key] = value
-
-		#this 'guessing' is needed to keep the original header names
-		if req.clen is None or req.headers[req.clen] == 0:
-			#at this point the request did not have a content-length field
-			return req
-
-		else:
-			req.body = buff.read(int(req.headers[req.clen]))
-			if req.cenc is not None:
-				decompress_body(req, modify_internal=True)
-		return req
+		pass
+		# TODO: whn everything looks nice, implement buffer parsing
+		# HTTPRequest.from_buffer(io.BytesIO(bbuff))
 
 	def __repr__(self):
 		t  = '== HTTP Request ==\r\n'
@@ -306,18 +282,36 @@ class HTTPRequest:
 		t += 'BODY   : \r\n %s\r\n' % repr(self.body)
 		return t
 
-class HTTPResponse():
+
+class HTTPResponse:
 	def __init__(self):
 		self.version = None
 		self.code    = None
 		self.reason  = None
 		self.body    = None
-		self.headers = None
+		self.headers = collections.OrderedDict()
 
-		#helper variables
-		self.clen = None
-		self.cenc = None
-		self.ccon = None
+		# helper variables
+		self.header_key_lookup_table = {}
+		self.props = None
+
+	def get_header(self, key):
+		"""
+		Function to map canonized header names (all lower) to the original header key values as they were recieved
+		:param key: header key to lookup
+		:return: header value or None
+		"""
+		if key.lower() not in self.header_key_lookup_table:
+			return None
+		original_key = self.header_key_lookup_table[key.lower()]
+		return self.headers[original_key]
+
+	def update_header(self, key, value):
+		if key.lower() not in self.header_key_lookup_table:
+			self.headers[key] = value
+		else:
+			self.headers[self.header_key_lookup_table[key.lower()]] = value
+		self.props = HTTPRequestProps.from_request(self)
 
 	@staticmethod
 	async def from_streamreader(reader, timeout = None):
@@ -329,88 +323,31 @@ class HTTPResponse():
 		t = await readline_or_exc(reader, timeout = timeout)
 		resp.reason = t.decode().strip()
 
-		resp.headers = collections.OrderedDict()
-		hdrs = await reader.readuntil(b'\r\n\r\n', timeout = timeout)
+		hdrs = await readuntil_or_exc(reader, b'\r\n\r\n', timeout=timeout)
 		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
 		for hdr in hdrs:
 			marker = hdr.find(': ')
-			key   = hdr[:marker]
-			value = hdr[marker+2:]
-			if key.lower() == 'content-encoding':
-				#TODO
-				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				resp.headers[key] = HTTPContentEncoding[value.upper()]
-				resp.cenc = key
-			elif key.lower() == 'content-length':
-				resp.headers[key] = int(value)
-				resp.clen = key
-			elif key.lower() == 'connection':
-				resp.headers[key] = value
-				resp.ccon = key
-			
-			else:
-				resp.headers[key] = value
+			key = hdr[:marker]
+			value = hdr[marker + 2:]
+			resp.header_key_lookup_table[key.lower()] = key
+			resp.headers[key] = value
 
-		#this 'guessing' is needed to keep the original header names
-		if resp.clen is None or resp.headers[resp.clen] == 0:
-			#at this point the request did not have a content-length field
+		resp.props = HTTPRequestProps.from_request(resp)
+
+		if resp.props.content_length is None or resp.props.content_length == 0:
 			return resp
 
 		else:
-			resp.body = await reader.read(int(resp.headers[resp.clen]), timeout = timeout)
-			if resp.cenc is not None:
+			resp.body = await read_or_exc(reader, resp.props.content_length, timeout=timeout)
+			if resp.props.content_encoding is not None:
 				decompress_body(resp, modify_internal=True)
 		return resp
 
 	@staticmethod
 	def from_bytes(bbuff):
-		return HTTPResponse.from_buffer(io.BytesIO(bbuff))
-
-	@staticmethod
-	def from_buffer(buff):
-		resp = HTTPResponse()
-		firstline = buff.readline().decode().strip()
-		m = firstline.find(' ')
-		assert m != -1
-		resp.version = HTTPVersion(firstline[:m].strip())
-		firstline = firstline[m+1:]
-		m = firstline.find(' ')
-		assert m != -1
-		resp.code = int(firstline[:m].strip())
-		resp.reason = firstline[m+1:].strip()
-
-		resp.headers = collections.OrderedDict()
-		
-		while True:
-			hdrline = buff.readline().decode('ascii').strip()
-			if hdrline == '':
-				break
-			marker = hdrline.find(': ')
-			key   = hdrline[:marker]
-			value = hdrline[marker+2:]
-			if key.lower() == 'content-encoding':
-				#TODO
-				#THIS DOESNT TAKE MULTIPLE-TYPE COMPRESSION INTO ACCOUNT AND WILL FAIL!
-				resp.headers[key] = HTTPContentEncoding[value.upper()]
-				resp.cenc = key
-			elif key.lower() == 'content-length':
-				resp.headers[key] = int(value)
-				resp.clen = key
-			
-			else:
-				resp.headers[key] = value
-			
-
-		#this 'guessing' is needed to keep the original header names
-		if resp.clen is None or resp.headers[resp.clen] == 0:
-			#at this point the request did not have a content-length field
-			return resp
-
-		else:
-			resp.body = buff.read(int(resp.headers[resp.clen]))
-			if resp.cenc is not None:
-				decompress_body(resp, modify_internal=True)
-		return resp
+		pass
+		# TODO: implement buffer parsing when everything looks nice
+		# return HTTPResponse.from_buffer(io.BytesIO(bbuff))
 
 	def __repr__(self):
 		t  = '== HTTPResponse ==\r\n'
@@ -438,49 +375,38 @@ class HTTPResponse():
 		resp.headers = headers
 
 		return resp
-		
-		"""
-		'Content-Type'  : 'text/html',
-					'Content-Length': 0,
-				}
-		"""
 
-	def toBytes(self):
-		####################################
-		####################################
-		## TODO!!! use specific encoding + compression when needed!!!
+	def to_bytes(self):
+		if self.props is None:
+			self.props = HTTPRequestProps.from_request(self)
 
-		#calculating body by applying sepcific ancoding and compression
-		self.code    = int(self.code)
-		t_body = None
-		if self.body is not None and self.body != '':
-			t_body = compress_body(self)
+		if self.props.content_length is None:
+			self.update_header('Content-Length', 0)
 
-		#updating content-length field
-		if t_body is None:
-			self.headers['Content-Length'] = '0'
-		else:
-			self.headers['Content-Length'] = str(len(t_body))
+		t_body = self.body
+		if self.body is not None:
+			if self.props.content_encoding is not None:
+				t_body = compress_body(self)
+			else:
+				t_body = self.body
+			self.update_header('Content-Length', int(len(t_body)))
 
-		
 		if self.reason is None:
 			self.reason = HTTPResponseReasons[self.code] if self.code in HTTPResponseReasons else 'Pink kittens'
 
-
-		t  = '%s %s %s\r\n' % (self.version.value, self.code, self.reason)
+		t = '%s %s %s\r\n' % (self.version.value, self.code, self.reason)
 		for key, value in self.headers.items():
-			if isinstance(value,enum.Enum):
-				t += '%s: %s\r\n' % (key,self.headers[key].name.lower())
+			if isinstance(value, enum.Enum):
+				t += '%s: %s\r\n' % (key, self.headers[key].name.lower())
 			else:
-				t += '%s: %s\r\n' % (key,self.headers[key])
+				t += '%s: %s\r\n' % (key, self.headers[key])
 		t += '\r\n'
 		t = t.encode('ascii')
 
 		if t_body is not None:
 			t += t_body
-		
-		return t
 
+		return t
 
 class HTTP200Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
@@ -580,15 +506,11 @@ class HTTPBasicAuth:
 			authHdr = 'Proxy-Authorization'
 		
 		if authHdr in httpReq.headers and httpReq.headers[authHdr][:5].upper() == 'BASIC':
-			#print('Authdata in! %s' % (base64.b64decode(httpReq.headers['authorization'][5:]).decode('ascii')))
 			temp = base64.b64decode(httpReq.headers[authHdr][5:]).decode('ascii')
 			marker = temp.find(':')
 			self.user_creds   = BASICUserCredentials()
 			self.user_creds.username = temp[:marker]
 			self.user_creds.password = temp[marker+1:]
-
-			#print(self.user_creds.username)
-			#print(self.user_creds.password)
 
 			if self.verify():
 				httpserver.session.current_state = HTTPState.AUTHENTICATED
@@ -599,9 +521,9 @@ class HTTPBasicAuth:
 
 		else:
 			if self.isProxy:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').to_bytes()), timeout = 1)
 			else:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').to_bytes()), timeout = 1)
 			return
 
 	def verify(self):
@@ -652,17 +574,17 @@ class HTTPNTLMAuth:
 			if self.status == 0 and authStatus == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
 				self.status += 1
 				if self.isProxy:
-					a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
+					a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).to_bytes()), timeout =1 )
 				else:
-					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).toBytes()), timeout =1 )
+					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).to_bytes()), timeout =1 )
 				return
 			
 			elif self.status == 1 and authStatus == NTStatus.STATUS_ACCOUNT_DISABLED:
-				#### TODO!!!! When NTLM credential verification is implemented, uncomment the lines below!!!
-				#### and comment out the auth successful line!
-				#httpserver.session.current_state = HTTPState.AUTHFAILED
-				#for cred in creds:
-				#	httpserver.log_credential(cred.to_credential())
+				# TODO!!!! When NTLM credential verification is implemented, uncomment the lines below!!!
+				# and comment out the auth successful line!
+				# httpserver.session.current_state = HTTPState.AUTHFAILED
+				# for cred in creds:
+				# 	httpserver.log_credential(cred.to_credential())
 				httpserver.session.current_state = HTTPState.AUTHENTICATED
 
 			elif self.status == 1 and authStatus == NTStatus.STATUS_SUCCESS:
@@ -674,7 +596,7 @@ class HTTPNTLMAuth:
 				raise Exception('Unexpected status')
 		else:
 			if self.isProxy:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').to_bytes()), timeout = 1)
 			else:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').toBytes()), timeout = 1)
+				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').to_bytes()), timeout = 1)
 			return

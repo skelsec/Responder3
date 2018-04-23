@@ -119,7 +119,7 @@ class MDNS(ResponderServer):
 													 answers   = answers
 													 )
 
-					await asyncio.wait_for(self.send_data(response.toBytes(), self.globalsession.maddr), timeout=1)
+					await asyncio.wait_for(self.send_data(response.to_bytes(), self.globalsession.maddr), timeout=1)
 
 		except Exception as e:
 			raise e

@@ -63,7 +63,7 @@ class NTP(ResponderServer):
 			self.log(logging.INFO,'Packet: %s' % (repr(packet),), session)
 		try:
 			self.log(logging.INFO,'Request in! Spoofing time to: %s' % self.fakeTime.isoformat(), session)
-			transport.sendto(NTPPacket.construct_fake_reply(packet.TransmitTimestamp, self.fakeTime, self.refID).toBytes(), addr)
+			transport.sendto(NTPPacket.construct_fake_reply(packet.TransmitTimestamp, self.fakeTime, self.refID).to_bytes(), addr)
 
 		except Exception as e:
 			traceback.print_exc()

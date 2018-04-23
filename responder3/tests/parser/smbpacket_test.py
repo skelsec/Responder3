@@ -30,7 +30,7 @@ class NetBIOS():
 		packet.datalength = len(smbData)
 		packet.data = smbData
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.type.value.to_bytes(1, byteorder = 'big', signed=False)
 		t += len(data).to_bytes(3, byteorder = 'big', signed=False)
 		t += self.data

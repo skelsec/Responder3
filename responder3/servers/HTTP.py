@@ -144,9 +144,9 @@ class HTTP(ResponderServer):
 					return
 
 				# indicating to the client that TCP socket has opened towards the remote host
-				await asyncio.wait_for(self.send_data(HTTP200Resp().toBytes()), timeout = 1)
-				self.loop.create_task(self.proxy_forwarder(remote_reader, self.cwriter, '%s:%d' % (rhost,int(rport)), self.session.connection.getLocalAddress()))
-				self.loop.create_task(self.proxy_forwarder(self.creader, remote_writer, self.session.connection.getLocalAddress(), '%s:%d' % (rhost,int(rport))))
+				await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
+				self.loop.create_task(self.proxy_forwarder(remote_reader, self.cwriter, '%s:%d' % (rhost,int(rport)), self.session.connection.get_local_address()))
+				self.loop.create_task(self.proxy_forwarder(self.creader, remote_writer, self.session.connection.get_local_address(), '%s:%d' % (rhost,int(rport))))
 				await asyncio.wait_for(self.session.proxy_closed.wait(), timeout = None)
 			
 			else:
@@ -200,17 +200,17 @@ class HTTP(ResponderServer):
 					return
 					
 
-				#sending data to remote host
-				remote_writer.write(req_new.toBytes())
+				# sending data to remote host
+				remote_writer.write(req_new.to_bytes())
 				await remote_writer.drain()
 
 				resp = await asyncio.wait_for(HTTPResponse.from_streamreader(remote_reader), timeout = 1)
 				await self.log('=== proxyying response ====', logging.DEBUG)
-				await asyncio.wait_for(self.send_data(resp.toBytes()), timeout = None)
+				await asyncio.wait_for(self.send_data(resp.to_bytes()), timeout = None)
 
 				await self.log('=== PROXY === \r\n %s \r\n %s ======' % (req_new, resp))
 
-				if req.ccon is not None and req.headers[req.ccon].lower() == 'keep-alive':
+				if req.props.connection is not None and req.props.connection == HTTPConnection.KEEP_ALIVE:
 					print('keepalive!')
 					req = await asyncio.wait_for(self.parse_message(timeout = None), timeout = None)
 					if req is None:
@@ -246,7 +246,7 @@ class HTTP(ResponderServer):
 					await self.session.HTTPAtuhentication.do_AUTH(req, self)
 
 				if self.session.current_state == HTTPState.AUTHFAILED:
-					await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').toBytes()), timeout = 1)
+					await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').to_bytes()), timeout = 1)
 					self.cwriter.close()
 					return
 
@@ -260,7 +260,7 @@ class HTTP(ResponderServer):
 					else:
 						# serve page or whatever
 						print('sending OK')
-						await asyncio.wait_for(self.send_data(HTTP200Resp().toBytes()), timeout = 1)
+						await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
 						return
 
 		except Exception as e:

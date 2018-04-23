@@ -8,16 +8,18 @@ import traceback
 from responder3.protocols.SMB.ntstatus import *
 from responder3.protocols.SMB.utils import *
 
+
 class SMB2HeaderFlag(enum.IntFlag):
-	SMB2_FLAGS_SERVER_TO_REDIR    = 0x00000001 #When set, indicates the message is a response rather than a request. This MUST be set on responses sent from the server to the client, and MUST NOT be set on requests sent from the client to the server.
-	SMB2_FLAGS_ASYNC_COMMAND      = 0x00000002 #When set, indicates that this is an ASYNC SMB2 header. Always set for headers of the form described in this section.
+	SMB2_FLAGS_SERVER_TO_REDIR    = 0x00000001  # When set, indicates the message is a response rather than a request. This MUST be set on responses sent from the server to the client, and MUST NOT be set on requests sent from the client to the server.
+	SMB2_FLAGS_ASYNC_COMMAND      = 0x00000002  # When set, indicates that this is an ASYNC SMB2 header. Always set for headers of the form described in this section.
 	SMB2_FLAGS_RELATED_OPERATIONS = 0x00000004
-	SMB2_FLAGS_SIGNED             = 0x00000008 #When set, indicates that this packet has been signed. The use of this flag is as specified in section 3.1.5.1.
-	SMB2_FLAGS_PRIORITY_MASK      = 0x00000070 #This flag is only valid for the SMB 3.1.1 dialect. It is a mask for the requested I/O priority of the request, and it MUST be a value in the range 0 to 7.
-	SMB2_FLAGS_DFS_OPERATIONS     = 0x10000000 #When set, indicates that this command is a Distributed File System (DFS) operation. The use of this flag is as specified in section 3.3.5.9.
+	SMB2_FLAGS_SIGNED             = 0x00000008  # When set, indicates that this packet has been signed. The use of this flag is as specified in section 3.1.5.1.
+	SMB2_FLAGS_PRIORITY_MASK      = 0x00000070  # This flag is only valid for the SMB 3.1.1 dialect. It is a mask for the requested I/O priority of the request, and it MUST be a value in the range 0 to 7.
+	SMB2_FLAGS_DFS_OPERATIONS     = 0x10000000  # When set, indicates that this command is a Distributed File System (DFS) operation. The use of this flag is as specified in section 3.3.5.9.
 	SMB2_FLAGS_REPLAY_OPERATION   = 0x20000000
 
-#https://msdn.microsoft.com/en-us/library/cc246528.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246528.aspx
 class SMB2Command(enum.Enum):
 	NEGOTIATE       = 0x0000
 	SESSION_SETUP   = 0x0001
@@ -40,13 +42,13 @@ class SMB2Command(enum.Enum):
 	OPLOCK_BREAK    = 0x0012
 
 
-#https://msdn.microsoft.com/en-us/library/cc246528.aspx
-class SMB2Header_ASYNC():
+# https://msdn.microsoft.com/en-us/library/cc246528.aspx
+class SMB2Header_ASYNC:
 	def __init__(self):
 		self.ProtocolId    = None
 		self.StructureSize = None
 		self.CreditCharge  = None
-		self.Status        = None #In a request, this field is interpreted in different ways depending on the SMB2 dialect.
+		self.Status        = None  # In a request, this field is interpreted in different ways depending on the SMB2 dialect.
 		self.Command       = None
 		self.Credit        = None
 		self.Flags         = None
@@ -56,6 +58,7 @@ class SMB2Header_ASYNC():
 		self.SessionId     = None
 		self.Signature     = None
 
+	@staticmethod
 	def from_buffer(buff):
 		hdr = SMB2Header_ASYNC()
 		hdr.ProtocolId = buff.read(4)
@@ -74,6 +77,7 @@ class SMB2Header_ASYNC():
 		hdr.Signature = buff.read(16)
 		return hdr
 
+	@staticmethod
 	def construct(cmd, flags, msgid, Credit = 0, NextCommand=0, CreditCharge = 0, 
 					Signature=b'\x00'*16,
 					AsyncId=b'\x00'*8, SessionId = b'\x00'*8, 
@@ -94,7 +98,7 @@ class SMB2Header_ASYNC():
 
 		return hdr
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.ProtocolId
 		t += self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.CreditCharge.to_bytes(2, byteorder = 'little', signed=False)
@@ -108,7 +112,6 @@ class SMB2Header_ASYNC():
 		t += self.SessionId
 		t += self.Signature
 		return t
-
 
 	def __repr__(self):
 		t = '===SMB2 HEADER ASYNC===\r\n'
@@ -126,6 +129,7 @@ class SMB2Header_ASYNC():
 		t += 'Signature: %s\r\n' % self.Signature
 		return t
 
+
 class SMB2Header_SYNC():
 	def __init__(self):
 		self.ProtocolId    = None
@@ -142,7 +146,7 @@ class SMB2Header_SYNC():
 		self.SessionId     = None
 		self.Signature     = None
 
-
+	@staticmethod
 	def from_buffer(buff):
 		hdr = SMB2Header_SYNC()
 		hdr.ProtocolId = buff.read(4)
@@ -162,7 +166,7 @@ class SMB2Header_SYNC():
 		hdr.Signature   = buff.read(16)
 		return hdr
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.ProtocolId
 		t += self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.CreditCharge.to_bytes(2, byteorder = 'little', signed=False)
@@ -195,10 +199,12 @@ class SMB2Header_SYNC():
 		t += 'Signature: %s\r\n' % self.Signature
 		return t
 
-class SMB2NotImplementedCommand():
+
+class SMB2NotImplementedCommand:
 	def __init__(self):
 		self.data = None
 
+	@staticmethod
 	def from_buffer(buff):
 		cmd = SMB2NotImplementedCommand()
 		cmd.data = buff.read()
@@ -209,15 +215,18 @@ class SMB2NotImplementedCommand():
 		t += 'Data: %s\r\n' % repr(self.data)
 		return t
 
-class SMB2Message():
+
+class SMB2Message:
 	def __init__(self):
 		self.type      = 2
 		self.header    = None
 		self.command   = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SMB2Message.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		msg = SMB2Message()
 		if SMB2Message.isAsync(buff):
@@ -234,14 +243,14 @@ class SMB2Message():
 			print(classname)
 			class_ = getattr(sys.modules[__name__], classname)
 			msg.command = class_.from_buffer(buff)
-			#msg.command.from_buffer(buff)
 		except Exception as e:
 			traceback.print_exc()
 			print('Could not find command implementation! %s' % str(e))
 			msg.command = SMB2NotImplementedCommand.from_buffer(buff)
 
 		return msg
-	
+
+	@staticmethod
 	def isAsync(buff):
 		"""
 		jumping to the header flags and check if the AYSNC command flag is set
@@ -252,11 +261,10 @@ class SMB2Message():
 		buff.seek(pos, io.SEEK_SET)
 		return SMB2HeaderFlag.SMB2_FLAGS_ASYNC_COMMAND in flags
 
-	def toBytes(self):
-		t  = self.header.toBytes()
-		t += self.command.toBytes()
+	def to_bytes(self):
+		t  = self.header.to_bytes()
+		t += self.command.to_bytes()
 		return t
-
 
 	def __repr__(self):
 		t = "== SMBv2 Message =="
@@ -264,12 +272,14 @@ class SMB2Message():
 		t += repr(self.command)
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc246543.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NegotiateSecurityMode(enum.IntFlag):
 	SMB2_NEGOTIATE_SIGNING_ENABLED  = 0x0001
 	SMB2_NEGOTIATE_SIGNING_REQUIRED = 0x0002
 
-#https://msdn.microsoft.com/en-us/library/cc246543.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246543.aspx
 class NegotiateCapabilities(enum.IntFlag):
 	SMB2_GLOBAL_CAP_DFS = 0x00000001 #When set, indicates that the client supports the Distributed File System (DFS).
 	SMB2_GLOBAL_CAP_LEASING = 0x00000002 #When set, indicates that the client supports leasing.
@@ -279,6 +289,7 @@ class NegotiateCapabilities(enum.IntFlag):
 	SMB2_GLOBAL_CAP_DIRECTORY_LEASING = 0x00000020 #When set, indicates that the client supports directory leasing.
 	SMB2_GLOBAL_CAP_ENCRYPTION = 0x00000040 #When set, indicates that the client supports encryption.
 
+
 class NegotiateDialects(enum.Enum):
 	SMB202 = 0x0202 #SMB 2.0.2 dialect revision number.
 	SMB210 = 0x0210 #SMB 2.1 dialect revision number.<10>
@@ -286,8 +297,9 @@ class NegotiateDialects(enum.Enum):
 	SMB302 = 0x0302 #SMB 3.0.2 dialect revision number.<12>
 	SMB311 = 0x0311 #SMB 3.1.1 dialect revision number.<13>
 
-#https://msdn.microsoft.com/en-us/library/cc246543.aspx
-class NEGOTIATE_REQ():
+
+# https://msdn.microsoft.com/en-us/library/cc246543.aspx
+class NEGOTIATE_REQ:
 	def __init__(self):
 		self.StructureSize   = None
 		self.DialectCount    = None
@@ -303,7 +315,7 @@ class NEGOTIATE_REQ():
 		self.NegotiateContextList = None
 		self.Dialects        = None	
 
-
+	@staticmethod
 	def from_buffer(buff):
 		cmd = NEGOTIATE_REQ()
 		cmd.StructureSize = int.from_bytes(buff.read(2), byteorder='little', signed = False)
@@ -314,7 +326,7 @@ class NEGOTIATE_REQ():
 		cmd.Reserved = buff.read(2)
 		cmd.Capabilities = NegotiateCapabilities(int.from_bytes(buff.read(4), byteorder='little', signed = False))
 		cmd.ClientGuid = uuid.UUID(bytes=buff.read(16))
-		#skipping the next field because it's interpretation depends on the data after it...
+		# skipping the next field because it's interpretation depends on the data after it...
 		pos = buff.tell()
 		buff.seek(8, io.SEEK_CUR)
 		
@@ -367,21 +379,25 @@ class NEGOTIATE_REQ():
 
 		return t
 
+
 class SMB2ContextType(enum.Enum):
 	SMB2_PREAUTH_INTEGRITY_CAPABILITIES = 0x0001
 	SMB2_ENCRYPTION_CAPABILITIES = 0x0002
 
+
 class SMB2HashAlgorithm(enum.Enum):
 	SHA_512 = 0x0001
 
-#https://msdn.microsoft.com/en-us/library/mt208834.aspx
-class SMB2NegotiateContext():
+
+# https://msdn.microsoft.com/en-us/library/mt208834.aspx
+class SMB2NegotiateContext:
 	def __init__(self):
 		self.ContextType = None
 		self.DataLength  = None
 		self.Reserved    = None
 		self.Data        = None
 
+	@staticmethod
 	def from_buffer(buff):
 		ctx = SMB2NegotiateContext()
 		ctx.ContextType = SMB2ContextType(int.from_bytes(buff.read(2), byteorder = 'little', signed = False))
@@ -396,7 +412,7 @@ class SMB2NegotiateContext():
 
 		return ctx
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.ContextType.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.DataLength.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.Reserved.to_bytes(4, byteorder = 'little', signed=False)
@@ -411,13 +427,15 @@ class SMB2NegotiateContext():
 
 		return t
 
-class SMB2PreauthIntegrityCapabilities():
+
+class SMB2PreauthIntegrityCapabilities:
 	def __init__(self, data=None):
 		self.HashAlgorithmCount = None
 		self.SaltLength         = None
 		self.HashAlgorithms     = None
 		self.Salt               = None
 
+	@staticmethod
 	def from_buffer(buff):
 		cap = SMB2PreauthIntegrityCapabilities()
 		cap.HashAlgorithmCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
@@ -430,7 +448,7 @@ class SMB2PreauthIntegrityCapabilities():
 
 		return cap
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.HashAlgorithmCount.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SaltLength.to_bytes(2, byteorder = 'little', signed=False)
 		for hashalgo in self.HashAlgorithms:
@@ -451,15 +469,18 @@ class SMB2PreauthIntegrityCapabilities():
 
 		return t
 
+
 class SMB2Cipher(enum.Enum):
 	AES_128_CCM = 0x0001
 	AES_128_GCM = 0x0002
 
-class SMB2EncryptionCapabilities():
+
+class SMB2EncryptionCapabilities:
 	def __init__(self):
 		self.CipherCount = None
 		self.Ciphers = None
 
+	@staticmethod
 	def from_buffer(buff):
 		cap = SMB2EncryptionCapabilities()
 		cap.CipherCount = int.from_bytes(buff.read(2), byteorder='little', signed = False)
@@ -470,7 +491,7 @@ class SMB2EncryptionCapabilities():
 
 		return cap
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.CipherCount.to_bytes(2, byteorder = 'little', signed=False)
 		for cipher in self.Ciphers:
 			t += cipher.to_bytes(2, byteorder = 'little', signed=False)
@@ -486,14 +507,14 @@ class SMB2EncryptionCapabilities():
 
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc246561.aspx
-class NEGOTIATE_REPLY():
-	
+
+# https://msdn.microsoft.com/en-us/library/cc246561.aspx
+class NEGOTIATE_REPLY:
 	def __init__(self):
 		self.StructureSize = None
 		self.SecurityMode = None
 		self.DialectRevision = None
-		self.NegotiateContextCount = None #or reserved
+		self.NegotiateContextCount = None # or reserved
 		self.ServerGuid = None
 		self.Capabilities = None
 		self.MaxTransactSize = None
@@ -508,16 +529,16 @@ class NEGOTIATE_REPLY():
 		self.Padding = None
 		self.NegotiateContextList = None
 		self.ppos = 64
-		
-		
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return NEGOTIATE_REPLY.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		msg = NEGOTIATE_REPLY()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little', signed = False)
-		assert self.StructureSize == 65
+		assert msg.StructureSize == 65
 		msg.SecurityMode    = NegotiateSecurityMode(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.DialectRevision = NegotiateDialects(int.from_bytes(buff.read(2), byteorder='little', signed = False))
 		msg.NegotiateContextCount  = int.from_bytes(buff.read(2), byteorder='little', signed = False)
@@ -540,13 +561,14 @@ class NEGOTIATE_REPLY():
 		pos_buff_end = buff.tell()
 
 		if msg.DialectRevision == NegotiateDialects.SMB311:
-			self.NegotiateContextList = []
+			msg.NegotiateContextList = []
 			buff.seek(msg.NegotiateContextOffset, io.SEEK_SET)
 			for i in range(msg.NegotiateContextCount):
 				msg.NegotiateContextList.append(SMB2NegotiateContext.from_buffer(buff))
 
 		return msg
 
+	@staticmethod
 	def construct(data, SecurityMode, DialectRevision, ServerGuid, Capabilities, 
 					MaxTransactSize= 8388608, MaxReadSize= 8388608, MaxWriteSize= 8388608, 
 					SystemTime = datetime.datetime.now(), 
@@ -576,8 +598,7 @@ class NEGOTIATE_REPLY():
 
 		return cmd
 
-
-	def toBytes(self, ppos = None):
+	def to_bytes(self, ppos = None):
 		if ppos is None:
 			ppos = self.ppos
 		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
@@ -599,7 +620,7 @@ class NEGOTIATE_REPLY():
 
 		if self.NegotiateContextCount > 0:
 			for ngctx in self.NegotiateContextList:
-				t+= ngctx.toBytes()
+				t+= ngctx.to_bytes()
 				#PADDING!
 				q,m = divmod(len(t)+ppos,8)
 				t+= b'\x00'*( (q+1)*8 -  len(t)   )
@@ -620,13 +641,14 @@ class NEGOTIATE_REPLY():
 		t += 'ServerStartTime: %s\r\n' % self.ServerStartTime.isoformat()
 		t += 'SecurityBufferOffset: %s\r\n' % self.SecurityBufferOffset
 		t += 'SecurityBufferLength: %s\r\n' % self.SecurityBufferLength
-		t += 'Multidata2: %s\r\n' % self.Multidata2
 		t += 'Buffer: %s\r\n' % self.Buffer
 		t += 'NegotiateContextList: %s\r\n' % self.NegotiateContextList
 		return t
 
+
 class SessionSetupFlag(enum.IntFlag):
 	SMB2_SESSION_FLAG_BINDING = 0x01
+
 
 class SessionSetupCapabilities(enum.IntFlag):
 	SMB2_GLOBAL_CAP_DFS     = 0x00000001 #When set, indicates that the client supports the Distributed File System (DFS).
@@ -634,8 +656,9 @@ class SessionSetupCapabilities(enum.IntFlag):
 	SMB2_GLOBAL_CAP_UNUSED2 = 0x00000004 #SHOULD be set to zero and server MUST ignore.
 	SMB2_GLOBAL_CAP_UNUSED3 = 0x00000008 #
 
-#https://msdn.microsoft.com/en-us/library/cc246563.aspx
-class SESSION_SETUP_REQ():
+
+# https://msdn.microsoft.com/en-us/library/cc246563.aspx
+class SESSION_SETUP_REQ:
 	def __init__(self):
 		self.StructureSize = None
 		self.Flags = None
@@ -647,9 +670,11 @@ class SESSION_SETUP_REQ():
 		self.PreviousSessionId = None
 		self.Buffer = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SESSION_SETUP_REQ.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		msg = SESSION_SETUP_REQ()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
@@ -679,13 +704,15 @@ class SESSION_SETUP_REQ():
 		t += 'Buffer: %s\r\n' % self.Buffer
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc246564.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246564.aspx
 class SessionFlags(enum.IntFlag):
 	SMB2_SESSION_FLAG_IS_GUEST = 0x0001 #If set, the client has been authenticated as a guest user.
 	SMB2_SESSION_FLAG_IS_NULL = 0x0002 #If set, the client has been authenticated as an anonymous user.
 	SMB2_SESSION_FLAG_ENCRYPT_DATA = 0x0004 #If set, the server requires encryption of messages on this session, per the conditions specified in section 3.3.5.2.9. This flag is only valid for the SMB 3.x dialect family.
 
-#https://msdn.microsoft.com/en-us/library/cc246564.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246564.aspx
 class SESSION_SETUP_REPLY():
 	def __init__(self):
 		self.StructureSize = None
@@ -695,9 +722,11 @@ class SESSION_SETUP_REPLY():
 		self.Buffer = None
 		self.ppos = 64
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return SESSION_SETUP_REPLY.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		msg = SESSION_SETUP_REPLY()
 		msg.StructureSize   = int.from_bytes(buff.read(2), byteorder='little')
@@ -707,8 +736,8 @@ class SESSION_SETUP_REPLY():
 		msg.SecurityBufferLength = int.from_bytes(buff.read(2), byteorder = 'little')
 		msg.Buffer= buff.read(msg.SecurityBufferLength)
 
+	@staticmethod
 	def construct(data, flags, ppos = None):
-
 		msg = SESSION_SETUP_REPLY()
 		if ppos is None:
 			ppos = msg.ppos
@@ -719,7 +748,7 @@ class SESSION_SETUP_REPLY():
 		msg.Buffer = data
 		return msg
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.StructureSize.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SessionFlags.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
@@ -738,14 +767,15 @@ class SESSION_SETUP_REPLY():
 
 
 class SMB2TreeConnectRQFlag(enum.IntFlag):
-	SMB2_TREE_CONNECT_FLAG_CLUSTER_RECONNECT = 0x0001 #When set, indicates that the client has previously connected to the specified cluster share using the SMB dialect of the connection on which the request is received.
-	SMB2_TREE_CONNECT_FLAG_REDIRECT_TO_OWNER = 0x0002 #When set, indicates that the client can handle synchronous share redirects via a Share Redirect error context response as specified in section 2.2.2.2.2.
-	SMB2_TREE_CONNECT_FLAG_EXTENSION_PRESENT = 0x0004 #When set, indicates that a tree connect request extension, as specified in section 2.2.9.1, is present, starting at the Buffer field of this tree connect request. 
+	SMB2_TREE_CONNECT_FLAG_CLUSTER_RECONNECT = 0x0001  # When set, indicates that the client has previously connected to the specified cluster share using the SMB dialect of the connection on which the request is received.
+	SMB2_TREE_CONNECT_FLAG_REDIRECT_TO_OWNER = 0x0002  # When set, indicates that the client can handle synchronous share redirects via a Share Redirect error context response as specified in section 2.2.2.2.2.
+	SMB2_TREE_CONNECT_FLAG_EXTENSION_PRESENT = 0x0004  # When set, indicates that a tree connect request extension, as specified in section 2.2.9.1, is present, starting at the Buffer field of this tree connect request.
 
-#https://msdn.microsoft.com/en-us/library/cc246567.aspx
-class TREE_CONNECT_REQ():
+
+# https://msdn.microsoft.com/en-us/library/cc246567.aspx
+class TREE_CONNECT_REQ:
 	def __init__(self, data = None):
-		### FIX THIS!!!!
+		#TODO: FIX THIS!!!!
 		self.Dialect = NegotiateDialects.SMB300
 		#######################################
 		self.StructureSize = None
@@ -793,10 +823,12 @@ class TREE_CONNECT_REQ():
 		
 		return t
 
+
 class SMB2ShareType(enum.Enum):
 	SMB2_SHARE_TYPE_DISK  = 0x01 #Physical disk share.
 	SMB2_SHARE_TYPE_PIPE  = 0x02 #Named pipe share.
 	SMB2_SHARE_TYPE_PRINT = 0x03 #Printer share.
+
 
 class SMB2ShareFlags(enum.IntFlag):
 	SMB2_SHAREFLAG_MANUAL_CACHING = 0x00000000 #The client can cache files that are explicitly selected by the user for offline use.
@@ -815,6 +847,7 @@ class SMB2ShareFlags(enum.IntFlag):
 	SMB2_SHAREFLAG_ENCRYPT_DATA = 0x00008000#The server requires encryption of remote file access messages on this share, per the conditions specified in section 3.3.5.2.11. This flag is only valid for the SMB 3.x dialect family.
 	SMB2_SHAREFLAG_IDENTITY_REMOTING = 0x00040000#The share supports identity remoting. The client can request remoted identity access for the share via the SMB2_REMOTED_IDENTITY_TREE_CONNECT context as specified in section 2.2.9.2.1.
 
+
 class SMB2ShareCapabilities(enum.IntFlag):
 	SMB2_SHARE_CAP_DFS = 0x00000008 #The specified share is present in a DFS tree structure. The server MUST set the SMB2_SHARE_CAP_DFS bit in the Capabilities field if the per-share property Share.IsDfs is TRUE.
 	SMB2_SHARE_CAP_CONTINUOUS_AVAILABILITY = 0x00000010 #The specified share is continuously available. This flag is only valid for the SMB 3.x dialect family.
@@ -823,7 +856,8 @@ class SMB2ShareCapabilities(enum.IntFlag):
 	SMB2_SHARE_CAP_ASYMMETRIC = 0x00000080#The specified share is present on a server configuration that allows dynamic changes in the ownership of the share. This flag is not valid for the SMB 2.0.2, 2.1, and 3.0 dialects.
 	SMB2_SHARE_CAP_REDIRECT_TO_OWNER = 0x00000100#The specified share is present on a server configuration that supports synchronous share level redirection via a Share Redirect error context response (section 2.2.2.2.2). This flag is not valid for SMB 2.0.2, 2.1, 3.0, and 3.0.2 dialects.
 
-#https://msdn.microsoft.com/en-us/library/cc246801.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246801.aspx
 class DirectoryAccessMask(enum.IntFlag):
 	FILE_LIST_DIRECTORY = 0x00000001 #This value indicates the right to enumerate the contents of the directory.
 	FILE_ADD_FILE = 0x00000002 #This value indicates the right to create a file under the directory.
@@ -846,7 +880,8 @@ class DirectoryAccessMask(enum.IntFlag):
 	GENERIC_WRITE = 0x40000000 #This value indicates a request for the following access flags listed above: FILE_ADD_FILE| FILE_ADD_SUBDIRECTORY| FILE_WRITE_ATTRIBUTES| FILE_WRITE_EA| SYNCHRONIZE| READ_CONTROL.
 	GENERIC_READ = 0x80000000 #This value indicates a request for the following access flags listed above: FILE_LIST_DIRECTORY| FILE_READ_ATTRIBUTES| FILE_READ_EA| SYNCHRONIZE| READ_CONTROL.
 
-#https://msdn.microsoft.com/en-us/library/cc246802.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc246802.aspx
 class FilePipePrinterAccessMask(enum.IntFlag):
 	FILE_READ_DATA = 0x00000001 #This value indicates the right to read data from the file or named pipe.
 	FILE_WRITE_DATA = 0x00000002 #This value indicates the right to write data into the file or named pipe beyond the end of the file.
@@ -870,9 +905,8 @@ class FilePipePrinterAccessMask(enum.IntFlag):
 	GENERIC_READ = 0x80000000 #This value indicates a request for the following combination of access flags listed above: FILE_READ_DATA| FILE_READ_ATTRIBUTES| FILE_READ_EA| SYNCHRONIZE| READ_CONTROL.
 
 
-
-#https://msdn.microsoft.com/en-us/library/cc246499.aspx
-class TREE_CONNECT_REPLY():
+# https://msdn.microsoft.com/en-us/library/cc246499.aspx
+class TREE_CONNECT_REPLY:
 	def __init__(self, data = None):
 		self.StructureSize = None
 		self.ShareType     = None
@@ -908,4 +942,3 @@ class TREE_CONNECT_REPLY():
 		t += 'Capabilities: %s\r\n' % repr(self.Capabilities)
 		t += 'MaximalAccess: %s\r\n' % self.MaximalAccess		
 		return t
-

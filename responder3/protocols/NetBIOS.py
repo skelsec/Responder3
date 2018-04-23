@@ -134,7 +134,7 @@ class NBTNSPacket():
 		self.Authorities = authorities
 		self.Additionals = additionals
 
-	def toBytes(self):
+	def to_bytes(self):
 		t = self.NAME_TRN_ID
 		#Flags part
 		a = self.RCODE & 0xF
@@ -149,16 +149,16 @@ class NBTNSPacket():
 		t += self.ARCOUNT.to_bytes(2, byteorder = 'big', signed = False)
 
 		for q in self.Questions:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Answers:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Authorities:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Additionals:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		return t
 
@@ -202,8 +202,8 @@ class NBQuestion():
 
 		return qst
 
-	def toBytes(self):
-		t  = self.QNAME.toBytes()
+	def to_bytes(self):
+		t  = self.QNAME.to_bytes()
 		t += self.QTYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.QCLASS.value.to_bytes(2, byteorder = 'big', signed = False)
 
@@ -250,8 +250,8 @@ class NBResource():
 			rs.RDATA = trdata
 
 	
-	def toBytes(self):
-		t  = self.NAME.toBytes()
+	def to_bytes(self):
+		t  = self.NAME.to_bytes()
 		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.CLASS.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.TTL.to_bytes(4, byteorder = 'big', signed = False)
@@ -348,7 +348,7 @@ class NBName():
 		nbname.length = len(NBName.encode_NS(name, suffix.value))
 		return name
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.length.to_bytes(1, byteorder = 'big', signed = False)
 		t += NBName.encode_NS(self.name, self.suffix.value)
 		t += b'\x00'

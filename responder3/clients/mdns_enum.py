@@ -47,7 +47,7 @@ class MDNSClient():
 													 response  = DNSResponse.REQUEST, 
 													 questions = qstns)
 
-		self._soc.sendto(self._query_packet.toBytes(), self._mcast_addr)
+		self._soc.sendto(self._query_packet.to_bytes(), self._mcast_addr)
 
 	@asyncio.coroutine
 	def stop_loop(self):
@@ -85,7 +85,7 @@ class MDNSClient():
 					qry = DNSPacket.construct(TID = os.urandom(2), 
 													 response  = DNSResponse.REQUEST, 
 													 questions = [qst])
-					self._soc.sendto(qry.toBytes(), self._mcast_addr)
+					self._soc.sendto(qry.to_bytes(), self._mcast_addr)
 
 				#else:
 				#	print(ans.domainname)

@@ -9,7 +9,8 @@ from responder3.crypto.hashing import *
 from responder3.core.commons import timestamp2datetime, Credential
 from responder3.protocols.SMB.ntstatus import *
 
-#https://msdn.microsoft.com/en-us/library/cc236650.aspx
+
+# https://msdn.microsoft.com/en-us/library/cc236650.aspx
 class NegotiateFlags(enum.IntFlag):
 	NEGOTIATE_56   = 0x80000000
 	NEGOTIATE_KEY_EXCH   = 0x40000000
@@ -80,22 +81,26 @@ NegotiateFlagExp = {
 
 }
 
+
 class NTLMRevisionCurrent(enum.Enum):
 	NTLMSSP_REVISION_W2K3 = 0x0F
 
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
+
+# https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 class WindowsMajorVersion(enum.Enum):
 	WINDOWS_MAJOR_VERSION_5  = 0x05
 	WINDOWS_MAJOR_VERSION_6  = 0x06
 	WINDOWS_MAJOR_VERSION_10 = 0x0A
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
+
+
+# https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 class WindowsMinorVersion(enum.Enum):
 	WINDOWS_MINOR_VERSION_0 = 0x00
 	WINDOWS_MINOR_VERSION_1 = 0x01
 	WINDOWS_MINOR_VERSION_2 = 0x02
 	WINDOWS_MINOR_VERSION_3 = 0x03
-#https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 
+# https://msdn.microsoft.com/en-us/library/cc236722.aspx#Appendix_A_33
 WindowsProduct = {
 	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_1) : 'Windows XP operating system Service Pack 2 (SP2)',
 	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_5, WindowsMinorVersion.WINDOWS_MINOR_VERSION_2) : 'Windows Server 2003',
@@ -105,6 +110,7 @@ WindowsProduct = {
 	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_6, WindowsMinorVersion.WINDOWS_MINOR_VERSION_3) : 'Windows 8.1 or Windows Server 2012 R2',
 	(WindowsMajorVersion.WINDOWS_MAJOR_VERSION_10,WindowsMinorVersion.WINDOWS_MINOR_VERSION_0) : 'Windows 10 or Windows Server 2016',
 }
+
 
 class AVPAIRType(enum.Enum):
 	MsvAvEOL             = 0x0000 #Indicates that this is the last AV_PAIR in the list. AvLen MUST be 0. This type of information MUST be present in the AV pair list.
@@ -120,8 +126,8 @@ class AVPAIRType(enum.Enum):
 	MsvChannelBindings   = 0x000A #A channel bindings hash. The Value field contains an MD5 hash ([RFC4121] section 4.1.1.2) of a gss_channel_bindings_struct ([RFC2744] section 3.11). An all-zero value of the hash is used to indicate absence of channel bindings.<19>
 
 
-#???? https://msdn.microsoft.com/en-us/library/windows/desktop/aa374793(v=vs.85).aspx
-#https://msdn.microsoft.com/en-us/library/cc236646.aspx
+# ???? https://msdn.microsoft.com/en-us/library/windows/desktop/aa374793(v=vs.85).aspx
+# https://msdn.microsoft.com/en-us/library/cc236646.aspx
 class AVPairs(collections.UserDict):
 	"""
 	AVPairs is a dictionary-like object that stores the "AVPair list" in a kev-value format where key is an AVPAIRType object and value is the corresponding object defined by the MSDN documentation. Usually it's string but can be other object as well
@@ -129,9 +135,11 @@ class AVPairs(collections.UserDict):
 	def __init__(self, data = None):
 		collections.UserDict.__init__(self, data)
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return AVPairs.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		avp = AVPairs()
 		while True:
@@ -149,44 +157,44 @@ class AVPairs(collections.UserDict):
 			]:
 				avp[avId] = buff.read(AvLen).decode('utf-16le')
 
-			### TODO IMPLEMENT PARSING OFR OTHER TYPES!!!!
+			# TODO IMPLEMENT PARSING OFR OTHER TYPES!!!!
 			else:
 				avp[avId] = buff.read(AvLen)
 
 		return avp
 
-	def toBytes(self):
+	def to_bytes(self):
 		t = b''
 		for av in self.data:
-			t += AVPair(data = self.data[av], type = av).toBytes()
+			t += AVPair(data = self.data[av], type = av).to_bytes()
 
-		t+= AVPair(data = '', type = AVPAIRType.MsvAvEOL).toBytes()
+		t+= AVPair(data = '', type = AVPAIRType.MsvAvEOL).to_bytes()
 		return t
 
-class AVPair():
+
+class AVPair:
 	def __init__(self, data = None, type = None):
 		self.type = type
 		self.data = data
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.type.value.to_bytes(2, byteorder = 'little', signed = False)
 		t += len(self.data.encode('utf-16le')).to_bytes(2, byteorder = 'little', signed = False)
 		t += self.data.encode('utf-16le')
 		return t
 
 
-
-
-
-class Fields():
+class Fields:
 	def __init__(self, length, offset, maxLength = None):
 		self.length = length
 		self.maxLength = length if maxLength is None else maxLength
 		self.offset = offset
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return Fields.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer( buff):
 		length    = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
 		maxLength = int.from_bytes(buff.read(2), byteorder = 'little', signed = False)
@@ -194,12 +202,12 @@ class Fields():
 
 		return Fields(length, offset, maxLength = maxLength)
 
-	def toBytes(self):
+	def to_bytes(self):
 		return  self.length.to_bytes(2, byteorder = 'little', signed = False) + \
 				self.maxLength.to_bytes(2, byteorder = 'little', signed = False) + \
 				self.offset.to_bytes(4, byteorder = 'little', signed = False)
 
-class Version():
+class Version:
 	def __init__(self):
 		self.ProductMajorVersion = None
 		self.ProductMinorVersion = None
@@ -210,7 +218,7 @@ class Version():
 		# higher level
 		self.WindowsProduct = None
 
-	def toBytes(self):
+	def to_bytes(self):
 		t = self.ProductMajorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
 		t += self.ProductMinorVersion.value.to_bytes(1, byteorder = 'little', signed = False)
 		t += self.ProductBuild.to_bytes(2, byteorder = 'little', signed = False)
@@ -218,9 +226,11 @@ class Version():
 		t += self.NTLMRevisionCurrent.value.to_bytes(1, byteorder = 'little', signed = False)
 		return t
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return Version.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		v = Version()
 		v.ProductMajorVersion = WindowsMajorVersion(int.from_bytes(buff.read(1), byteorder = 'little', signed = False))
@@ -240,6 +250,7 @@ class Version():
 		t += 'ProductBuild         : %s\r\n' % repr(self.ProductBuild)
 		t += 'WindowsProduct       : %s\r\n' % repr(self.WindowsProduct)
 		return t
+
 
 NTLMServerTemplates = {
 		"Windows2003" : {
@@ -261,9 +272,7 @@ NTLMServerTemplates = {
 }
 
 
-
-
-class NTLMAuthenticate():
+class NTLMAuthenticate:
 	def __init__(self, _use_NTLMv2 = True):
 		self.Signature = None
 		self.MessageType = None
@@ -278,7 +287,7 @@ class NTLMAuthenticate():
 		self.MIC = None
 		self.Payload = None
 
-		#high level
+		# high level
 		self.LMChallenge = None
 		self.NTChallenge = None
 		self.DomainName = None
@@ -286,13 +295,14 @@ class NTLMAuthenticate():
 		self.Workstation = None
 		self.EncryptedRandomSession = None
 
-		#this is a global variable that needs to be indicated
+		# this is a global variable that needs to be indicated
 		self._use_NTLMv2 = _use_NTLMv2
 
-
+	@staticmethod
 	def from_bytes(bbuff,_use_NTLMv2 = True):
 		return NTLMAuthenticate.from_buffer(io.BytesIO(bbuff), _use_NTLMv2 = _use_NTLMv2)
 
+	@staticmethod
 	def from_buffer(buff, _use_NTLMv2 = True):
 		auth = NTLMAuthenticate(_use_NTLMv2)
 		auth.Signature    = buff.read(8).decode('ascii')
@@ -307,7 +317,7 @@ class NTLMAuthenticate():
 		if auth.NegotiateFlags & NegotiateFlags.NEGOTIATE_VERSION: 
 			auth.Version = Version.from_buffer(buff)
 
-		## TODO: I'm not sure about this condition!!! Need to test this!
+		# TODO: I'm not sure about this condition!!! Need to test this!
 		if auth.NegotiateFlags & NegotiateFlags.NEGOTIATE_ALWAYS_SIGN:
 			auth.MIC = int.from_bytes(buff.read(16), byteorder = 'little', signed = False)
 
@@ -361,15 +371,17 @@ class NTLMAuthenticate():
 		return t
 
 
-#https://msdn.microsoft.com/en-us/library/cc236648.aspx
-class LMResponse():
+# https://msdn.microsoft.com/en-us/library/cc236648.aspx
+class LMResponse:
 	def __init__(self):
 		self.Response = None
 		self.raw = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return LMResponse.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		t = LMResponse()
 		t.Response = buff.read(24).hex()
@@ -380,15 +392,18 @@ class LMResponse():
 		t += 'Response: %s\r\n' % repr(self.Response)
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc236649.aspx
-class LMv2Response():
+
+# https://msdn.microsoft.com/en-us/library/cc236649.aspx
+class LMv2Response:
 	def __init__(self):
 		self.Response = None
 		self.ChallengeFromClinet = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return LMv2Response.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		t = LMv2Response()
 		t.Response = buff.read(16).hex()
@@ -401,14 +416,17 @@ class LMv2Response():
 		t += 'ChallengeFromClinet: %s\r\n' % repr(self.ChallengeFromClinet)
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc236651.aspx
-class NTLMv1Response():
+
+# https://msdn.microsoft.com/en-us/library/cc236651.aspx
+class NTLMv1Response:
 	def __init__(self):
 		self.Response = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return NTLMv1Response.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		t = NTLMv1Response()
 		t.Response = buff.read(24).hex()
@@ -419,16 +437,19 @@ class NTLMv1Response():
 		t += 'Response: %s\r\n' % repr(self.Response)
 		return t
 
-#https://msdn.microsoft.com/en-us/library/cc236653.aspx
-class NTLMv2Response():
+
+# https://msdn.microsoft.com/en-us/library/cc236653.aspx
+class NTLMv2Response:
 	def __init__(self):
 		self.Response = None
 		self.ChallengeFromClinet = None
 		self.ChallengeFromClinet_hex = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return NTLMv2Response.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		t = NTLMv2Response()
 		t.Response = buff.read(16).hex()
@@ -448,8 +469,7 @@ class NTLMv2Response():
 		return t
 
 
-
-class NTLMv2ClientChallenge():
+class NTLMv2ClientChallenge:
 	def __init__(self):
 		self.RespType   = None
 		self.HiRespType = None
@@ -461,9 +481,11 @@ class NTLMv2ClientChallenge():
 		self.Reserved3  = None
 		self.Details    = None #named AVPairs in the documentation
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return NTLMv2ClientChallenge.from_buffer(io.BytesIO(bbuff))
 
+	@staticmethod
 	def from_buffer(buff):
 		cc = NTLMv2ClientChallenge()
 		cc.RespType   = int.from_bytes(buff.read(1), byteorder = 'little', signed = False)
@@ -486,7 +508,7 @@ class NTLMv2ClientChallenge():
 		return t
 
 
-class NTLMChallenge():
+class NTLMChallenge:
 	def __init__(self):
 		self.Signature         = 'NTLMSSP\x00'
 		self.MessageType       = 2
@@ -501,8 +523,7 @@ class NTLMChallenge():
 		self.TargetName        = None
 		self.TargetInfo        = None
 
-
-	
+	@staticmethod
 	def construct_from_template(templateName, challenge = os.urandom(8).hex(), ess = True):
 		version    = NTLMServerTemplates[templateName]['version']
 		challenge  = challenge
@@ -515,12 +536,11 @@ class NTLMChallenge():
 		else:
 			flags &= ~NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY
 
-
-
 		return NTLMChallenge.construct(challenge=challenge, targetName = targetName, targetInfo = targetInfo, version = version, flags= flags)
 	
 	
-	##TODO: needs some clearning up (like re-calculating flags when needed)
+	# TODO: needs some clearning up (like re-calculating flags when needed)
+	@staticmethod
 	def construct(challenge = os.urandom(8), targetName = None, targetInfo = None, version = None, flags = None):
 		t = NTLMChallenge()
 		t.NegotiateFlags    = flags
@@ -530,47 +550,45 @@ class NTLMChallenge():
 		t.TargetInfo        = targetInfo
 
 		t.TargetNameFields = Fields(len(t.TargetName.encode('utf-16le')),56) 
-		t.TargetInfoFields = Fields(len(t.TargetInfo.toBytes()), 56 + len(t.TargetName.encode('utf-16le')))
+		t.TargetInfoFields = Fields(len(t.TargetInfo.to_bytes()), 56 + len(t.TargetName.encode('utf-16le')))
 
 		t.Payload = t.TargetName.encode('utf-16le')
-		t.Payload += t.TargetInfo.toBytes()
+		t.Payload += t.TargetInfo.to_bytes()
 
 		return t
 
-
-	def toBytes(self):
+	def to_bytes(self):
 		tn = self.TargetName.encode('utf-16le')
-		ti = self.TargetInfo.toBytes()
+		ti = self.TargetInfo.to_bytes()
 
 		buff  = self.Signature.encode('ascii')
 		buff += self.MessageType.to_bytes(4, byteorder = 'little', signed = False)
-		buff += self.TargetNameFields.toBytes()
+		buff += self.TargetNameFields.to_bytes()
 		buff += self.NegotiateFlags.to_bytes(4, byteorder = 'little', signed = False)
 		buff += bytes.fromhex(self.ServerChallenge)
 		buff += bytes.fromhex(self.Reserved)
-		buff += self.TargetInfoFields.toBytes()
-		buff += self.Version.toBytes()
+		buff += self.TargetInfoFields.to_bytes()
+		buff += self.Version.to_bytes()
 		buff += self.Payload
-		
 
 		return buff
 
 	def __repr__(self):
 		t  = '== NTLMChallenge ==\r\n'
 		t += 'Signature      : %s\r\n' % repr(self.Signature)
-		t += 'MessageType    : %s\r\n' % repr(self.TimeStamp)
+		t += 'MessageType    : %s\r\n' % repr(self.MessageType)
 		t += 'ServerChallenge: %s\r\n' % repr(self.ServerChallenge)
 		t += 'TargetName     : %s\r\n' % repr(self.TargetName)
 		t += 'TargetInfo     : %s\r\n' % repr(self.TargetInfo)
 		return t
 
 	def toBase64(self):
-		return base64.b64encode(self.toBytes()).decode('ascii')
+		return base64.b64encode(self.to_bytes()).decode('ascii')
 
 
 
-#https://msdn.microsoft.com/en-us/library/cc236641.aspx
-class NTLMNegotiate():
+# https://msdn.microsoft.com/en-us/library/cc236641.aspx
+class NTLMNegotiate:
 	def __init__(self):
 		self.Signature         = None
 		self.MessageType       = None
@@ -584,6 +602,7 @@ class NTLMNegotiate():
 		self.Domain      = None
 		self.Workstation = None
 
+	@staticmethod
 	def from_bytes(bbuff):
 		return NTLMNegotiate.from_buffer(io.BytesIO(bbuff))
 
@@ -625,7 +644,8 @@ class NTLMNegotiate():
 	def __repr__(self):
 		t  = '== NTLMNegotiate ==\r\n'
 		t += 'Signature  : %s\r\n' % repr(self.Signature)
-		t += 'MessageType: %s\r\n' % repr(self.TimeStamp)
+		t += 'MessageType: %s\r\n' % repr(self.MessageType)
+		t += 'NegotiateFlags: %s\r\n' % repr(self.NegotiateFlags)
 		t += 'Version    : %s\r\n' % repr(self.Version)
 		t += 'Domain     : %s\r\n' % repr(self.Domain)
 		t += 'Workstation: %s\r\n' % repr(self.Workstation)
@@ -634,11 +654,13 @@ class NTLMNegotiate():
 	def contrct(self):
 		pass
 
+
 class NTLMAuthMode(enum.Enum):
 	CLIENT   = enum.auto()
 	SERVER   = enum.auto()
 
-class NTLMAUTHHandler():
+
+class NTLMAUTHHandler:
 	def __init__(self):
 		self.mode = NTLMAuthMode.SERVER
 		self.use_NTLMv2            = None
@@ -689,6 +711,7 @@ class NTLMAUTHHandler():
 
 		return
 
+
 	def calc_KeyExchangeKey(self):
 		if not self.use_NTLMv2:
 			if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
@@ -713,36 +736,37 @@ class NTLMAUTHHandler():
 		return
 
 	def calc_SessionBaseKey(self):
-			if self._use_NTLMv2:
+			if self.use_NTLMv2:
 				self.SessionBaseKey = hmac.new(self.client_credentials.ClientResponse, creds.ChallengeFromClinet, hashlib.MD5()).digest()
 			else:
 				self.SessionBaseKey = MD4(self.credentials.nthash).digest()
-
 
 	def do_AUTH(self, authData):
 		if self.ntlmNegotiate is None:
 			###parse client NTLMNegotiate message
 			self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
 			self.ntlmChallenge = NTLMChallenge.construct_from_template(self.serverTemplateName, challenge = self.challenge, ess = self.use_Extended_security)
-			return (NTStatus.STATUS_MORE_PROCESSING_REQUIRED, self.ntlmChallenge.toBytes(), None)
+			return (NTStatus.STATUS_MORE_PROCESSING_REQUIRED, self.ntlmChallenge.to_bytes(), None)
 
 		elif self.ntlmAuthenticate is None:
 			self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
 			creds = NTLMCredentials.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)			
 
-			###do verification!!!
-			###TODO
+			### do verification!!!
+			### TODO
 
-			#TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
-			#self.calc_SessionBaseKey()
-			#self.calc_KeyExchangeKey()
+			# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
+			# self.calc_SessionBaseKey()
+			# self.calc_KeyExchangeKey()
 
 			return (NTStatus.STATUS_ACCOUNT_DISABLED, None, creds) #this setting must be removed when actual ntlm authentication is implemented!
 
 		else:
 			raise Exception('Too many calls to do_AUTH function!')
 
-class NTLMCredentials():
+
+class NTLMCredentials:
+	@staticmethod
 	def construct(ntlmNegotiate, ntlmChallenge, ntlmAuthenticate):
 		if ntlmAuthenticate._use_NTLMv2:
 			#this is a netNTLMv2 then, otherwise auth would have failed on protocol level
@@ -782,12 +806,12 @@ class NTLMCredentials():
 				creds.ClientResponse  = ntlmAuthenticate.NTChallenge.Response
 				
 				if ntlmAuthenticate.NTChallenge.Response == ntlmAuthenticate.LMChallenge.Response:
-					#the the two responses are the same, then the client did not send encrypted LM hashes, only NT
+					# the the two responses are the same, then the client did not send encrypted LM hashes, only NT
 					return [creds]
 					
 
-				#CAME FOR COPPER, FOUND GOLD!!!!!
-				#HOW OUTDATED IS YOUR CLIENT ANYHOW???
+				# CAME FOR COPPER, FOUND GOLD!!!!!
+				# HOW OUTDATED IS YOUR CLIENT ANYHOW???
 				creds2 = netlm()
 				creds2.username = ntlmAuthenticate.UserName
 				creds2.domain   = ntlmAuthenticate.DomainName
@@ -795,17 +819,16 @@ class NTLMCredentials():
 				creds2.ClientResponse  = ntlmAuthenticate.LMChallenge.Response
 				return [creds, creds2]
 
-
-class netlm():
-	#not supported by hashcat?
+class netlm:
+	# not supported by hashcat?
 	def __init__(self):
-		#this part comes from the NTLMAuthenticate class
+		# this part comes from the NTLMAuthenticate class
 		self.username = None
 		self.domain = None
-		#this comes from the NTLMChallenge class
+		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
-		#this is from the LMv1Response class (that is a member of NTLMAuthenticate class)
+		# this is from the LMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
 	def toCredential(self):
@@ -829,16 +852,17 @@ class netlm():
 		else:
 			return False
 
-class netlmv2():
-	#not supported by hashcat?
+
+class netlmv2:
+	# not supported by hashcat?
 	def __init__(self):
-		#this part comes from the NTLMAuthenticate class
+		# this part comes from the NTLMAuthenticate class
 		self.username = None
 		self.domain = None
-		#this comes from the NTLMChallenge class
+		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
-		#this is from the LMv2Response class (that is a member of NTLMAuthenticate class)
+		# this is from the LMv2Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
@@ -850,12 +874,12 @@ class netlmv2():
 		return cred
 
 
-class netntlm_ess():
+class netntlm_ess:
 	def __init__(self):
-		#this part comes from the NTLMAuthenticate class
+		# this part comes from the NTLMAuthenticate class
 		self.username = None
 		self.domain = None
-		#this comes from the NTLMChallenge class
+		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
 		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
@@ -870,16 +894,17 @@ class netntlm_ess():
 		return cred
 		#u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c 
 
-class netntlm():
-	#not supported by hashcat?
+
+class netntlm:
+	# not supported by hashcat?
 	def __init__(self):
-		#this part comes from the NTLMAuthenticate class
+		# this part comes from the NTLMAuthenticate class
 		self.username = None
 		self.domain = None
-		#this comes from the NTLMChallenge class
+		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
-		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
+		# this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
 	def toCredential(self):
@@ -890,7 +915,8 @@ class netntlm():
 		return cred
 		#username:$NETNTLM$1122334455667788$B2B2220790F40C88BCFF347C652F67A7C4A70D3BEBD70233
 
-class netntlmv2():
+
+class netntlmv2:
 	def __init__(self):
 		#this part comes from the NTLMAuthenticate class
 		self.username = None
@@ -910,6 +936,7 @@ class netntlmv2():
 						)
 		return cred
 
+
 def genLMHash(password):
 	LM_SECRET = b'KGS!@#$%'
 	t1 = password[:14].ljust(14, '\x00').upper()
@@ -923,6 +950,7 @@ def genLMHash(password):
 
 def genNTHash(password):
 	return md4(password.encode('utf-16le')).digest()
+
 
 def genNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
 	if NTHash is None and password is None:

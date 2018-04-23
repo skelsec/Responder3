@@ -219,7 +219,7 @@ class DNSPacket():
 
 		return t
 
-	def toBytes(self):
+	def to_bytes(self):
 		t = self.TransactionID
 
 		a  = self.Rcode.value
@@ -235,16 +235,16 @@ class DNSPacket():
 
 
 		for q in self.Questions:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Answers:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Authorities:
-			t += q.toBytes()
+			t += q.to_bytes()
 
 		for q in self.Additionals:
-			t += q.toBytes()
+			t += q.to_bytes()
 		
 		if self.proto == socket.SOCK_STREAM:
 			self.PACKETLEN = len(t)
@@ -294,8 +294,8 @@ class DNSQuestion():
 
 		return qst
 
-	def toBytes(self):
-		t  = self.QNAME.toBytes()
+	def to_bytes(self):
+		t  = self.QNAME.to_bytes()
 		t += self.QTYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		a  = self.QCLASS.value
 		a |= int(self.QU) << 15
@@ -394,8 +394,8 @@ class DNSOPTResource():
 		t+= 'RDATA: %s\r\n' % repr(self.RDATA)
 		return t
 
-	def toBytes(self):
-		t  = self.NAME.toBytes()
+	def to_bytes(self):
+		t  = self.NAME.to_bytes()
 		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.UDPSIZE.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.EXTRCODE.to_bytes(1, byteorder = 'big', signed = False)
@@ -443,8 +443,8 @@ class DNSResource():
 		res.RDATA = buff.read(res.RDLENGTH)
 		return res
 	
-	def toBytes(self):
-		t  = self.NAME.toBytes()
+	def to_bytes(self):
+		t  = self.NAME.to_bytes()
 		t += self.TYPE.value.to_bytes(2, byteorder = 'big', signed = False)
 		a  = self.CLASS.value
 		a |= int(self.CFLUSH) << 15
@@ -717,7 +717,7 @@ class DNSName():
 		return dnsname
 
 
-	def toBytes(self):
+	def to_bytes(self):
 		#not using compression here! implement yourself and do a PR please
 		#will give you chokolate
 		t = b''

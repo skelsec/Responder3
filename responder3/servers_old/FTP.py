@@ -28,7 +28,7 @@ class FTP(ResponderServer):
 		return
 
 	def sendWelcome(self, transport):
-		transport.write(FTPReply(220, 'Honeypot FTP server').toBytes())
+		transport.write(FTPReply(220, 'Honeypot FTP server').to_bytes())
 
 	def handle(self, packet, transport, session):
 		try:
@@ -38,11 +38,11 @@ class FTP(ResponderServer):
 			if session.currentState == FTPState.AUTHORIZATION:
 			
 				if packet.cmd == FTPCommand.AUTH:
-					transport.write(FTPReply(502).toBytes())
+					transport.write(FTPReply(502).to_bytes())
 
 				elif packet.cmd == FTPCommand.USER:
 					session.User = packet.params[0]
-					transport.write(FTPReply(331, 'User name okay, need password.').toBytes())
+					transport.write(FTPReply(331, 'User name okay, need password.').to_bytes())
 
 				elif packet.cmd == FTPCommand.PASS:
 					session.Pass = packet.params[0]
@@ -55,17 +55,17 @@ class FTP(ResponderServer):
 							'fullhash' : session.User + ':' + session.Pass
 							})
 
-					transport.write(FTPReply(530).toBytes())
+					transport.write(FTPReply(530).to_bytes())
 
 				else:
-					transport.write(FTPReply(503).toBytes())
+					transport.write(FTPReply(503).to_bytes())
 					transport.close()
 					return
 				
 			else:
 				r = FTPReply()
 				r.construct(502)
-				transport.write(r.toBytes())
+				transport.write(r.to_bytes())
 				return
 	
 

@@ -21,8 +21,8 @@ data = bytes.fromhex('230306eb000003400000038bc3828412de2944aa89f559bede29456a1e
 a = NTPPacket.from_bytes(data)
 print(repr(a))
 
-print(a.toBytes().hex())
+print(a.to_bytes().hex())
 print(data.hex())
-assert a.toBytes() == data 
+assert a.to_bytes() == data
 
 #ntpdate -q 127.0.0.1

@@ -5,7 +5,7 @@ resp = HTTPResponse.from_bytes(data)
 
 print(resp)
 
-print(resp.toBytes())
+print(resp.to_bytes())
 
 resp = HTTPResponse.from_bytes(data)
 print(resp)

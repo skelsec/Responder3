@@ -92,7 +92,7 @@ class NBTNS(ResponderServer):
 					 answers  = answers
 				)
 
-				await asyncio.wait_for(self.send_data(response.toBytes()), timeout =1)
+				await asyncio.wait_for(self.send_data(response.to_bytes()), timeout =1)
 
 		except Exception as e:
 			raise e

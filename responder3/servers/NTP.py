@@ -57,7 +57,7 @@ class NTP(ResponderServer):
 			await self.log('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
 			response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
 			
-			await asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
+			await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)
 
 		except Exception as e:
 			traceback.print_exc()

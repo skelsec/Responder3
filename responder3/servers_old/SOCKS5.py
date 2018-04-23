@@ -187,12 +187,12 @@ class SOCKS5(ResponderServer):
 		try:
 			s.connect((dest_ip, dest_port))
 		except ConnectionRefusedError:
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.CONN_REFUSED, self.allinterface, 0).toBytes())
+			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.CONN_REFUSED, self.allinterface, 0).to_bytes())
 			transport.close((dest_ip, dest_port))
 			return
 		except Exception as e:
 			print(str(e))
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.FAILURE, self.allinterface, 0).toBytes())
+			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.FAILURE, self.allinterface, 0).to_bytes())
 			transport.close()
 			return
 
@@ -200,7 +200,7 @@ class SOCKS5(ResponderServer):
 			session.proxy_soc = s
 
 			session.currentState = SOCKS5ServerState.RELAYING
-			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
+			transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes())
 
 			session.proxy_control = threading.Event()
 			session.proxy_thread = threading.Thread(target=proxy, args=(s,transport, session.proxy_control))
@@ -222,7 +222,7 @@ class SOCKS5(ResponderServer):
 				mutual = list(set(self.supportedAuthTypes).intersection(set(packet.METHODS)))
 				if len(mutual) == 0:
 					self.log(logging.INFO,'No common authentication types! Client supports %s' % (','.join([str(x) for x in packet.METHODS])), session)
-					transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).toBytes())
+					transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes())
 					transport.close()
 
 				#selecting preferred auth type
@@ -241,16 +241,16 @@ class SOCKS5(ResponderServer):
 				else:
 					session.currentState = SOCKS5ServerState.NOT_AUTHENTICATED
 
-				transport.write(SOCKS5NegoReply.construct(session.mutualAuthType).toBytes())
+				transport.write(SOCKS5NegoReply.construct(session.mutualAuthType).to_bytes())
 
 			elif session.currentState == SOCKS5ServerState.NOT_AUTHENTICATED:
 				if session.mutualAuthType == SOCKS5Method.PLAIN:
 					status, creds = session.authHandler.do_AUTH(packet)
 					if status:
 						session.currentState = SOCKS5ServerState.REQUEST
-						transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).toBytes())
+						transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).to_bytes())
 					else:
-						transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).toBytes())
+						transport.write(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes())
 						transport.close()
 				else:
 					#put GSSAPI implementation here
@@ -277,7 +277,7 @@ class SOCKS5(ResponderServer):
 						print(task.result())
 
 						session.currentState = SOCKS5ServerState.RELAYING
-						transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
+						transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes())
 
 					else:
 						#in this case we route the traffic to a specific server :)
@@ -293,10 +293,10 @@ class SOCKS5(ResponderServer):
 							task = self.loop.ensure_future(create_clinet_connection(fake_dest_ip, fake_dest_port, transport, session, self))
 							asyncio.wait([task])
 							session.currentState = SOCKS5ServerState.RELAYING
-							transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).toBytes())
+							transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes())
 
 				else:
-					transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.allinterface, 0).toBytes())
+					transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.allinterface, 0).to_bytes())
 					transport.close()
 
 

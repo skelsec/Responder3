@@ -28,7 +28,7 @@ class IMAP(ResponderServer):
 		return
 
 	def sendWelcome(self, transport):
-		transport.write(IMAPOKResp(msg ='hello from Honeyport IMAP server').toBytes())
+		transport.write(IMAPOKResp(msg ='hello from Honeyport IMAP server').to_bytes())
 
 	def handle(self, packet, transport, session):
 		try:
@@ -42,9 +42,9 @@ class IMAP(ResponderServer):
 					session.Pass = packet.params[1]
 					if self.check_credentials(transport, session):
 						session.currentState = IMAPState.AUTHENTICATED
-						transport.write(IMAPOKResp(tag=packet.tag, msg='CreZ good!').toBytes())
+						transport.write(IMAPOKResp(tag=packet.tag, msg='CreZ good!').to_bytes())
 					else:
-						transport.write(IMAPNOResp(tag=packet.tag, msg='wrong credZ!').toBytes())
+						transport.write(IMAPNOResp(tag=packet.tag, msg='wrong credZ!').to_bytes())
 						transport.close()
 
 					return
@@ -56,8 +56,8 @@ class IMAP(ResponderServer):
 					capabilities.capabilities.append('IMAP4')
 					capabilities.capabilities.append('IMAP4rev1')
 					print('ptag: %s' % packet.tag )
-					transport.write(IMAPCAPABILITYResp(capabilities=capabilities).toBytes())
-					transport.write(IMAPOKResp(tag=packet.tag,msg ='Completed').toBytes())
+					transport.write(IMAPCAPABILITYResp(capabilities=capabilities).to_bytes())
+					transport.write(IMAPOKResp(tag=packet.tag,msg ='Completed').to_bytes())
 					return
 
 			else:

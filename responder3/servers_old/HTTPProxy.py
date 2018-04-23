@@ -94,7 +94,7 @@ class HTTPProxy(ResponderServer):
 						self.logResult(session, usercreds.toResult())
 
 			if session.currentState == HTTPState.AUTHFAILED:
-				transport.write(HTTP403Resp(session, 'Basic').toBytes())
+				transport.write(HTTP403Resp(session, 'Basic').to_bytes())
 				transport.close()
 				return
 
@@ -112,7 +112,7 @@ class HTTPProxy(ResponderServer):
 					pass
 				else:
 					#sending bad request
-					transport.write(HTTP400Resp(session, body='This is a proxy...').toBytes())
+					transport.write(HTTP400Resp(session, body='This is a proxy...').to_bytes())
 					transport.close()
 					return
 				

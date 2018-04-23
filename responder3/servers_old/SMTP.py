@@ -123,7 +123,7 @@ class SMTP(ResponderServer):
 	def sendWelcome(self, transport):
 		r = SMTPReply()
 		r.construct(220, 'hello from Honeyport POP3 server')
-		transport.write(r.toBytes())
+		transport.write(r.to_bytes())
 
 	def handle(self, smtpcommand, transport, session):
 		try:
@@ -138,19 +138,19 @@ class SMTP(ResponderServer):
 						session.currentState = SMTPServerState.NOTAUTHETICATED
 			
 				if smtpcommand.command == SMTPCommand.HELO:
-					transport.write(SMTPReply(250, [self.settings['heloMsg']] + self.capabilities).toBytes())
+					transport.write(SMTPReply(250, [self.settings['heloMsg']] + self.capabilities).to_bytes())
 
 				elif smtpcommand.command == SMTPCommand.EHLO:
-					transport.write(SMTPReply(250, [self.settings['ehloMsg']] + self.capabilities).toBytes())
+					transport.write(SMTPReply(250, [self.settings['ehloMsg']] + self.capabilities).to_bytes())
 
 
 			elif session.currentState == SMTPServerState.NOTAUTHETICATED:
 				if smtpcommand.command == SMTPCommand.VRFY:
 					self.log(logging.INFO,'VERIFY called with data: %s' % (smtpcommand.data), session)
-					transport.write(SMTPReply(250, ['test@test.com','donthackme@aaa.com']).toBytes())
+					transport.write(SMTPReply(250, ['test@test.com','donthackme@aaa.com']).to_bytes())
 
 				elif smtpcommand.command == SMTPCommand.EXPN:
-					transport.write(SMTPReply(502).toBytes())
+					transport.write(SMTPReply(502).to_bytes())
 
 				elif smtpcommand.command == SMTPCommand.AUTH:
 					session.currentState = SMTPServerState.AUTHSTARTED
@@ -171,17 +171,17 @@ class SMTP(ResponderServer):
 
 							if session.authAPI.checkCredentials():
 								session.currentState = SMTPServerState.AUTHENTICATED
-								transport.write(SMTPReply(235).toBytes())
+								transport.write(SMTPReply(235).to_bytes())
 
 							else:
-								transport.write(SMTPReply(535).toBytes())
+								transport.write(SMTPReply(535).to_bytes())
 						else:
-							transport.write(SMTPReply(535).toBytes())
+							transport.write(SMTPReply(535).to_bytes())
 					else:
-						transport.write(SMTPReply(535).toBytes())
+						transport.write(SMTPReply(535).to_bytes())
 						raise Exception('Not supported auth mechanism')
 				else:
-					transport.write(SMTPReply(503).toBytes())
+					transport.write(SMTPReply(503).to_bytes())
 
 			#this state is only for the authentication part
 			elif session.currentState == SMTPServerState.AUTHSTARTED:
@@ -192,7 +192,7 @@ class SMTP(ResponderServer):
 					if smtpcommand.mechanism == 'PLAIN':
 						session.authAPI.setAuthData(smtpcommand.raw_data)
 						if session.authAPI.isMoreData():
-							transport.write(SMTPReply(334).toBytes())
+							transport.write(SMTPReply(334).to_bytes())
 						else:
 							
 							self.logResult(session, {
@@ -205,28 +205,28 @@ class SMTP(ResponderServer):
 
 							if session.authAPI.checkCredentials(smtpcommand.initresp):
 								session.currentState = SMTPServerState.AUTHENTICATED
-								transport.write(SMTPReply(235).toBytes())
+								transport.write(SMTPReply(235).to_bytes())
 							else:
-								transport.write(SMTPReply(535).toBytes())
+								transport.write(SMTPReply(535).to_bytes())
 
 			
 			#should be checking which commands are allowed in this state...
 			elif session.currentState == SMTPServerState.AUTHENTICATED:
 				if smtpcommand.command == SMTPCommand.MAIL:
 					session.emailFrom    = smtpcommand.emailFrom
-					transport.write(SMTPReply(250).toBytes())
+					transport.write(SMTPReply(250).to_bytes())
 
 				elif  smtpcommand.command == SMTPCommand.RCPT:
 					session.emailTo.append(smtpcommand.emailTo)
-					transport.write(SMTPReply(250).toBytes())
+					transport.write(SMTPReply(250).to_bytes())
 
 				elif smtpcommand.command == SMTPCommand.DATA:
 					#we get data command, switching currentstate and sending a reply to client can send data
 					session.currentState = SMTPServerState.DATAINCOMING
-					transport.write(SMTPReply(354).toBytes())
+					transport.write(SMTPReply(354).to_bytes())
 
 				else:
-					transport.write(SMTPReply(503).toBytes())
+					transport.write(SMTPReply(503).to_bytes())
 
 					
 			elif session.currentState == SMTPServerState.DATAFINISHED:
@@ -236,10 +236,10 @@ class SMTP(ResponderServer):
 				em.toAddress   = session.emailTo #list
 				self.logEmail(session, em)
 
-				transport.write(SMTPReply(250).toBytes())
+				transport.write(SMTPReply(250).to_bytes())
 
 			else:
-				transport.write(SMTPReply(503).toBytes())
+				transport.write(SMTPReply(503).to_bytes())
 
 
 		except Exception as e:

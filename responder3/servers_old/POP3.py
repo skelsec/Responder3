@@ -29,7 +29,7 @@ class POP3(ResponderServer):
 		return
 
 	def sendWelcome(self, transport):
-		transport.write(POP3Response(POP3ResponseStatus.OK, ['<1896.697170952@dbc.mtview.ca.us>']).toBytes())
+		transport.write(POP3Response(POP3ResponseStatus.OK, ['<1896.697170952@dbc.mtview.ca.us>']).to_bytes())
 
 	def handle(self, packet, transport, session):
 		try:
@@ -41,7 +41,7 @@ class POP3(ResponderServer):
 					if session.Pass is not None:
 						self.check_credentials(transport)
 					else:	
-						transport.write(POP3Response(POP3ResponseStatus.OK, ['password required.']).toBytes())
+						transport.write(POP3Response(POP3ResponseStatus.OK, ['password required.']).to_bytes())
 					return
 
 				elif packet.command == POP3Command.PASS:
@@ -49,28 +49,28 @@ class POP3(ResponderServer):
 					if session.User is not None:
 						self.check_credentials(transport, session)
 					else:
-						transport.write(POP3Response(POP3ResponseStatus.OK, ['username required.']).toBytes())
+						transport.write(POP3Response(POP3ResponseStatus.OK, ['username required.']).to_bytes())
 					return
 
 				elif packet.command == POP3Command.QUIT:
-					transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
+					transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).to_bytes())
 					return
 
 				else:
-					transport.write(POP3Response(POP3ResponseStatus.ERR, ['Auth req.']).toBytes())
+					transport.write(POP3Response(POP3ResponseStatus.ERR, ['Auth req.']).to_bytes())
 					return
 
 			elif session.currentState == POP3State.TRANSACTION:
 				##this would be the place to send emails/statuses to the clinet but it's not implemented
 				##therefore we send an okay message and terminate the connection
 				##tottaly breaking RFC :P
-				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
+				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).to_bytes())
 				transport.close()
 				raise Exception('Not implemented!')
 
 			
 			else:
-				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).toBytes())
+				transport.write(POP3Response(POP3ResponseStatus.OK, ['Goodbye!']).to_bytes())
 				transport.close()
 				return
 
@@ -91,9 +91,9 @@ class POP3(ResponderServer):
 		if session.User == 'aaaaaaaaaa' and session.Pass == 'bbbbbbb124234123':
 			#login sucsess
 			session.currentState = POP3State.TRANSACTION
-			transport.write(POP3Response(POP3ResponseStatus.OK, ['CreZ good!']).toBytes())
+			transport.write(POP3Response(POP3ResponseStatus.OK, ['CreZ good!']).to_bytes())
 		else:
-			transport.write(POP3Response(POP3ResponseStatus.ERR, ['invalid password']).toBytes())
+			transport.write(POP3Response(POP3ResponseStatus.ERR, ['invalid password']).to_bytes())
 			transport.close()
 
 

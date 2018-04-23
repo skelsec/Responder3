@@ -38,7 +38,7 @@ class DHCPClient():
 			options += options_extra
 		options.append(DHCPOptEND.construct())
 		dhcpquery = DHCPMessage.construct(self._query_TID, DHCPOpcode.BOOTREQUEST, options)
-		self._soc.sendto(dhcpquery.toBytes(), ('255.255.255.255', 67))
+		self._soc.sendto(dhcpquery.to_bytes(), ('255.255.255.255', 67))
 
 	@asyncio.coroutine
 	def stop_loop(self):
@@ -91,7 +91,7 @@ class DHCPClient():
 			options += request_options_extra
 		options.append(DHCPOptEND.construct())
 		dhcprequest = DHCPMessage.construct(self._query_TID, DHCPOpcode.BOOTREQUEST, options, yiaddr=offer.yiaddr, siaddr=offer.siaddr)
-		self._soc.sendto(dhcprequest.toBytes(), ('255.255.255.255', 67))
+		self._soc.sendto(dhcprequest.to_bytes(), ('255.255.255.255', 67))
 
 
 

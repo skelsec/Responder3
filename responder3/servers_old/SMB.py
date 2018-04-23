@@ -62,7 +62,7 @@ class SMB(ResponderServer):
 
 							#MessageCn t should not be incremented here
 
-							respdata = resp.toBytes()
+							respdata = resp.to_bytes()
 							transport.write(b'\x00' + len(respdata).to_bytes(3, byteorder = 'big') + respdata)
 						else:
 							transport.close()
@@ -79,7 +79,7 @@ class SMB(ResponderServer):
 						resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 							NegotiateDialects.SMB202, session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
-						respdata = resp.toBytes()
+						respdata = resp.to_bytes()
 						transport.write(b'\x00' + len(respdata).to_bytes(3, byteorder = 'big') + respdata)
 					
 					elif msg.header.Command == SMB2Command.SESSION_SETUP:
@@ -96,7 +96,7 @@ class SMB(ResponderServer):
 							Credit = 1, CreditCharge = 1, SessionId= session.SMBSessionID)
 						resp.command = SESSION_SETUP_REPLY.construct(data,0)
 
-						respdata = resp.toBytes()
+						respdata = resp.to_bytes()
 						transport.write(b'\x00' + len(respdata).to_bytes(3, byteorder = 'big') + respdata)
 
 					else:

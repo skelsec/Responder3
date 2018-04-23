@@ -33,16 +33,16 @@ def proxy_open_connection(dest_addr, dest_port, transport, session):
 		fut = asyncio.open_connection(dest_addr, dest_port)
 		session.remote_reader, session.remote_writer = yield from asyncio.wait_for(fut, timeout=3)
 	except asyncio.TimeoutError:
-		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.HOST_UNREACHABLE, IPv4Address('0.0.0.0'), 0).toBytes())
+		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.HOST_UNREACHABLE, IPv4Address('0.0.0.0'), 0).to_bytes())
 		transport.close()
 		return
 	except ConnectionRefusedError:
-		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.CONN_REFUSED, IPv4Address('0.0.0.0'), 0).toBytes())
+		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.CONN_REFUSED, IPv4Address('0.0.0.0'), 0).to_bytes())
 		transport.close()
 		return
 	except Exception as e:
 		print(str(e))
-		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.FAILURE, IPv4Address('0.0.0.0'), 0).toBytes())
+		transport.write(SOCKS5Reply.construct(SOCKS5ReplyType.FAILURE, IPv4Address('0.0.0.0'), 0).to_bytes())
 		transport.close()
 		return
 """

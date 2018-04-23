@@ -64,7 +64,7 @@ class LLMNRClient():
 													 response  = LLMNRResponse.REQUEST, 
 													 questions = qstns)
 
-			self._soc.sendto(self._query_packet.toBytes(), self._mcast_addr)
+			self._soc.sendto(self._query_packet.to_bytes(), self._mcast_addr)
 
 	@asyncio.coroutine
 	def stop_loop(self):

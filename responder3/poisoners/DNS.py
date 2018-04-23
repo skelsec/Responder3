@@ -98,7 +98,7 @@ class DNS(ResponderServer):
 				sock.bind((str(self.globalsession.passthru_ip), 0, self.globalsession.passthru_iface_idx ))
 
 			client = UDPClient((str(self.globalsession.passthru_server), self.globalsession.passthru_port), sock = sock)
-			reader, writer = await asyncio.wait_for(client.run(msg.toBytes()), timeout = 1)
+			reader, writer = await asyncio.wait_for(client.run(msg.to_bytes()), timeout = 1)
 
 		else:
 			if self.globalsession.passthru_ip.version == 4:
@@ -116,7 +116,7 @@ class DNS(ResponderServer):
 			
 			reader, writer = await asyncio.wait_for(asyncio.open_connection(sock = sock), timeout = 1)
 		
-			writer.write(msg.toBytes())
+			writer.write(msg.to_bytes())
 			await writer.drain()
 		
 		passthru_packet = await asyncio.wait_for(DNSPacket.from_streamreader(reader, self.globalsession.passthru_proto), timeout = 1)
@@ -153,7 +153,7 @@ class DNS(ResponderServer):
 							#modify response here!
 							passthru_ans_modified = passthru_ans
 							#print(passthru_ans_modified)
-							await asyncio.wait_for(self.send_data(passthru_ans_modified.toBytes()), timeout=1)
+							await asyncio.wait_for(self.send_data(passthru_ans_modified.to_bytes()), timeout=1)
 							return
 
 				if len(answers) == 0 :
@@ -167,7 +167,7 @@ class DNS(ResponderServer):
 												 questions = msg.Questions,
 												 proto = self.globalsession.passthru_proto)
 			
-				await asyncio.wait_for(self.send_data(response.toBytes()), timeout=1)
+				await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)
 
 		except Exception as e:
 			raise e

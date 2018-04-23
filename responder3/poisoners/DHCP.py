@@ -180,7 +180,7 @@ class DHCP(ResponderServer):
 					self.globalsession.offer_mac[self.globalsession.sessions[msg.xid][-1].chaddr] = 0
 
 					print('Sending offer!')
-					await self.send_data(dhcpoffer.toBytes()[:300], ('255.255.255.255', 68))
+					await self.send_data(dhcpoffer.to_bytes()[:300], ('255.255.255.255', 68))
 
 				elif self.globalsession.sessions[msg.xid][-1].dhcpmessagetype == DHCPOptMessageType.DHCPREQUEST:
 
@@ -203,13 +203,13 @@ class DHCP(ResponderServer):
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 
 						print('Sending ACK to %s' % str(self.globalsession.assigned_ips[msg.xid]))
-						#await self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
+						#await self.send_data(dhcpack.to_bytes(), ('255.255.255.255', 68))
 						
 
 						if self.globalsession.sessions[msg.xid][-1].flags & DHCPFlags.B == 0 and self.cwriter._addr[0] != '0.0.0.0':
-							await self.send_data(dhcpack.toBytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
+							await self.send_data(dhcpack.to_bytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
 						else:
-							await self.send_data(dhcpack.toBytes(), ('255.255.255.255', 68))
+							await self.send_data(dhcpack.to_bytes(), ('255.255.255.255', 68))
 						
 
 					else:
@@ -234,7 +234,7 @@ class DHCP(ResponderServer):
 							siaddr = self.globalsession.serveraddress, 
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 						
-						await self.send_data(dhcpnak.toBytes(), ('255.255.255.255', 68))
+						await self.send_data(dhcpnak.to_bytes(), ('255.255.255.255', 68))
 
 
 

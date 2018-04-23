@@ -128,7 +128,7 @@ class DHCPMessage():
 		msg.options = options
 		return msg
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.op.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.htype.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.hlen.to_bytes(1, byteorder = 'big', signed = False)
@@ -145,7 +145,7 @@ class DHCPMessage():
 		t += self.file.encode() + b'\x00'*(128-len(self.file.encode()))
 		t += self.magic
 		for option in self.options:
-			t += option.toBytes()
+			t += option.to_bytes()
 		
 		t += b'\x00'*(576 - len(t))
 
@@ -185,7 +185,7 @@ class DHCPOptPAD():
 	def construct():
 		opt = DHCPOptPAD()
 		return opt
-	def toBytes(self):
+	def to_bytes(self):
 		return self.code.to_bytes(1, byteorder = 'big', signed = False)
 
 	def __repr__(self):
@@ -205,7 +205,7 @@ class DHCPOptEND():
 		opt = DHCPOptEND()
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		return self.code.to_bytes(1, byteorder = 'big', signed = False)
 
 	def __repr__(self):
@@ -230,7 +230,7 @@ class DHCPOptSUBNETMASK():
 		opt.mask = mask
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += mac_to_bytes(self.mask)
@@ -259,7 +259,7 @@ class DHCPOptTIMEOFFSET():
 		opt.timeoffset = timeoffset
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.timeoffset.to_bytes(4,byteorder = 'big', signed=True)
@@ -292,7 +292,7 @@ class DHCPOptROUTERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -327,7 +327,7 @@ class DHCPOptTIMESERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -362,7 +362,7 @@ class DHCPOptNAMESERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -407,7 +407,7 @@ class DHCPOptDNSSERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -443,7 +443,7 @@ class DHCPOptLOGSERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -478,7 +478,7 @@ class DHCPOptCOOKIESERVER():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -513,7 +513,7 @@ class DHCPOptLPRSERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -548,7 +548,7 @@ class DHCPOptIMPRESSSERVERS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -583,7 +583,7 @@ class DHCPOptRESOURCELOCATIONS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -615,7 +615,7 @@ class DHCPOptHOSTNAME():
 		opt.len = len(hostname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.hostname.encode()
@@ -644,7 +644,7 @@ class DHCPOptBOOTFILESIZE():
 		opt.filesize = filesize
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.filesize.to_bytes(2, byteorder = 'big', signed = False)
@@ -675,7 +675,7 @@ class DHCPOptMERITDUMPFILE():
 		opt.len = len(pathname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.pathname.encode()
@@ -706,7 +706,7 @@ class DHCPOptDOMAINNAME():
 		opt.len = len(domainname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.domainname.encode()
@@ -735,7 +735,7 @@ class DHCPOptSWAPSERVER():
 		opt.address = address
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.address.packed
@@ -765,7 +765,7 @@ class DHCPOptROOTPATH():
 		opt.len = len(pathname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.pathname.encode()
@@ -795,7 +795,7 @@ class DHCPOptEXTENSIONSPATH():
 		opt.len = len(pathname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.pathname.encode()
@@ -824,7 +824,7 @@ class DHCPOptIPFORWARDING():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -853,7 +853,7 @@ class DHCPOptNONLOCALSRCROUTING():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -890,7 +890,7 @@ class DHCPOptPOLICYFILTER():
 
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for destmask in destmasks:
@@ -921,7 +921,7 @@ class DHCPOptMAXIMUMDATAGRAMREASSEMBLY():
 		opt.size = size
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.size.to_bytes(2, byteorder = 'big', signed = False)
@@ -950,7 +950,7 @@ class DHCPOptDEFAULTTTL():
 		opt.ttl = ttl
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.ttl.to_bytes(2, byteorder = 'big', signed = False)
@@ -979,7 +979,7 @@ class DHCPOptPATHMTUAGINGTIMEOUT():
 		opt.timeout = timeout
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.timeout.to_bytes(4, byteorder = 'big', signed = False)
@@ -1010,7 +1010,7 @@ class DHCPOptMTUPLATEUTABLE():
 		opt.len = len(sizes) * 2
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for size in sizes:
@@ -1040,7 +1040,7 @@ class DHCPOptINTERFACEMTU():
 		opt.mtu = mtu
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.mtu.to_bytes(2, byteorder = 'big', signed = False)
@@ -1069,7 +1069,7 @@ class DHCPOptALLSUBNETSARELOCAL():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1099,7 +1099,7 @@ class DHCPOptBROADCASTADDRESS():
 		opt.address = address
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.address.packed
@@ -1128,7 +1128,7 @@ class DHCPOptPERFORMMASKDISCOVERY():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1157,7 +1157,7 @@ class DHCPOptMASKSUPPLIER():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1187,7 +1187,7 @@ class DHCPOptPERFORMROUTERDISCOVERY():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1216,7 +1216,7 @@ class DHCPOptROUTERSOLICITATIONADDRESS():
 		opt.address = address
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.address.packed
@@ -1253,7 +1253,7 @@ class DHCPOptSTATICROUTES():
 
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for addressroutes in self.addressroutes:
@@ -1284,7 +1284,7 @@ class DHCPOptTRAILERENCAPSULATION():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1313,7 +1313,7 @@ class DHCPOptARPCACHETIMEOUT():
 		opt.timeout = timeout
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.timeout.to_bytes(4, byteorder = 'big', signed = False)
@@ -1342,7 +1342,7 @@ class DHCPOptETHERNETENCAPSULATION():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1371,7 +1371,7 @@ class DHCPOptTCPDEFAULTTTL():
 		opt.timeout = timeout
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.timeout.to_bytes(4, byteorder = 'big', signed = False)
@@ -1400,7 +1400,7 @@ class DHCPOptTCPKEEPALIVEINTERVAL():
 		opt.timeout = timeout
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.timeout.to_bytes(4, byteorder = 'big', signed = False)
@@ -1429,7 +1429,7 @@ class DHCPOptTCPKEEPALIVEGARBAGE():
 		opt.enabled = enabled
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.enabled.to_bytes(1, byteorder = 'big', signed = False)
@@ -1459,7 +1459,7 @@ class DHCPOptNISDOMAIN():
 		opt.len = len(domainname.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.domainname.encode()
@@ -1492,7 +1492,7 @@ class DHCPOptNIS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1537,7 +1537,7 @@ class DHCPOptNTP():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1592,7 +1592,7 @@ class DHCPOptNETBIOSOVERTCP():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1626,7 +1626,7 @@ class DHCPOptNETBIOSOVERTCPDDS():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1665,7 +1665,7 @@ class DHCPOptNETBIOSOVERTCPNODETYPE():
 		opt.nodetype = nodetype
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.nodetype.value.to_bytes(1, byteorder = 'big', signed = False)
@@ -1696,7 +1696,7 @@ class DHCPOptNETBIOSOVERTCPSCOPE():
 		opt.len = len(scope)
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.scope
@@ -1729,7 +1729,7 @@ class DHCPOptXWINDOWFONTSERVER():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1764,7 +1764,7 @@ class DHCPOptXWINDOWDISPLAYMANAGER():
 		opt.len = len(addresses) *4
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for address in self.addresses:
@@ -1795,7 +1795,7 @@ class DHCPOptREQUESTEDIPADDRESS():
 		opt.address = address
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.address.packed
@@ -1825,7 +1825,7 @@ class DHCPOptIPADDRESSLEASETIME():
 		opt.leasetime = leasetime
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.leasetime.to_bytes(4, byteorder = 'big', signed = False)
@@ -1859,7 +1859,7 @@ class DHCPOptOPTIONOVERLOAD():
 		opt.value = value
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.value.value.to_bytes(1, byteorder = 'big', signed = False)
@@ -1900,7 +1900,7 @@ class DHCPOptDHCPMESSAGETYPE():
 		opt.msgtype = msgtype
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.msgtype.value.to_bytes(1, byteorder = 'big', signed = False)
@@ -1929,7 +1929,7 @@ class DHCPOptSERVERIDENTIFIER():
 		opt.address = address
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.address.packed
@@ -1961,7 +1961,7 @@ class DHCPOptPARAMETERREQUEST():
 		opt.len = len(optioncodes)
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		for optioncode in self.optioncodes:
@@ -1992,7 +1992,7 @@ class DHCPOptMESSAGE():
 		opt.len = len(message.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.message.encode()
@@ -2021,7 +2021,7 @@ class DHCPOptMAXIMUMDHCPMESSAGESIZE():
 		opt.length = length
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.length.to_bytes(2, byteorder = 'big', signed = False)
@@ -2050,7 +2050,7 @@ class DHCPOptRENEVALTIME():
 		opt.interval = interval
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.interval.to_bytes(4, byteorder = 'big', signed = False)
@@ -2080,7 +2080,7 @@ class DHCPOptREBINDINGTIME():
 		opt.interval = interval
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.interval.to_bytes(4, byteorder = 'big', signed = False)
@@ -2110,7 +2110,7 @@ class DHCPOptCLASSIDENTIFIER():
 		opt.len = len(opt.classid.encode())
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.classid.encode()
@@ -2143,7 +2143,7 @@ class DHCPOptCLIENTIDENTIFIER():
 		opt.type = clienttype
 		return opt
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
 		t += self.type.value.to_bytes(1, byteorder = 'big', signed = False)

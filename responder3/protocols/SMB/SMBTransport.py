@@ -57,12 +57,12 @@ class SMBTransport():
 	def construct(smbmessage):
 		smbt = SMBTransport()
 		smbt.zero       = 0
-		smbt.length     = len(smbmessage.toBytes())
+		smbt.length     = len(smbmessage.to_bytes())
 		smbt.smbmessage = smbmessage
 		return smbt
 
 	def to_bytes(self):
 		t  = self.zero.to_bytes(1, byteorder = 'big', signed=False)
 		t += self.length.to_bytes(3, byteorder = 'big', signed=False)
-		t += self.smbmessage.toBytes()
+		t += self.smbmessage.to_bytes()
 		return t

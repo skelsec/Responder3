@@ -91,7 +91,7 @@ class NTPShort():
 		s.Fraction = int.from_bytes(buff.read(2), byteorder='big', signed = False)
 		return s
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.Seconds.to_bytes(2, byteorder = 'big', signed = False)
 		t += self.Fraction.to_bytes(2, byteorder = 'big', signed = False)
 		return t
@@ -120,7 +120,7 @@ class NTPTimeStamp():
 		s.Fraction = int.from_bytes(buff.read(4), byteorder='big', signed = False)
 		return s
 
-	def toBytes(self):
+	def to_bytes(self):
 		t  = self.Seconds.to_bytes(4, byteorder = 'big', signed = False)
 		t += self.Fraction.to_bytes(4, byteorder = 'big', signed = False)
 		return t
@@ -219,7 +219,7 @@ class NTPPacket():
 
 		return ntp
 
-	def toBytes(self):
+	def to_bytes(self):
 		temp  = self.LI.value << 6
 		temp |= self.VN << 3
 		temp |= self.Mode.value
@@ -228,8 +228,8 @@ class NTPPacket():
 		t += self.Stratum.value.to_bytes(1, byteorder = 'big', signed = False)
 		t += int(math.log2(self.Poll)).to_bytes(1, byteorder = 'big', signed = True)
 		t += int(math.log2(self.Precision)).to_bytes(1, byteorder = 'big', signed = True)
-		t += self.RootDelay.toBytes()
-		t += self.RootDispersion.toBytes()
+		t += self.RootDelay.to_bytes()
+		t += self.RootDispersion.to_bytes()
 		
 		if self.Stratum == NTPStratum.UNSPECIFIED:
 			t += self.ReferenceID.encode()
@@ -243,10 +243,10 @@ class NTPPacket():
 		else:
 			t += self.ReferenceID 
 
-		t += self.ReferenceTimestamp.toBytes()
-		t += self.OriginTimestamp.toBytes()
-		t += self.ReceiveTimestamp.toBytes()
-		t += self.TransmitTimestamp.toBytes()
+		t += self.ReferenceTimestamp.to_bytes()
+		t += self.OriginTimestamp.to_bytes()
+		t += self.ReceiveTimestamp.to_bytes()
+		t += self.TransmitTimestamp.to_bytes()
 
 		return t
 

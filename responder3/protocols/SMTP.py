@@ -588,7 +588,7 @@ class SMTPEXPNCmd:
 	def construct(self, data):
 		self.username      = data
 
-	def toBytes(self):
+	def to_bytes(self):
 		return self.command.name.encode('ascii') + b' ' +self.username.encode('ascii') +b'\r\n'
 
 	@staticmethod
@@ -614,7 +614,7 @@ class SMTPVRFYCmd:
 	def construct(self, data):
 		self.username      = data
 
-	def toBytes(self):
+	def to_bytes(self):
 		return self.command.name.encode('ascii') + b' ' +self.username.encode('ascii') +b'\r\n'
 
 	@staticmethod
@@ -640,7 +640,7 @@ class SMTPRSETCmd:
 	def construct(self):
 		pass
 
-	def toBytes(self):
+	def to_bytes(self):
 		return self.command + b'\r\n'
 
 	@staticmethod
@@ -664,7 +664,7 @@ class SMTPDATACmd:
 	def construct(self, emaildata):
 		self.emaildata = emaildata
 
-	def toBytes(self):
+	def to_bytes(self):
 		return [self.command.name.encode('ascii') + b'\r\n', self.emailData.replace('\r\n','\n').encode('ascii') + b'\r\n.\r\n']
 
 	@staticmethod

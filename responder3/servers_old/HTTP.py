@@ -91,13 +91,13 @@ class HTTP(ResponderServer):
 						self.logResult(session, usercreds.toResult())
 
 			if session.currentState == HTTPState.AUTHFAILED:
-				transport.write(HTTP403Resp(session, 'Basic').toBytes())
+				transport.write(HTTP403Resp(session, 'Basic').to_bytes())
 				transport.close()
 				pass
 
 			if session.currentState == HTTPState.AUTHENTICATED:
 				#serve webpage or whatever
-				transport.write(HTTP200Resp(session, body = 'SUCCSESS!').toBytes())
+				transport.write(HTTP200Resp(session, body = 'SUCCSESS!').to_bytes())
 				transport.close()
 				pass
 

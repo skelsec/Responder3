@@ -33,21 +33,21 @@ class SMBSession(ResponderServerSession):
 
 	def __repr__(self):
 		t  = '== SMBSession ==\r\n'
-		t += 'SMBprotocol:      %s\r\n' % repr(self.HTTPVersion)
-		t += 'SMBdialect: %s\r\n' % repr(self.HTTPContentEncoding)
-		t += 'commondialect: %s\r\n' % repr(self.HTTPConectentCharset)
-		t += 'current_state: %s\r\n' % repr(self.HTTPAtuhentication)
-		t += 'gssapihandler:       %s\r\n' % repr(self.HTTPCookie)
-		t += 'serverUUID: %s\r\n' % repr(self.HTTPServerBanner)
-		t += 'SMBSessionID:     %s\r\n' % repr(self.current_state)
-		t += 'SMBMessageCnt:     %s\r\n' % repr(self.current_state)
+		t += 'SMBprotocol:      %s\r\n' % repr(self.SMBprotocol)
+		t += 'SMBdialect: %s\r\n' % repr(self.SMBdialect)
+		t += 'commondialect: %s\r\n' % repr(self.commondialect)
+		t += 'current_state: %s\r\n' % repr(self.current_state)
+		t += 'gssapihandler:       %s\r\n' % repr(self.gssapihandler)
+		t += 'serverUUID: %s\r\n' % repr(self.serverUUID)
+		t += 'SMBSessionID:     %s\r\n' % repr(self.SMBSessionID)
+		t += 'SMBMessageCnt:     %s\r\n' % repr(self.SMBMessageCnt)
 		return t
+
 
 class SMB(ResponderServer):
 	def init(self):
 		self.parser = SMBTransport
 		self.parse_settings()
-		
 
 	def parse_settings(self):
 		pass
@@ -90,7 +90,7 @@ class SMB(ResponderServer):
 
 	async def send_data(self, smbmessage):
 		data = self.parser.construct(smbmessage)
-		self.cwriter.write(data.toBytes())
+		self.cwriter.write(data.to_bytes())
 		await self.cwriter.drain()
 
 	async def send_authfailed(self, smbmessage):
@@ -99,7 +99,7 @@ class SMB(ResponderServer):
 	async def run(self):
 		try:
 			while True:
-				msg = await asyncio.wait_for(self.parse_message(None), timeout = None)
+				msg = await self.parse_message(timeout = None)
 				if self.session.current_state == SMB2ServerState.UNAUTHENTICATED:
 					#this could be SMB/NegotiateProtocol or SMB2/NegotiateProtocol or SMB2/SessionSetup
 					if msg.type == 1:
@@ -258,11 +258,11 @@ class SMB(ResponderServer):
 						if msg.header.Command == SMB2Command.NEGOTIATE:
 							status, data, t = self.session.gssapihandler.do_AUTH()
 							resp = SMB2Message()
-							resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.SMBMessageCnt)
+							resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.session.SMBMessageCnt)
 							resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 								NegotiateDialects.SMB202, self.session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
-							a = await asyncio.wait_for(send_data(resp), timeout=1)
+							a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 						
 						elif msg.header.Command == SMB2Command.SESSION_SETUP:
 							status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.Buffer)
