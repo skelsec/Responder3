@@ -102,4 +102,3 @@ if __name__ == '__main__':
 					assert dataOut == cipher.encrypt(dataIn)
 					print('\tTest vector passed with key: %s' % key.hex())	
 
-

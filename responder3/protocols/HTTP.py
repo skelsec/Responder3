@@ -207,6 +207,16 @@ class HTTPRequest:
 			self.headers[self.header_key_lookup_table[key.lower()]] = value
 		self.props = HTTPRequestProps.from_request(self)
 
+	def remove_header(self, key):
+		if key.lower() not in self.header_key_lookup_table:
+			return
+		original_key = self.header_key_lookup_table[key.lower()]
+		if original_key is None:
+			return
+		del self.headers[original_key]
+		del self.header_key_lookup_table[key.lower()]
+		return
+
 	def to_bytes(self):
 		if self.props is None:
 			self.props = HTTPRequestProps.from_request(self)
@@ -383,12 +393,12 @@ class HTTPResponse:
 		if self.props.content_length is None:
 			self.update_header('Content-Length', 0)
 
-		t_body = self.body
+		t_body = b''
 		if self.body is not None:
 			if self.props.content_encoding is not None:
 				t_body = compress_body(self)
 			else:
-				t_body = self.body
+				t_body = self.body.encode()
 			self.update_header('Content-Length', int(len(t_body)))
 
 		if self.reason is None:
@@ -402,11 +412,10 @@ class HTTPResponse:
 				t += '%s: %s\r\n' % (key, self.headers[key])
 		t += '\r\n'
 		t = t.encode('ascii')
-
-		if t_body is not None:
-			t += t_body
+		t += t_body
 
 		return t
+
 
 class HTTP200Resp(HTTPResponse):
 	def __init__(self, body = None, httpversion = HTTPVersion.HTTP11, 
@@ -486,54 +495,54 @@ class HTTP407Resp(HTTPResponse):
 			self.headers['Proxy-Authenticate'] = '%s' % authType
 
 
+class HTTPServerMode(enum.Enum):
+	PROXY = 'PROXY'
+	CREDSTEALER = 'CREDSTEALER'
+
+
 class HTTPBasicAuth:
 	"""
 	Handling HTTP basic Auth
-	verifyCreds: can be a  1. dictionary with user:password pairs.
+	verify_creds: can be a  1. dictionary with user:password pairs.
 						 2. empty dict means nobody is allowed
 						 3. None means EVERYBODY IS ALLOWED
 	"""
 
-	def __init__(self, verifyCreds = None, isProxy = False):
+	def __init__(self, verify_creds = None):
 		self._iterations = 0
-		self.isProxy = isProxy
-		self.verifyCreds = verifyCreds
-		self.user_creds   = None
+		self.verify_creds = verify_creds
 
-	async def do_AUTH(self, httpReq, httpserver):
-		authHdr = 'Authorization'
-		if self.isProxy:
-			authHdr = 'Proxy-Authorization'
-		
-		if authHdr in httpReq.headers and httpReq.headers[authHdr][:5].upper() == 'BASIC':
-			temp = base64.b64decode(httpReq.headers[authHdr][5:]).decode('ascii')
-			marker = temp.find(':')
-			self.user_creds   = BASICUserCredentials()
-			self.user_creds.username = temp[:marker]
-			self.user_creds.password = temp[marker+1:]
+	async def do_AUTH(self, http_request, http_server):
+		try:
+			auth_header_key = 'Authorization' if http_server.session.server_mode != HTTPServerMode.PROXY else 'Proxy-Authorization'
+			print('hdr key: %s' % auth_header_key)
+			req_auth_header = http_request.get_header(auth_header_key)
+			print('Auth header: %s' % req_auth_header)
+			if req_auth_header is not None and req_auth_header[:5].upper() == 'BASIC':
+				temp = base64.b64decode(req_auth_header[5:]).decode('ascii')
+				marker = temp.find(':')
+				if marker == -1:
+					http_server.log('Invalid BASIC auth field!')
+					return
+				user_creds = BASICUserCredentials()
+				user_creds.username = temp[:marker]
+				user_creds.password = temp[marker+1:]
 
-			if self.verify():
-				httpserver.session.current_state = HTTPState.AUTHENTICATED
+				await http_server.log_credential(user_creds.to_credential())
+
+				if user_creds.verify(self.verify_creds):
+					http_server.session.current_state = HTTPState.AUTHENTICATED
+				else:
+					http_server.session.current_state = HTTPState.AUTHFAILED
+
 			else:
-				httpserver.session.current_state = HTTPState.AUTHFAILED
-
-			await httpserver.log_credential(self.user_creds.to_credential())
-
-		else:
-			if self.isProxy:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('Basic').to_bytes()), timeout = 1)
-			else:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('Basic').to_bytes()), timeout = 1)
-			return
-
-	def verify(self):
-		if self.verifyCreds is None:
-			return True
-		else:
-			if self.user_creds.username in self.verifyCreds:
-				return self.verifyCreds[self.user_creds.username] == self.user_creds.password
-			else:
-				return False
+				if http_server.session.server_mode == HTTPServerMode.PROXY:
+					a = await asyncio.wait_for(http_server.send_data(HTTP407Resp('Basic').to_bytes()), timeout = 1)
+				else:
+					a = await asyncio.wait_for(http_server.send_data(HTTP401Resp('Basic').to_bytes()), timeout = 1)
+				return
+		except Exception as e:
+			await http_server.log_exception()
 
 
 class BASICUserCredentials:
@@ -550,53 +559,54 @@ class BASICUserCredentials:
 		)
 		return cred
 
+	def verify(self, verify_creds):
+		if verify_creds is None:
+			return True
+		else:
+			if self.username in verify_creds:
+				return verify_creds[self.username] == self.password
+			else:
+				return False
+
 
 class HTTPNTLMAuth:
-	def __init__(self, verifyCreds = None, isProxy = False):
-		self.isProxy = isProxy
-		self.hander = NTLMAUTHHandler()
-		self.verifyCreds = verifyCreds
-		self.settings = None
-		self.status = 0
+	def __init__(self, verify_creds = None, ntlm_settings = None):
+		self.handler = NTLMAUTHHandler()
+		self.handler.setup(ntlm_settings, verify_creds)
+		self.verify_creds = verify_creds
+		self.ntlm_settings = ntlm_settings
 
-	def setup(self, settings = {}):
-		#settings here
-		self.hander.setup(settings)
-		return
+	async def do_AUTH(self, http_request, httpserver):
+		try:
+			auth_header_key = 'Authorization' if httpserver.session.server_mode != HTTPServerMode.PROXY else 'Proxy-Authorization'
+			req_auth_header = http_request.get_header(auth_header_key)
+			if req_auth_header is not None and req_auth_header[:4].upper() == 'NTLM':
+				auth_status, ntlm_message, creds = self.handler.do_AUTH(base64.b64decode(req_auth_header[5:]))
+				print(auth_status)
+				if creds is not None:
+					for cred in creds:
+						await httpserver.log_credential(cred.to_credential())
 
-	async def do_AUTH(self, httpRequest, httpserver):
-		authHdr = 'Authorization'
-		if self.isProxy:
-			authHdr = 'Proxy-Authorization'
+				if auth_status == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
+					if httpserver.session.server_mode == HTTPServerMode.PROXY:
+						a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlm_message).decode('ascii')).to_bytes()), timeout =1 )
+					else:
+						a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlm_message).decode('ascii')).to_bytes()), timeout =1 )
+					return
 
-		if authHdr in httpRequest.headers and httpRequest.headers[authHdr][:4].upper() == 'NTLM':
-			authStatus, ntlmMessage, creds = self.hander.do_AUTH(base64.b64decode(httpRequest.headers[authHdr][5:]))
-			if self.status == 0 and authStatus == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
-				self.status += 1
-				if self.isProxy:
-					a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).to_bytes()), timeout =1 )
+				elif auth_status == NTStatus.STATUS_ACCOUNT_DISABLED:
+					httpserver.session.current_state = HTTPState.AUTHFAILED
+
+				elif auth_status == NTStatus.STATUS_SUCCESS:
+					httpserver.session.current_state = HTTPState.AUTHENTICATED
+
 				else:
-					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM '+ base64.b64encode(ntlmMessage).decode('ascii')).to_bytes()), timeout =1 )
+					raise Exception('Unexpected status')
+			else:
+				if httpserver.session.server_mode == HTTPServerMode.PROXY:
+					a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').to_bytes()), timeout = 1)
+				else:
+					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').to_bytes()), timeout = 1)
 				return
-			
-			elif self.status == 1 and authStatus == NTStatus.STATUS_ACCOUNT_DISABLED:
-				# TODO!!!! When NTLM credential verification is implemented, uncomment the lines below!!!
-				# and comment out the auth successful line!
-				# httpserver.session.current_state = HTTPState.AUTHFAILED
-				# for cred in creds:
-				# 	httpserver.log_credential(cred.to_credential())
-				httpserver.session.current_state = HTTPState.AUTHENTICATED
-
-			elif self.status == 1 and authStatus == NTStatus.STATUS_SUCCESS:
-				httpserver.session.current_state = HTTPState.AUTHENTICATED
-				for cred in creds:
-					httpserver.log_credential(cred.to_credential())
-
-			else:
-				raise Exception('Unexpected status')
-		else:
-			if self.isProxy:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP407Resp('NTLM').to_bytes()), timeout = 1)
-			else:
-				a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').to_bytes()), timeout = 1)
-			return
+		except Exception as e:
+			await httpserver.log_exception()

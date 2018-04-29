@@ -18,8 +18,9 @@ try:
 except:
 	pass
 
-#from impacket
-def __expand_DES_key(key):
+
+# from impacket
+def expand_DES_key(key):
 	# Expand the key from a 7-byte password key into a 8-byte DES key
 	key  = key[:7]
 	key += b'\x00'*(7-len(key))
@@ -38,7 +39,7 @@ class pureDES(symmetricBASE):
 	def __init__(self, key, mode = cipherMODE.ECB, IV = None):
 		self.key = key
 		if len(key) == 7:
-			self.key = __expand_DES_key(key)
+			self.key = expand_DES_key(key)
 
 		self.mode = mode
 		self.IV = IV

@@ -79,6 +79,12 @@ sslctx_nofile = {
 servers = [
 	{
 		'handler'  : 'HTTP',
+		'settings' : {
+			'authentication':{
+				'authmecha': 'BASIC',
+			},
+		},
+
 	},
 	{
 		'handler'  : 'HTTP',
@@ -86,6 +92,11 @@ servers = [
 		'settings' : {
 			'authentication':{
 				'authmecha': 'NTLM',
+				'cerdentials':{
+					'BIGCORP':{
+						'alma':'alma'
+					}
+				}
 			},
 		},
 	},
@@ -93,5 +104,20 @@ servers = [
 		'handler'  : 'HTTP',
 		'bind_port':[(443, 'tcp')],
 		'bind_sslctx' : sslctx,
+		'settings' : {
+			'authentication':{
+				'authmecha': 'BASIC',
+			},
+		},
+	},
+	{
+		'handler'  : 'HTTP',
+		'bind_port':[(444, 'tcp')],
+		'bind_sslctx' : sslctx,
+		'settings' : {
+			'authentication':{
+				'authmecha': 'NTLM',
+			},
+		},
 	},
 ]

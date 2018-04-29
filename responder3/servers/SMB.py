@@ -138,11 +138,11 @@ class SMB(ResponderServer):
 								await self.log('client is capable of smbv2, using SMBv2', logging.DEBUG)
 								status, data, t = self.session.gssapihandler.do_AUTH()
 								resp = SMB2Message()
-								resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.SMBMessageCnt)
+								resp.header = SMB2Header_ASYNC.construct(SMB2Command.NEGOTIATE, SMB2HeaderFlag.SMB2_FLAGS_SERVER_TO_REDIR, self.session.SMBMessageCnt)
 								resp.command = NEGOTIATE_REPLY.construct(data, NegotiateSecurityMode.SMB2_NEGOTIATE_SIGNING_ENABLED,
 									NegotiateDialects.SMB202, self.session.serverUUID, NegotiateCapabilities.SMB2_GLOBAL_CAP_DFS|NegotiateCapabilities.SMB2_GLOBAL_CAP_LEASING|NegotiateCapabilities.SMB2_GLOBAL_CAP_LARGE_MTU)
 
-								#MessageCn t should not be incremented here
+								# MessageCnt should not be incremented here
 								a = await asyncio.wait_for(self.send_data(resp), timeout=1)
 							
 							else:
@@ -202,7 +202,7 @@ class SMB(ResponderServer):
 								elif status == NTStatus.STATUS_ACCOUNT_DISABLED:
 									if creds is not None:
 										for cred in creds:
-											await self.log_credential(cred.toCredential())
+											await self.log_credential(cred.to_credential())
 									
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_ACCOUNT_DISABLED, 
@@ -228,7 +228,7 @@ class SMB(ResponderServer):
 								elif status == NTStatus.STATUS_SUCCESS:
 									if creds is not None:
 										for cred in creds:
-											await self.log_credential(cred.toCredential())
+											await self.log_credential(cred.to_credential())
 									self.session.current_state = SMB2ServerState.AUTHENTICATED
 									resp.header = SMBHeader.construct(SMBCommand.SMB_COM_SESSION_SETUP_ANDX, 
 																	NTStatus.STATUS_SUCCESS, 
@@ -244,10 +244,11 @@ class SMB(ResponderServer):
 																	pidhigh = msg.header.PIDHigh,
 																	pidlow = msg.header.PIDLow,
 																)
-									resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(secblob = data, 
-																							  nativeos = 'Windows 2003', 
-																							  nativelanman = 'blabla'
-																							)
+									resp.command = SMB_COM_SESSION_SETUP_ANDX_REPLY.construct(
+										secblob = data,
+										nativeos = 'Windows 2003',
+										nativelanman = 'blabla'
+									)
 
 								
 							else:
@@ -268,7 +269,7 @@ class SMB(ResponderServer):
 							status, data, creds = self.session.gssapihandler.do_AUTH(msg.command.Buffer)
 							if creds is not None:
 								for cred in creds:
-									await self.log_credential(cred.toCredential())
+									await self.log_credential(cred.to_credential())
 								return
 							
 							resp = SMB2Message()

@@ -7,40 +7,41 @@ from responder3.core.commons import *
 from responder3.protocols.HTTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
-
-class HTTPServerMode(enum.Enum):
-	PROXY = 'PROXY'
-	CREDSTEALER = 'CREDSTEALER'
+class HTTPProxy:
+	def __init__(self):
+		pass
 
 
 class HTTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
-		self.HTTPVersion = HTTPVersion.HTTP11
-		self.HTTPContentEncoding = HTTPContentEncoding.IDENTITY
-		self.HTTPConectentCharset = 'utf8'
-		self.HTTPAtuhentication = None
-		self.HTTPCookie = None
-		self.HTTPServerBanner = None
+		self.server_mode = HTTPServerMode.CREDSTEALER
 		self.current_state = HTTPState.UNAUTHENTICATED
-		self.invisible = False
-		self.mode = HTTPServerMode.CREDSTEALER
-		self.proxy_closed = asyncio.Event()
-		self.SSLintercept = False
-		self.close_session = asyncio.Event()
-		self.isproxy = False
 		self.log_data = False
+
+		self.http_version = HTTPVersion.HTTP11
+		self.http_content_encoding = HTTPContentEncoding.IDENTITY
+		self.http_connect_charset = 'utf8'
+		self.http_auth_mecha = None
+		self.http_cookie = None
+		self.http_server_banner = None
+
+		self.proxy_invisible = False
+		self.proxy_ssl_intercept = False
+		self.proxy_closed = asyncio.Event()
+
+		self.close_session = asyncio.Event()
+
 
 	def __repr__(self):
 		t  = '== HTTPSession ==\r\n'
-		t += 'HTTPVersion:      %s\r\n' % repr(self.HTTPVersion)
-		t += 'HTTPContentEncoding: %s\r\n' % repr(self.HTTPContentEncoding)
-		t += 'HTTPConectentCharset: %s\r\n' % repr(self.HTTPConectentCharset)
-		t += 'HTTPAtuhentication: %s\r\n' % repr(self.HTTPAtuhentication)
-		t += 'HTTPCookie:       %s\r\n' % repr(self.HTTPCookie)
-		t += 'HTTPServerBanner: %s\r\n' % repr(self.HTTPServerBanner)
-		t += 'mode:     %s\r\n' % repr(self.mode)
-		t += 'isproxy:     %s\r\n' % repr(self.isproxy)
+		t += 'http_version:      %s\r\n' % repr(self.http_version)
+		t += 'http_content_encoding: %s\r\n' % repr(self.http_content_encoding)
+		t += 'http_connect_charset: %s\r\n' % repr(self.http_connect_charset)
+		t += 'http_auth_mecha: %s\r\n' % repr(self.http_auth_mecha)
+		t += 'http_cookie:       %s\r\n' % repr(self.http_cookie)
+		t += 'http_server_banner: %s\r\n' % repr(self.http_server_banner)
+		t += 'mode:     %s\r\n' % repr(self.server_mode)
 		t += 'current_state:     %s\r\n' % repr(self.current_state)
 		return t
 
@@ -51,35 +52,31 @@ class HTTP(ResponderServer):
 		self.parse_settings()
 
 	def parse_settings(self):
+		print('Settings: %s' % self.settings)
 		if self.settings is None:
 			# default settings, basically just NTLM auth
-			self.session.mode = HTTPServerMode.CREDSTEALER
-			
-			# self.session.HTTPAtuhentication   = HTTPNTLMAuth(isProxy = self.session.isproxy)
-			# self.session.HTTPAtuhentication.setup()
-			self.session.HTTPAtuhentication = HTTPBasicAuth(isProxy=self.session.isproxy)
+			self.session.server_mode = HTTPServerMode.CREDSTEALER
+			self.session.http_auth_mecha   = HTTPNTLMAuth(verify_creds = None)
 
 		else:
 			if 'mode' in self.settings:
-				self.session.mode = HTTPServerMode(self.settings['mode'].upper())
+				self.session.server_mode = HTTPServerMode(self.settings['mode'].upper())
 
 			if 'authentication' in self.settings:
 				# supported authentication mechanisms
 				if self.settings['authentication']['authmecha'].upper() == 'NTLM':
-					self.session.HTTPAtuhentication   = HTTPNTLMAuth(isProxy = self.session.mode == HTTPServerMode.PROXY)
-					if 'settings' in self.settings['authentication']:
-						self.session.HTTPAtuhentication.setup(self.settings['authentication']['settings'])
-					else:
-						self.session.HTTPAtuhentication.setup()
+					self.session.http_auth_mecha   = HTTPNTLMAuth(
+						verify_creds = self.settings['authentication'].get('cerdentials'),
+						ntlm_settings = self.settings['authentication'].get('settings')
+					)
 				
-				elif self.settings['authmecha'].upper() == 'BASIC':
-					self.session.HTTPAtuhentication = HTTPBasicAuth(isProxy = self.session.mode == HTTPServerMode.PROXY)
+				elif self.settings['authentication']['authmecha'].upper() == 'BASIC':
+					self.session.http_auth_mecha = HTTPBasicAuth(
+						verify_creds=self.settings['authentication'].get('cerdentials')
+					)
 
 				else:
 					raise Exception('Unsupported HTTP authentication mechanism: %s' % (self.settings['authentication']['authmecha']))
-
-				if 'cerdentials' in self.settings['authentication']:
-					self.session.HTTPAtuhentication.verifyCreds = self.settings['authentication']['cerdentials']
 
 	async def parse_message(self, timeout = None):
 		try:
@@ -135,7 +132,7 @@ class HTTP(ResponderServer):
 		if req.method == 'CONNECT':
 			rhost, rport = req.uri.split(':')
 			# https://tools.ietf.org/html/rfc7231#section-4.3.6
-			if not self.session.SSLintercept:
+			if not self.session.proxy_ssl_intercept:
 				# not intercepting SSL traffic, acting as a generic proxy
 				try:
 					remote_reader, remote_writer = await asyncio.wait_for(asyncio.open_connection(host=rhost, port=int(rport)), timeout=1)
@@ -183,13 +180,11 @@ class HTTP(ResponderServer):
 					uri = '?'.join([o.path, o.query])
 				else:
 					uri = o.path
-				hdrs = collections.OrderedDict()
-				for hdr in req.headers:
-					if hdr.lower() == 'proxy-authorization':
-						continue
-					hdrs[hdr] = req.headers[hdr]
-				
-				req_new = HTTPRequest.construct(req.method, uri, hdrs, req.body, req.version)
+
+				# removing proxy authorization header
+				req.remove_header('proxy-authorization')
+
+				req_new = HTTPRequest.construct(req.method, uri, req.headers, req.body, req.version)
 				await self.log('======== request sent ============', logging.DEBUG)
 				# print(req_new)
 
@@ -211,7 +206,6 @@ class HTTP(ResponderServer):
 				await self.log('=== PROXY === \r\n %s \r\n %s ======' % (req_new, resp))
 
 				if req.props.connection is not None and req.props.connection == HTTPConnection.KEEP_ALIVE:
-					print('keepalive!')
 					req = await asyncio.wait_for(self.parse_message(timeout = None), timeout = None)
 					if req is None:
 						self.session.close_session.set()
@@ -239,11 +233,11 @@ class HTTP(ResponderServer):
 				if self.session.log_data:
 					pass
 				
-				if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.HTTPAtuhentication is None:
+				if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.http_auth_mecha is None:
 					self.session.current_state = HTTPState.AUTHENTICATED
 				
 				if self.session.current_state == HTTPState.UNAUTHENTICATED:
-					await self.session.HTTPAtuhentication.do_AUTH(req, self)
+					await self.session.http_auth_mecha.do_AUTH(req, self)
 
 				if self.session.current_state == HTTPState.AUTHFAILED:
 					await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').to_bytes()), timeout = 1)
@@ -255,11 +249,9 @@ class HTTP(ResponderServer):
 					await self.log(repr(self.session), logging.DEBUG)
 
 				if self.session.current_state == HTTPState.AUTHENTICATED:
-					if self.session.mode == HTTPServerMode.PROXY:
+					if self.session.server_mode == HTTPServerMode.PROXY:
 						a = await asyncio.wait_for(self.httpproxy(req), timeout = None)
 					else:
-						# serve page or whatever
-						print('sending OK')
 						await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
 						return
 

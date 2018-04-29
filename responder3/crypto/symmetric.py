@@ -52,7 +52,7 @@ def getSpecificCipher(cipherName, moduleBaseName):
 
 
 #import ciphers
-#DES  = getPreferredCipher('DES')
-#AES  = getPreferredCipher('AES')
-#RC4  = getPreferredCipher('RC4')
+DES  = getPreferredCipher('DES')
+AES  = getPreferredCipher('AES')
+RC4  = getPreferredCipher('RC4')
 #TDES = getPreferredCipher('TDES')

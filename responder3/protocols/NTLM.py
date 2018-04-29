@@ -4,7 +4,8 @@ import enum
 import base64
 import collections
 import hmac
-from responder3.crypto.DES import *
+
+from responder3.crypto.symmetric import DES
 from responder3.crypto.hashing import *
 from responder3.core.commons import timestamp2datetime, Credential
 from responder3.protocols.SMB.ntstatus import *
@@ -130,7 +131,7 @@ class AVPAIRType(enum.Enum):
 # https://msdn.microsoft.com/en-us/library/cc236646.aspx
 class AVPairs(collections.UserDict):
 	"""
-	AVPairs is a dictionary-like object that stores the "AVPair list" in a kev-value format where key is an AVPAIRType object and value is the corresponding object defined by the MSDN documentation. Usually it's string but can be other object as well
+	AVPairs is a dictionary-like object that stores the "AVPair list" in a key -value format where key is an AVPAIRType object and value is the corresponding object defined by the MSDN documentation. Usually it's string but can be other object as well
 	"""
 	def __init__(self, data = None):
 		collections.UserDict.__init__(self, data)
@@ -323,21 +324,20 @@ class NTLMAuthenticate:
 
 		currPos = buff.tell()
 
-		if auth._use_NTLMv2:
-			buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
+		if auth._use_NTLMv2 and auth.NtChallengeResponseFields.length > 24:
+			buff.seek(auth.LmChallengeResponseFields.offset, io.SEEK_SET)
 			auth.LMChallenge = LMv2Response.from_buffer(buff)
 			
 
-			buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
+			buff.seek(auth.NtChallengeResponseFields.offset, io.SEEK_SET)
 			auth.NTChallenge = NTLMv2Response.from_buffer(buff)
 
 		else:
-			buff.seek(auth.LmChallengeResponseFields.offset,io.SEEK_SET)
+			buff.seek(auth.LmChallengeResponseFields.offset, io.SEEK_SET)
 			auth.LMChallenge = LMResponse.from_buffer(buff)
 				
-			buff.seek(auth.NtChallengeResponseFields.offset,io.SEEK_SET)
+			buff.seek(auth.NtChallengeResponseFields.offset, io.SEEK_SET)
 			auth.NTChallenge = NTLMv1Response.from_buffer(buff)
-				
 
 		buff.seek(auth.DomainNameFields.offset,io.SEEK_SET)
 		auth.DomainName = buff.read(auth.DomainNameFields.length).decode('utf-16le')
@@ -478,8 +478,8 @@ class NTLMv2ClientChallenge:
 		self.TimeStamp  = None
 		self.ChallengeFromClient = None
 		self.Reserved3  = None
-		self.Reserved3  = None
 		self.Details    = None #named AVPairs in the documentation
+		self.Reserved4  = None
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -496,6 +496,7 @@ class NTLMv2ClientChallenge:
 		cc.ChallengeFromClient = buff.read(8).hex()
 		cc.Reserved3  = int.from_bytes(buff.read(4), byteorder = 'little', signed = False)
 		cc.Details    = AVPairs.from_buffer(buff)
+		cc.Reserved3 = int.from_bytes(buff.read(4), byteorder='little', signed=False)
 
 		return cc
 
@@ -677,8 +678,10 @@ class NTLMAUTHHandler:
 		self.SessionBaseKey = None
 		self.KeyExchangeKey = None
 
-	def setup(self, settings = {}):
-		#settings here
+	def setup(self, settings = None, verify_credentials = None):
+		if settings is None:
+			settings = {}
+		self.verify_credentials = verify_credentials
 		self.use_NTLMv2 = True
 		if 'ntlm_downgrade' in settings:
 			self.use_NTLMv2 = not settings['ntlm_downgrade']
@@ -708,38 +711,39 @@ class NTLMAUTHHandler:
 		if 'challenge' in settings:
 			self.challenge = settings['challenge']
 
-
 		return
 
+	def calc_key_exchange_key(self, auth_cred):
+		if isinstance(auth_cred, netntlm_ess):
+			hm = hmac_md5(self.SessionBaseKey)\
+			hm.update(self.ntlmChallenge. + lm_challenge_response[:8])
+			self.KeyExchangeKey = hm.digest()
+			return
 
-	def calc_KeyExchangeKey(self):
-		if not self.use_NTLMv2:
-			if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
-				if isinstance(cred, netlm):
-					#KeyExchangeKey to ConcatenationOf( DES(LMOWF[0..6],LmChallengeResponse[0..7]), 
-					#                                   DES(   ConcatenationOf(LMOWF[7], 0xBDBDBDBDBDBD),  
-					#                                          LmChallengeResponse[0..7]
-					#										)
-					#									)
-					pass
-				else:
-					if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY:
-						#Set KeyExchangeKey to ConcatenationOf(LMOWF[0..7], Z(8)), 
-						pass
-					else:
-						pass
-						#Set KeyExchangeKey to SessionBaseKey
-						
-		else:
+		elif isinstance(auth_cred, netntlm):
+			if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_LM_KEY:
+				"""
+				des_handler = DES(DES.key56_to_key64(lm_hash[:7]))
+        first_des = des_handler.encrypt(lm_challenge_response[:8])
+
+        second_des_key = lm_hash[7:8] + b"\xbd\xbd\xbd\xbd\xbd\xbd"
+        des_handler = DES(DES.key56_to_key64(second_des_key))
+        second_des = des_handler.encrypt(lm_challenge_response[:8])
+
+key_exchange_key = first_des + second_des
+				"""
+				return
+			elif self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY:
+				# key_exchange_key = lm_hash[:8] + b'\0' * 8
+				return
+			else:
+				self.KeyExchangeKey = self.SessionBaseKey
+
+		elif isinstance(auth_cred, netntlmv2):
 			self.KeyExchangeKey = self.SessionBaseKey
 
-		return
 
-	def calc_SessionBaseKey(self):
-			if self.use_NTLMv2:
-				self.SessionBaseKey = hmac.new(self.client_credentials.ClientResponse, creds.ChallengeFromClinet, hashlib.MD5()).digest()
-			else:
-				self.SessionBaseKey = MD4(self.credentials.nthash).digest()
+		return
 
 	def do_AUTH(self, authData):
 		if self.ntlmNegotiate is None:
@@ -750,16 +754,19 @@ class NTLMAUTHHandler:
 
 		elif self.ntlmAuthenticate is None:
 			self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
-			creds = NTLMCredentials.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)			
-
-			### do verification!!!
-			### TODO
+			creds = NTLMCredentials.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)
 
 			# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
 			# self.calc_SessionBaseKey()
 			# self.calc_KeyExchangeKey()
+			auth_credential = creds[0]
+			self.SessionBaseKey = auth_credential.calc_session_base_key()
+			self.calc_key_exchange_key()
 
-			return (NTStatus.STATUS_ACCOUNT_DISABLED, None, creds) #this setting must be removed when actual ntlm authentication is implemented!
+			if auth_credential.verify(self.verify_credentials):
+				return NTStatus.STATUS_SUCCESS, None, creds
+			else:
+				return NTStatus.STATUS_ACCOUNT_DISABLED, None, creds
 
 		else:
 			raise Exception('Too many calls to do_AUTH function!')
@@ -768,8 +775,11 @@ class NTLMAUTHHandler:
 class NTLMCredentials:
 	@staticmethod
 	def construct(ntlmNegotiate, ntlmChallenge, ntlmAuthenticate):
-		if ntlmAuthenticate._use_NTLMv2:
-			#this is a netNTLMv2 then, otherwise auth would have failed on protocol level
+		# now the guessing-game begins
+
+		if isinstance(ntlmAuthenticate.NTChallenge, NTLMv2Response):
+		#if ntlmAuthenticate._use_NTLMv2:
+			# this is a netNTLMv2 then, otherwise auth would have failed on protocol level
 			creds = netntlmv2()
 			creds.username = ntlmAuthenticate.UserName
 			creds.domain   = ntlmAuthenticate.DomainName
@@ -787,8 +797,8 @@ class NTLMCredentials:
 
 		else:
 			if ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_EXTENDED_SESSIONSECURITY:
-				#extended security is used, this means that the LMresponse actually contains client challenge data
-				#and the LM and NT respondses need to be combined to form the cred data
+				# extended security is used, this means that the LMresponse actually contains client challenge data
+				# and the LM and NT respondses need to be combined to form the cred data
 				creds = netntlm_ess()
 				creds.username = ntlmAuthenticate.UserName
 				creds.domain   = ntlmAuthenticate.DomainName
@@ -831,26 +841,41 @@ class netlm:
 		# this is from the LMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
-	def toCredential(self):
+	def to_credential(self):
 		cred = Credential('netLM',
 							username = self.username, 
 							fullhash = '%s:$NETLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
 						)
 		return cred
 
-	def verify(self, creds):
+	def verify(self, creds, credtype='plain'):
+		"""
+		Verifies the authentication data against the user credentials
+		Be careful! If the credtype is 'hash' then LM hash is expected!
+		:param creds: dictionary containing the domain, user, hash/password
+		:param credtype: can be 'plain' or 'hash' this indicates what type of credential lookup to perform
+		:return: bool
+		"""
+
+		# print('Creds: %s' % creds)
 		if creds is None:
 			return True
-		
-		elif self.username in creds:
-			password = creds[self.username]
-			calc_challenge = DES(genLMHash(password), self.ServerChallenge) #DESL(ResponseKeyLM, CHALLENGE_MESSAGE.ServerChallenge)
-			if calc_challenge == self.ClientResponse:
-				return True
+
+		if self.domain not in creds:
+			return False
+		if self.username not in creds[self.domain]:
 			return False
 
+		if credtype == 'plain':
+			lm_hash = LMOWFv1(creds[self.domain][self.username])
+		elif credtype == 'hash':
+			lm_hash = bytes.fromhex(creds[self.domain][self.username])
 		else:
-			return False
+			raise Exception('Unknown cred type!')
+
+		calc_response = DESL(lm_hash, self.ServerChallenge)
+
+		return self.ClientResponse == calc_response.hex()
 
 
 class netlmv2:
@@ -866,12 +891,43 @@ class netlmv2:
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toCredential(self):
-		cred = Credential('netLMv2',
-							username = self.username, 
-							fullhash = '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
-						)
+	def to_credential(self):
+		cred = Credential(
+			'netLMv2',
+			username = self.username,
+			fullhash = '$NETLMv2$%s$%s$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+		)
 		return cred
+
+	def verify(self, creds, credtype='plain'):
+		"""
+		Verifies the authentication data against the user credentials
+		:param creds: dictionary containing the domain, user, hash/password
+		:param credtype: can be 'plain' or 'hash' this indicates what type of credential lookup to perform
+		:return: bool
+		"""
+
+		# print('Creds: %s' % creds)
+		if creds is None:
+			return True
+
+		if self.domain not in creds:
+			return False
+		if self.username not in creds[self.domain]:
+			return False
+
+		if credtype == 'plain':
+			lm_hash = LMOWFv2(creds[self.domain][self.username], self.username, self.domain)
+		elif credtype == 'hash':
+			lm_hash = LMOWFv2(None, self.username, self.domain, bytes.fromhex(creds[self.domain][self.username]))
+		else:
+			raise Exception('Unknown cred type!')
+
+		hm = hmac_md5(lm_hash)
+		hm.update(bytes.fromhex(self.ServerChallenge))
+		hm.update(bytes.fromhex(self.ChallengeFromClinet))
+
+		return self.ClientResponse == hm.hexdigest()
 
 
 class netntlm_ess:
@@ -882,17 +938,60 @@ class netntlm_ess:
 		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
-		#this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
+		# this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toCredential(self):
-		cred = Credential('netNTLMv1-ESS',
-							username = self.username, 
-							fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
-						)
+	def to_credential(self):
+		cred = Credential(
+			'netNTLMv1-ESS',
+			username = self.username,
+			fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ChallengeFromClinet, self.ClientResponse, self.ServerChallenge)
+		)
 		return cred
-		#u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c 
+		# u4-netntlm::kNS:338d08f8e26de93300000000000000000000000000000000:9526fb8c23a90751cdd619b6cea564742e1e4bf33006ba41:cb8086049ec4736c
+
+	def calc_session_base_key(self, creds, credtype = 'plain'):
+		if credtype == 'plain':
+			nt_hash = NTOWFv1(creds[self.domain][self.username])
+		elif credtype == 'hash':
+			nt_hash = bytes.fromhex(creds[self.domain][self.username])
+		else:
+			raise Exception('Unknown cred type!')
+
+		session_base_key = md4(nt_hash).digest()
+		return session_base_key
+
+	def verify(self, creds, credtype='plain'):
+		"""
+		Verifies the authentication data against the user credentials
+		:param creds: dictionary containing the domain, user, hash/password
+		:param credtype: can be 'plain' or 'hash' this indicates what type of credential lookup to perform
+		:return: bool
+		"""
+		if creds is None:
+			return True
+		if self.domain not in creds:
+			return False
+		if self.username not in creds[self.domain]:
+			return False
+
+		if credtype == 'plain':
+			nt_hash = NTOWFv1(creds[self.domain][self.username])
+		elif credtype == 'hash':
+			nt_hash = bytes.fromhex(creds[self.domain][self.username])
+		else:
+			raise Exception('Unknown cred type!')
+
+		# print('Server chall: %s' % self.ServerChallenge)
+		# print('Client chall: %s' % self.ChallengeFromClinet)
+
+		temp_1 = md5(bytes.fromhex(self.ServerChallenge) + bytes.fromhex(self.ChallengeFromClinet)[:8]).digest()
+		calc_response = DESL(nt_hash, temp_1[:8])
+		# print('calc_response: %s' % calc_response.hex())
+		# print('ClientResponse: %s' %  self.ClientResponse)
+
+		return calc_response == bytes.fromhex(self.ClientResponse)
 
 
 class netntlm:
@@ -907,7 +1006,7 @@ class netntlm:
 		# this is from the NTLMv1Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 
-	def toCredential(self):
+	def to_credential(self):
 		cred = Credential('netNTLMv1',
 							username = self.username, 
 							fullhash = '%s:$NETNTLM$%s$%s' % (self.username, self.ServerChallenge, self.ClientResponse)
@@ -915,60 +1014,160 @@ class netntlm:
 		return cred
 		#username:$NETNTLM$1122334455667788$B2B2220790F40C88BCFF347C652F67A7C4A70D3BEBD70233
 
+	def calc_session_base_key(self, creds, credtype = 'plain'):
+		if credtype == 'plain':
+			nt_hash = NTOWFv1(creds[self.domain][self.username])
+		elif credtype == 'hash':
+			nt_hash = bytes.fromhex(creds[self.domain][self.username])
+		else:
+			raise Exception('Unknown cred type!')
+
+		session_base_key = md4(nt_hash).digest()
+		return session_base_key
+
+	def verify(self, creds, credtype='plain'):
+		"""
+		Verifies the authentication data against the user credentials
+		:param creds: dictionary containing the domain, user, hash/password
+		:param credtype: can be 'plain' or 'hash' this indicates what type of credential lookup to perform
+		:return: bool
+		"""
+		if creds is None:
+			return True
+		if self.domain not in creds:
+			return False
+		if self.username not in creds[self.domain]:
+			return False
+
+		if credtype == 'plain':
+			nt_hash = NTOWFv1(creds[self.domain][self.username])
+		elif credtype == 'hash':
+			nt_hash = bytes.fromhex(creds[self.domain][self.username])
+		else:
+			raise Exception('Unknown cred type!')
+
+		return DESL(nt_hash, self.ServerChallenge) == bytes.fromhex(self.ClientResponse)
+
 
 class netntlmv2:
 	def __init__(self):
-		#this part comes from the NTLMAuthenticate class
+		# this part comes from the NTLMAuthenticate class
 		self.username = None
 		self.domain = None
-		#this comes from the NTLMChallenge class
+		# this comes from the NTLMChallenge class
 		self.ServerChallenge = None
 
-		#this is from the NTLMv2Response class (that is a member of NTLMAuthenticate class)
+		# this is from the NTLMv2Response class (that is a member of NTLMAuthenticate class)
 		self.ClientResponse = None
 		self.ChallengeFromClinet = None
 
-	def toCredential(self):
-		cred = Credential('netNTLMv2',
-							username = self.username, 
-							domain = self.domain,
-							fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
-						)
+	def to_credential(self):
+		cred = Credential(
+			'netNTLMv2',
+			username = self.username,
+			domain = self.domain,
+			fullhash = '%s::%s:%s:%s:%s' % (self.username, self.domain, self.ServerChallenge, self.ClientResponse, self.ChallengeFromClinet)
+		)
 		return cred
 
+	def calc_session_base_key(self, creds, credtype = 'plain'):
+		if credtype == 'plain':
+			nt_hash = NTOWFv2(creds[self.domain][self.username], self.username, self.domain)
+		elif credtype == 'hash':
+			nt_hash = NTOWFv2(None, self.username, self.domain, bytes.fromhex(creds[self.domain][self.username]))
+		else:
+			raise Exception('Unknown cred type!')
 
-def genLMHash(password):
+		hm = hmac_md5(nt_hash)
+		hm.update(self.ClientResponse)
+		return hm.digest()
+
+	def verify(self, creds, credtype = 'plain'):
+		"""
+		Verifies the authentication data against the user credentials
+		:param creds: dictionary containing the domain, user, hash/password
+		:param credtype: can be 'plain' or 'hash' this indicates what type of credential lookup to perform 
+		:return: bool
+		"""
+
+		# print('Creds: %s' % creds)
+		if creds is None:
+			return True
+
+		if self.domain not in creds:
+			return False
+		if self.username not in creds[self.domain]:
+			return False
+
+		if credtype == 'plain':
+			nt_hash = NTOWFv2(creds[self.domain][self.username], self.username, self.domain)
+		elif credtype == 'hash':
+			nt_hash = NTOWFv2(None, self.username, self.domain, bytes.fromhex(creds[self.domain][self.username]))
+		else:
+			raise Exception('Unknown cred type!')
+
+		# print(self.ServerChallenge)
+		# print(self.ChallengeFromClinet)
+
+		hm = hmac_md5(nt_hash)
+		hm.update(bytes.fromhex(self.ServerChallenge))
+		hm.update(bytes.fromhex(self.ChallengeFromClinet))
+
+		# print('M_nthash: %s' % nthash.hex())
+		# print('M_temp: %s' % self.ChallengeFromClinet)
+		# print('M_nthash: %s' % nthash.hex())
+		# print('M_server_chall: %s' % self.ServerChallenge)
+		# print('M_ntproof_string: %s' % self.ClientResponse)
+		# print('M_ntproof_string_calc: %s' % hm.hexdigest())
+
+		return self.ClientResponse == hm.hexdigest()
+
+
+def LMOWFv1(password):
 	LM_SECRET = b'KGS!@#$%'
 	t1 = password[:14].ljust(14, '\x00').upper()
 	d = DES(t1[:7].encode('ascii'))
 	r1 = d.encrypt(LM_SECRET)
-	d = des(t1[7:].encode('ascii'))
+	d = DES(t1[7:].encode('ascii'))
 	r2 = d.encrypt(LM_SECRET)
 
 	return r1+r2
 	
 
-def genNTHash(password):
+def NTOWFv1(password):
 	return md4(password.encode('utf-16le')).digest()
 
 
-def genNTLMv2(user, domain, cchall, schall, NTHash = None, password = None):
-	if NTHash is None and password is None:
-		raise Exception('either password or NThash must be supplied!')
-	
-	NTHash = bytes.fromHex(NTHash)
-	if password is not None:
-		NTHash = genNTHash(password)
-	
-	fp = hmac_md5(NTHash)
-	fp.update(user.upper().decode('utf-16le'))
-	fp.update(domain.decode('utf-16le'))
-
-	
-	hm = hmac_md5(fp.digest())
-	hm.update(bytes.fromHex(schall))
-	hm.update(bytes.fromHex(cchall))
-	return hm.digest()
+def LMOWFv2(Passwd, User, UserDom, PasswdHash = None):
+	return NTOWFv2(Passwd, User, UserDom, PasswdHash)
 
 
+def NTOWFv2(Passwd, User, UserDom, PasswdHash = None):
+	if PasswdHash is not None:
+		fp = hmac_md5(PasswdHash)
+	else:
+		fp = hmac_md5(NTOWFv1(Passwd))
+	fp.update((User.upper() + UserDom).encode('utf-16le'))
+	return fp.digest()
 
+
+def DESL(K, D):
+	"""
+	Indicates the encryption of an 8-byte data item D with the 16-byte key K
+	using the Data Encryption Standard Long (DESL) algorithm.
+	The result is 24 bytes in length.
+	:param K:
+	:param D:
+	:return:
+	"""
+	if len(K) != 16:
+		raise Exception("K MUST be 16 bytes long")
+	if len(D) != 8:
+		raise Exception("D MUST be 8 bytes long")
+
+	res = b''
+	print(len(K[:6]))
+	res += DES(K[:7]).encrypt(D)
+	res += DES(K[7:14]).encrypt(D)
+	res += DES(K[14:] + b'\x00'*5).encrypt(D)
+	return res

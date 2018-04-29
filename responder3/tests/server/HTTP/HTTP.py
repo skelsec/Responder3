@@ -9,7 +9,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 from responder3.core.test_helper import setup_test, read_to_creds
 
-username = 'bigcorp\\alma'
+
+username = 'BIGCORP\\alma'
 password = 'alma'
 
 r3, global_config, output_queue = setup_test(__file__)
@@ -24,17 +25,20 @@ assert cred.password == password
 print('[+] Test #1 PASS')
 
 
-
 requests.get('https://127.0.0.1/', auth=HTTPBasicAuth(username, password), verify=False)
 cred = read_to_creds(output_queue)
 assert cred.username == username
 assert cred.password == password
 print('[+] Test #2 PASS')
+
+
 requests.get('http://127.0.0.1:81/', auth=HttpNtlmAuth(username, password), verify=False)
 cred = read_to_creds(output_queue)
 assert cred.username == username
 assert cred.password == password
 print('[+] Test #3 PASS')
+
+
 requests.get('https://127.0.0.1:444/', auth=HttpNtlmAuth(username, password), verify=False)
 cred = read_to_creds(output_queue)
 assert cred.username == username
