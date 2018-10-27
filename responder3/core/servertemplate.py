@@ -82,7 +82,7 @@ class ResponderServer(abc.ABC):
 		"""
 		credential.module = self.server_name
 		credential.client_addr = self.session.connection.remote_ip
-		credential.client_rdns = self.session.connection.remote_ip
+		credential.client_rdns = self.session.connection.remote_dns
 		await self.logQ.put(credential)
 
 	async def log_poisonresult(self, requestName = None, poisonName = None, poisonIP = None):
