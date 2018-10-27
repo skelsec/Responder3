@@ -266,9 +266,9 @@ class Responder3:
 							self.config.log_settings['TEST']['output_queue'] = self.test_output_queue
 
 					elif self.config.startup['mode'] == 'SERVICE':
-						if 'pidfile' not in self.config.startup['mode']:
+						if 'pidfile' not in self.config.startup['settings']:
 							raise Exception('pidfile MUST be set when running in service mode')
-						handle_systemd(self.config.startup['mode']['pidfile'])
+						handle_systemd(self.config.startup['settings']['pidfile'])
 
 				else:
 					# starting in standalone mode...
