@@ -16,7 +16,7 @@ class FTPSession(ResponderServerSession):
 		self.creds = None
 		self.current_state = FTPState.AUTHORIZATION
 		self.log_data = False
-		self.welcome_message = 'hello from Honeypot POP3 server'
+		self.welcome_message = 'hello from Honeypot FTP server'
 
 	def __repr__(self):
 		t = '== FTP Session ==\r\n'
@@ -30,8 +30,6 @@ class FTPSession(ResponderServerSession):
 class FTP(ResponderServer):
 	def init(self):
 		pass
-
-	# self.parse_settings()
 
 	async def parse_message(self, timeout=None):
 		try:

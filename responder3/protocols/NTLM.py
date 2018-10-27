@@ -713,37 +713,37 @@ class NTLMAUTHHandler:
 
 		return
 
-	def calc_key_exchange_key(self, auth_cred):
-		if isinstance(auth_cred, netntlm_ess):
-			hm = hmac_md5(self.SessionBaseKey)\
-			hm.update(self.ntlmChallenge. + lm_challenge_response[:8])
-			self.KeyExchangeKey = hm.digest()
-			return
-
-		elif isinstance(auth_cred, netntlm):
-			if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_LM_KEY:
-				"""
-				des_handler = DES(DES.key56_to_key64(lm_hash[:7]))
-        first_des = des_handler.encrypt(lm_challenge_response[:8])
-
-        second_des_key = lm_hash[7:8] + b"\xbd\xbd\xbd\xbd\xbd\xbd"
-        des_handler = DES(DES.key56_to_key64(second_des_key))
-        second_des = des_handler.encrypt(lm_challenge_response[:8])
-
-key_exchange_key = first_des + second_des
-				"""
-				return
-			elif self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY:
-				# key_exchange_key = lm_hash[:8] + b'\0' * 8
-				return
-			else:
-				self.KeyExchangeKey = self.SessionBaseKey
-
-		elif isinstance(auth_cred, netntlmv2):
-			self.KeyExchangeKey = self.SessionBaseKey
-
-
-		return
+	#def calc_key_exchange_key(self, auth_cred):
+	#	if isinstance(auth_cred, netntlm_ess):
+	#		hm = hmac_md5(self.SessionBaseKey)
+	#		hm.update(self.ntlmChallenge. + lm_challenge_response[:8])
+	#		self.KeyExchangeKey = hm.digest()
+	#		return
+    #
+	#	elif isinstance(auth_cred, netntlm):
+	#		if self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.NEGOTIATE_LM_KEY:
+	#			"""
+	#			des_handler = DES(DES.key56_to_key64(lm_hash[:7]))
+	#			first_des = des_handler.encrypt(lm_challenge_response[:8])
+    #
+	#			second_des_key = lm_hash[7:8] + b"\xbd\xbd\xbd\xbd\xbd\xbd"
+	#			des_handler = DES(DES.key56_to_key64(second_des_key))
+	#			second_des = des_handler.encrypt(lm_challenge_response[:8])
+    #
+	#			key_exchange_key = first_des + second_des
+	#			"""
+	#			return
+	#		elif self.ntlmAuthenticate.NegotiateFlags & NegotiateFlags.REQUEST_NON_NT_SESSION_KEY:
+	#			# key_exchange_key = lm_hash[:8] + b'\0' * 8
+	#			return
+	#		else:
+	#			self.KeyExchangeKey = self.SessionBaseKey
+    #
+	#	elif isinstance(auth_cred, netntlmv2):
+	#		self.KeyExchangeKey = self.SessionBaseKey
+    #
+    #
+	#	return
 
 	def do_AUTH(self, authData):
 		if self.ntlmNegotiate is None:
@@ -760,8 +760,8 @@ key_exchange_key = first_des + second_des
 			# self.calc_SessionBaseKey()
 			# self.calc_KeyExchangeKey()
 			auth_credential = creds[0]
-			self.SessionBaseKey = auth_credential.calc_session_base_key()
-			self.calc_key_exchange_key()
+			#self.SessionBaseKey = auth_credential.calc_session_base_key()
+			#self.calc_key_exchange_key()
 
 			if auth_credential.verify(self.verify_credentials):
 				return NTStatus.STATUS_SUCCESS, None, creds

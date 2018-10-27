@@ -28,9 +28,8 @@ class ServerTaskEntry:
 		self.started_at = None
 
 
-class Responder3(multiprocessing.Process):
+class Responder3:
 	def __init__(self):
-		multiprocessing.Process.__init__(self)
 		self.loop = asyncio.get_event_loop()
 		self.config = None
 
@@ -117,7 +116,7 @@ class Responder3(multiprocessing.Process):
 			print(args.config)
 			responder.config = Responder3Config.from_file(args.config)
 		elif args.python_config is not None:
-			responder.config = Responder3Config.from_python_script(args.config)
+			responder.config = Responder3Config.from_python_script(args.python_config)
 		elif args.environ_config is not None:
 			responder.config = Responder3Config.from_os_env()
 		else:

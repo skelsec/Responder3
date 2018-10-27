@@ -84,7 +84,7 @@ class LogProcessor:
 			Path(self.log_settings['logdir'], 'poisondata').mkdir(parents=True, exist_ok=True)
 			Path(self.log_settings['logdir'], 'creds').mkdir(parents=True, exist_ok=True)
 
-	def get_handlers(self):
+	async def get_handlers(self):
 		for handler in self.log_settings['handlers']:
 			if handler == 'TEST':
 				handlerclass = TestExtension
@@ -92,9 +92,9 @@ class LogProcessor:
 			else:
 				handlerclassname = '%sHandler' % self.log_settings['handlers'][handler]
 				handlermodulename = 'responder3_log_%s' % handler.replace('-', '_').lower()
-				handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
-				self.log('Importing handler module: %s , %s' % (handlermodulename, handlerclassname), logging.DEBUG)
-				handlerclass = getattr(importlib.import_module(handlermodulename), handlerclassname)
+				#handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
+				await self.log('Importing handler module: %s , %s' % (handlermodulename, handlerclassname), logging.DEBUG)
+				handlerclass = getattr(importlib.import_module(handlermodulename, handlerclassname), handlerclassname)
 
 			yield handlerclass, handler
 
@@ -108,7 +108,7 @@ class LogProcessor:
 		self.create_dir_strucutre()
 
 		if 'handlers' in self.log_settings:
-			for handlerclass, handler in self.get_handlers():
+			async for handlerclass, handler in self.get_handlers():
 				await self.start_extension(handlerclass, self.log_settings[self.log_settings['handlers'][handler]])
 
 	async def run(self):
@@ -267,6 +267,10 @@ class LoggerExtensionTask(ABC):
 		except Exception:
 			await self.log_exception('Exception in main function!')
 
+	
+	async def create_coro(self):
+		return await self.main()
+			
 	@abstractmethod
 	def init(self):
 		pass

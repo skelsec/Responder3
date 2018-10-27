@@ -80,7 +80,6 @@ class ResponderServer(abc.ABC):
 		"""
 		Create a Result message and send it to the LogProcessor for procsesing
 		"""
-		print(credential)
 		credential.module = self.server_name
 		credential.client_addr = self.session.connection.remote_ip
 		credential.client_rdns = self.session.connection.remote_ip
