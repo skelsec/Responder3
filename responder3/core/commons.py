@@ -10,7 +10,9 @@ import platform
 import traceback
 import ipaddress
 
+
 from responder3.crypto.hashing import *
+import asyncio
 
 
 class LogEntry:
@@ -52,16 +54,18 @@ class ConnectionStatus(enum.Enum):
 
 
 class ConnectionFactory:
-	def __init__(self, rdnsd):
+	def __init__(self, rdnsd, rdns_resolver):
 		"""
 		Creates Connetion object from the socket input.
 		:param rdnsd: shared dictionary to speed up the rdns lookup
 		:type rdnsd: dict created via multiprocessing.Manager()
 		"""
 		self.rdnsd = rdnsd
+		self.resolver = rdns_resolver
 		self.connection_id = 0
+		
 
-	def from_streamwriter(self, writer):
+	async def from_streamwriter(self, writer):
 		"""
 		Creates Connection object from streamwriter
 		:param writer: Streamwriter
@@ -84,10 +88,10 @@ class ConnectionFactory:
 			con.local_ip, con.local_port   = writer._laddr[:2]
 			con.remote_ip, con.remote_port = writer._addr[:2]
 		
-		self.lookup_rdns(con)
+		await self.lookup_rdns(con)
 		return con
 		
-	def lookup_rdns(self, con):
+	async def lookup_rdns(self, con):
 		"""
 		Resolves the remote host's IP address to a DNS address.
 		First checks if the address has already been resolved by looking it up in the shared rdns dictionary
@@ -95,7 +99,11 @@ class ConnectionFactory:
 		:type con: Connection
 		:return: Nothing
 		"""
-
+		
+		"""
+		#failback for rdns resolution
+		#this will work, but make the whole app slow
+		
 		if con.remote_ip in self.rdnsd:
 			con.remote_dns = self.rdnsd[con.remote_ip]
 		
@@ -106,6 +114,15 @@ class ConnectionFactory:
 				pass
 
 			self.rdnsd[con.remote_ip] = con.remote_dns
+		"""
+		
+		if con.remote_ip in self.rdnsd:
+			con.remote_dns = self.rdnsd[con.remote_ip]
+			
+		else:
+			con.remote_dns = await self.resolver.resolve(con.remote_ip)
+			self.rdnsd[con.remote_ip] = con.remote_dns
+		
 
 
 class ProxyDataType(enum.Enum):
@@ -413,6 +430,7 @@ defaultports = {
 	"DHCP" : [(67, 'udp')],
 	"NTP"  : [(123, 'udp')],
 	"HTTP" : [(80, 'tcp')],
+	"KERBEROS": [(88, 'tcp')],
 	"HTTPS": [(443, 'tcp')],
 	"FTP"  : [(21, 'tcp')],
 	"SMTP" : [(25, 'tcp')],
@@ -421,6 +439,8 @@ defaultports = {
 	"IMAP" : [(143, 'tcp')],
 	"IMAPS": [(993, 'tcp')],
 	"SMB"  : [(445, 'tcp')],
+	"LDAP" : [(389, 'tcp')],
+	"LDAPS" : [(636, 'tcp')],
 	"NBTNS": [(137, 'udp')],
 	"SOCKS5":[(1080, 'tcp')],
 	"LLMNR": [(5355, 'udp')],

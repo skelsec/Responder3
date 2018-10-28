@@ -6,13 +6,6 @@ startup = {
 }
 
 logsettings = {
-	'handlers':{
-		'discord': 'discord'
-	},
-	'discord' : {
-		'token' : 'XXXXXXXX',
-		'channel' : 'honeypot',
-	},
 	'log': {
 		'version'   : 1,
 		'formatters': {
@@ -49,5 +42,11 @@ servers = [
 	},
 	{
 		'handler'    : 'IMAP',
+	},
+	{
+		'handler'    : 'KERBEROS',
+	},
+	{
+		'handler'    : 'LDAP',
 	},
 ]

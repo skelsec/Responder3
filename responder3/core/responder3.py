@@ -16,6 +16,7 @@ from responder3.core.commons import handle_systemd, defaultports, tracefunc
 from responder3.core.interfaceutil import interfaces
 from responder3.core.logtask import LogProcessor, LogEntry
 from responder3.core.servertask import Responder3ServerTask
+from responder3.core.rdns import RDNS
 
 
 class ServerTaskEntry:
@@ -34,6 +35,8 @@ class Responder3:
 		self.config = None
 
 		self.reverse_domain_table = {}
+		self.resolver_server = [{'ip':'8.8.8.8', 'port':53, 'proto' : 'udp'}]
+		self.resolver_server6 = [{ 'ip': '2001:4860:4860::8888', 'port':53, 'proto' : 'udp'}]
 
 		self.log_queue = asyncio.Queue()
 		self.log_command_queue = asyncio.Queue()
@@ -48,7 +51,6 @@ class Responder3:
 		self.server_task_id = 0
 		self.servers = []
 		self.server_tasks = {}
-		self.reverse_domain_table = None
 
 
 	@staticmethod
@@ -152,9 +154,12 @@ class Responder3:
 	def start_server_task(self, serverconfig):
 		ste = ServerTaskEntry(self.get_taskid())
 		temp = copy.deepcopy(serverconfig)
+		resolver_server = temp['resolver'] if 'resolver' in temp else self.resolver_server
+		resolver_server6 = temp['resolver6'] if 'resolver6' in temp else self.resolver_server6
 		ste.startup_config = temp
 		ste.task = Responder3ServerTask(
 			log_queue = self.log_queue,
+			rdns_resolver = RDNS(resolver_server, resolver_server6),
 			reverse_domain_table=self.reverse_domain_table,
 			server_command_queue=None,
 			loop=self.loop

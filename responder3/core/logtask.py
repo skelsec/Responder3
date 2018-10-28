@@ -171,12 +171,16 @@ class LogProcessor:
 			with open(str(Path(self.log_settings['logdir'], 'creds', filename).resolve()), 'wb') as f:
 				f.write(result.to_json())
 
+		# TODO: fingerprinting to avoid duplicate results!!!!
+		"""
 		if result.fingerprint not in self.result_history:
 			await self.log(str(result.to_dict()), logging.INFO)
 			self.result_history[result.fingerprint] = result
 		else:
 			await self.log('Duplicate result found! Filtered.')
-
+		"""
+		await self.log(str(result.to_dict()), logging.INFO)
+			
 	async def handle_email(self, email):
 		"""
 		Logs the email object arriving from logqueue

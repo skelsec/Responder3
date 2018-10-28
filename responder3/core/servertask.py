@@ -21,7 +21,7 @@ class ConnectionTask:
 		self.started_at = None
 
 class Responder3ServerTask:
-	def __init__(self, log_queue = None, reverse_domain_table=None, server_command_queue=None, loop=None):
+	def __init__(self, log_queue = None, reverse_domain_table=None, server_command_queue=None, loop=None, rdns_resolver = None):
 		self.loop = loop if loop is not None else asyncio.get_event_loop()
 		self.log_queue = log_queue if log_queue is not None else asyncio.Queue()
 		self.reverse_domain_table = reverse_domain_table if reverse_domain_table is not None else {}
@@ -35,10 +35,11 @@ class Responder3ServerTask:
 		self.server_handler_session = None
 		self.server_handler_global_session = None
 		self.connections = {}
-		self.connection_factory = ConnectionFactory(self.reverse_domain_table)
+		self.rdns_resolver = rdns_resolver
+		self.connection_factory = ConnectionFactory(self.reverse_domain_table, self.rdns_resolver)
 		self.udpserver = None
 
-	def accept_client(self, client_reader, client_writer):
+	async def accept_client(self, client_reader, client_writer):
 		"""
 		Handles incoming connection.
 		1. Creates connection obj
@@ -52,7 +53,7 @@ class Responder3ServerTask:
 		:return: None
 		"""
 		try:
-			connection = self.connection_factory.from_streamwriter(client_writer)
+			connection = await self.connection_factory.from_streamwriter(client_writer)
 			self.log_connection(connection, ConnectionStatus.OPENED)
 			ct = ConnectionTask(connection)
 			ct.handler = self.server_handler(
