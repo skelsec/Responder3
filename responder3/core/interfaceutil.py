@@ -364,7 +364,8 @@ def get_linux_ifaddrs():
 				interfacesd[ifname] = NetworkInterface()
 				interfacesd[ifname].ifname = ifname
 				interfacesd[ifname].ifindex = libc.if_nametoindex(ifname)
-			family, addr = getfamaddr(ifa.ifa_addr.contents)
+			if ifa.ifa_addr:
+				family, addr = getfamaddr(ifa.ifa_addr.contents)
 			if family in [socket.SOCK_DGRAM, socket.SOCK_STREAM]:
 				interfacesd[ifname].addresses.append(ipaddress.ip_address(addr))
 		return interfacesd
