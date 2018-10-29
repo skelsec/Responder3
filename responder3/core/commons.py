@@ -429,6 +429,7 @@ defaultports = {
 	"DNS"  : [(53, 'udp'),(53, 'tcp')],
 	"DHCP" : [(67, 'udp')],
 	"NTP"  : [(123, 'udp')],
+	"SSH"  : [(22, 'tcp')],
 	"HTTP" : [(80, 'tcp')],
 	"KERBEROS": [(88, 'tcp')],
 	"HTTPS": [(443, 'tcp')],

@@ -49,4 +49,7 @@ servers = [
 	{
 		'handler'    : 'LDAP',
 	},
+	{
+		'handler'    : 'SSH',
+	},
 ]
