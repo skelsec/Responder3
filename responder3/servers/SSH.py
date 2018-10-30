@@ -22,6 +22,8 @@ class SSHSession(ResponderServerSession):
 		self.state = 'BANNER'
 		self.client_banner = None
 		self.server_banner = 'SSH-2.0-OpenSSH_7.2p2 Ubuntu-4ubuntu2.2'
+		self.client_kxinit = None
+		self.server_kxinit = None
 
 	def __repr__(self):
 		t  = '== SSHSession ==\r\n'
@@ -62,24 +64,33 @@ class SSH(ResponderServer):
 			print(e)
 			return 'NO'
 			
-	async def key_exchange(self, timeout = 1):
+	async def key_exchange(self, msg, timeout = 1):
 		try:
+			self.session.client_kxinit = msg.payload.raw
 			packet = SSHPacket()
 			packet.payload = self.session.cipher.generate_server_key_rply()
+			packet_data = packet.to_bytes()
+			self.session.server_kxinit = packet_data
 			
 			print('resp')
-			self.cwriter.write(packet.to_bytes())
+			self.cwriter.write(packet_data)
 			await self.cwriter.drain()
 			
 			print('getting resp')
 			msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
 			print(str(msg))
 			
-			shared_key_sha1 = self.session.cipher.kex.get_shared_key(msg.payload.mpint)
-			print(shared_key_sha1)
+			payload = self.session.cipher.calculate_kex(self.session.client_banner.encode()+b'\r\n', self.session.server_banner.encode()+b'\r\n', self.session.client_kxinit, self.session.server_kxinit, msg.payload)
+			
+			packet = SSHPacket()
+			packet.payload = payload
+			
+			print('resp')
+			self.cwriter.write(packet.to_bytes())
+			await self.cwriter.drain()
 			
 		except Exception as e:
-			print(e)
+			traceback.print_exc()
 		
 
 	async def run(self):
@@ -97,7 +108,7 @@ class SSH(ResponderServer):
 					
 				if self.session.state == 'KEX':
 					print('KEX')
-					await self.key_exchange()
+					await self.key_exchange(msg)
 					return
 					
 				
