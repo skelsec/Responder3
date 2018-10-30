@@ -100,10 +100,6 @@ class VNC(ResponderServer):
 							
 						await self.send_data(srh.to_bytes())
 						return
-					
-				
-
-			
 
 		except Exception as e:
 			await self.log_exception()

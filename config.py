@@ -50,9 +50,9 @@ servers = [
 		'handler'    : 'LDAP',
 	},
 	{
-		'handler'    : 'SSH',
+		'handler'    : 'VNC',
 	},
 	{
-		'handler'    : 'VNC',
+		'handler'    : 'SOCKS5',
 	},
 ]
