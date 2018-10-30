@@ -78,7 +78,6 @@ class ConnectionFactory:
 		con = Connection()
 		con.writer = writer
 		con.connection_id = cid
-		con.timestamp = datetime.datetime.utcnow()
 		if protocoltype == socket.SOCK_STREAM:
 			soc = writer.get_extra_info('socket')
 			con.local_ip, con.local_port   = soc.getsockname()
@@ -229,7 +228,7 @@ class Connection:
 		self.remote_port = None
 		self.local_ip    = None
 		self.local_port  = None
-		self.timestamp   = None
+		self.timestamp   = datetime.datetime.utcnow()
 		self.writer = None
 
 	def get_remote_print_address(self):
@@ -286,7 +285,37 @@ class Connection:
 		else:
 			return '[%s] %s-> %s' % (self.timestamp.isoformat(), self.get_remote_print_address(), self.get_local_print_address())
 
+class ConnectionOpened:
+	def __init__(self, connection):
+		self.connection = connection
+		
+	def to_dict(self):
+		t = self.connection.to_dict()
+		return t
+		
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls = UniversalEncoder)
+		
+	def __str__(self):
+		return '[%s] Connection opened from %s to %s' % (self.connection.timestamp.isoformat(), self.connection.get_remote_print_address(), self.connection.get_local_print_address()) 
 
+class ConnectionClosed:
+	def __init__(self, connection):
+		self.connection = connection
+		self.disconnect_time = datetime.datetime.utcnow()
+		self.total_connection_time_s = (self.disconnect_time - self.connection.timestamp).total_seconds()
+		
+	def to_dict(self):
+		t = self.connection.to_dict()
+		t['total_connection_time_s'] = self.total_connection_time_s
+		return t
+		
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls = UniversalEncoder)
+		
+	def __str__(self):
+		return '[%s] Connection from %s to %s has been closed! Lasted %s seconds' % (self.connection.timestamp.isoformat(), self.connection.get_remote_print_address(), self.connection.get_local_print_address(), self.total_connection_time_s) 
+			
 class Credential:
 	def __init__(self, credtype, domain = None, username = None, password = None, fullhash = None):
 		"""

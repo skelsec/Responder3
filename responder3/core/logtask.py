@@ -123,7 +123,7 @@ class LogProcessor:
 					await self.handle_credential(result)
 				elif isinstance(result, LogEntry):
 					await self.handle_log(result)
-				elif isinstance(result, Connection):
+				elif isinstance(result, (Connection, ConnectionOpened, ConnectionClosed)):
 					await self.handle_connection(result)
 				elif isinstance(result, EmailEntry):
 					await self.handle_email(result)
@@ -150,14 +150,21 @@ class LogProcessor:
 		"""
 		self.logger.log(log.level, str(log))
 
-	def handle_connection(self, con):
+	async def handle_connection(self, con):
 		"""
 		Handles the messages of log type
 		:param con: Connection message object
 		:type con: Connection
 		:return: None
 		"""
-		self.logger.log(logging.INFO, str(con))
+		if isinstance(con, Connection):
+			self.logger.log(logging.INFO, str(con))
+		
+		elif isinstance(con, ConnectionOpened):
+			self.logger.log(logging.INFO, str(con))
+			
+		elif isinstance(con, ConnectionClosed):
+			self.logger.log(logging.INFO, str(con))
 
 	async def handle_credential(self, result):
 		"""

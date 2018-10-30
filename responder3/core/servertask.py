@@ -10,7 +10,7 @@ import traceback
 import datetime
 
 from responder3.core.ssl import SSLContextBuilder
-from responder3.core.commons import LogEntry, ConnectionStatus, ConnectionFactory, get_platform
+from responder3.core.commons import LogEntry, ConnectionStatus, ConnectionFactory, get_platform, ConnectionClosed, ConnectionOpened
 from responder3.core.sockets import setup_base_socket
 
 class ConnectionTask:
@@ -196,7 +196,7 @@ class Responder3ServerTask:
 			self.loop.create_task(self.aio_log(LogEntry(level, self.server_name, message)))
 		else:
 			print(str(LogEntry(level, self.server_name, message)))
-
+			
 	def log_connection(self, connection, status):
 		"""
 		Logs incoming connection
@@ -208,5 +208,10 @@ class Responder3ServerTask:
 		"""
 		if status == ConnectionStatus.OPENED or status == ConnectionStatus.STATELESS:
 			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
+			co = ConnectionOpened(connection)
+			self.loop.create_task(self.aio_log(co))
+			
 		elif status == ConnectionStatus.CLOSED:
 			self.log('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
+			cc = ConnectionClosed(connection)
+			self.loop.create_task(self.aio_log(cc))
