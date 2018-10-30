@@ -95,6 +95,9 @@ class SSHBytes:
 		return length + s
 		
 class MPInt:
+	"""
+	THIS CLASS IS ONLY FOR POSITIVE INTEGERS!!!
+	"""
 	def __init__(self):
 		pass
 		
@@ -103,96 +106,49 @@ class MPInt:
 		length = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
 		if length == 0:
 			return None
+		print('MPInt len : %s' % length)
+		contents = buff.read()
+		print('Contents: %s' % contents.hex())
+		buff = io.BytesIO(contents)
 		data = buff.read(length)
-		return MPInt.bytes2int(data, False)
+		print(length)
+		print(data.hex())
+		if data[0] == 0:
+			data = data[1:]
+		return MPInt.bytes2int(data)
 		
 	@staticmethod
-	def bytes2int(s, always_positive=True):
-		"""turns a normalized byte string into a long-int
-		(adapted from Crypto.Util.number)"""
-		out = 0
-		negative = 0
-		if not always_positive and (len(s) > 0) and (s[0] >= 0x80):
-			negative = 1
-		if len(s) % 4:
-			filler = zero_byte
-			if negative:
-				filler = max_byte
-			# never convert this to ``s +=`` because this is a string, not a number
-			# noinspection PyAugmentAssignment
-			s = filler * (4 - len(s) % 4) + s
-		for i in range(0, len(s), 4):
-			out = (out << 32) + struct.unpack(">I", s[i : i + 4])[0]
-		if negative:
-			out -= 1 << (8 * len(s))
-		return out
+	def to_bytes(integer):
+		if integer is None:
+			return b'\x00' * 4
+		bdata = MPInt.int2bytes(integer)
+		if bdata[0] > 128:
+			bdata = b'\x00' + bdata
+		return len(bdata).to_bytes(4, byteorder="big", signed = False) + bdata
 		
 	@staticmethod
-	def to_bytes(integer, add_sign_padding = True):
+	def int2bytes_padded(integer):
+		bdata = MPInt.int2bytes(integer)
+		if bdata[0] > 128:
+			bdata = b'\x00' + bdata
+		return bdata
+		
+	@staticmethod
+	def bytes2int(s):
+		return int.from_bytes(s, 'big', signed = False)
+		
+	@staticmethod
+	def int2bytes(integer):
+		"""
+		Only for positive integers!
+		"""
+		hd = hex(integer)[2:]
+		if len(hd) %2:
+			hd = '0' + hd
+		
+		return bytes.fromhex(hd)
+		#return integer.to_bytes((integer.bit_length() + 7) // 8, byteorder = 'big', signed = False)
 	
-		#https://github.com/paramiko/paramiko/blob/master/paramiko/util.py
-		"""turns a long-int into a normalized byte string
-		(adapted from Crypto.Util.number)"""
-		# after much testing, this algorithm was deemed to be the fastest
-		s = bytes()
-		n = integer
-		while (n != 0) and (n != -1):
-			s = struct.pack(">I", n & 0xffffffff) + s
-			n >>= 32
-		# strip off leading zeros, FFs
-		for i in enumerate(s):
-			if (n == 0) and (i[1] != 0):
-				break
-			if (n == -1) and (i[1] != 0xff):
-				break
-		else:
-			# degenerate case, n was either 0 or -1
-			i = (0,)
-			if n == 0:
-				s = zero_byte
-			else:
-				s = max_byte
-		s = s[i[0] :]
-		if add_sign_padding:
-			if (n == 0) and (s[0] >= 0x80):
-				s = zero_byte + s
-			if (n == -1) and ( s[0] < 0x80):
-				s = max_byte + s
-		
-		return len(s).to_bytes(4, byteorder="big", signed = False) + s
-		
-	@staticmethod
-	def int2bytes(integer, add_sign_padding = True):
-		#https://github.com/paramiko/paramiko/blob/master/paramiko/util.py
-		"""turns a long-int into a normalized byte string
-		(adapted from Crypto.Util.number)"""
-		# after much testing, this algorithm was deemed to be the fastest
-		s = bytes()
-		n = integer
-		while (n != 0) and (n != -1):
-			s = struct.pack(">I", n & 0xffffffff) + s
-			n >>= 32
-		# strip off leading zeros, FFs
-		for i in enumerate(s):
-			if (n == 0) and (i[1] != 0):
-				break
-			if (n == -1) and (i[1] != 0xff):
-				break
-		else:
-			# degenerate case, n was either 0 or -1
-			i = (0,)
-			if n == 0:
-				s = zero_byte
-			else:
-				s = max_byte
-		s = s[i[0] :]
-		if add_sign_padding:
-			if (n == 0) and ( s[0]  >= 0x80):
-				s = zero_byte + s
-			if (n == -1) and ( s[0] < 0x80):
-				s = max_byte + s
-		
-		return s
 		
 
 class NameList:
@@ -656,10 +612,10 @@ class SSHCipher:
 			self.kex_hash = hashlib.sha1
 			self.p = 0xFFFFFFFFFFFFFFFFC90FDAA22168C234C4C6628B80DC1CD129024E088A67CC74020BBEA63B139B22514A08798E3404DDEF9519B3CD3A431B302B0A6DF25F14374FE1356D6D51C245E485B576625E7EC6F44C42E9A637ED6B0BFF5CB6F406B7EDEE386BFB5A899FA5AE9F24117C4B1FE649286651ECE45B3DC2007CB8A163BF0598DA48361C55D39A69163FA8FD24CF5F83655D23DCA3AD961C62F356208552BB9ED529077096966D670C354E4ABC9804F1746C08CA18217C32905E462E36CE3BE39E772C180E86039B2783A2EC07A28FB5C55DF06F4C52C9DE2BCBF6955817183995497CEA956AE515D2261898FA051015728E5A8AACAA68FFFFFFFFFFFFFFFF
 			self.g = 2
-			self.x = ((self.p -1) // 2) -1
+			self.x = 31337
 			self.f = pow(self.g, self.x, self.p)
 			sc = pow(client_msg.e, self.x, self.p)
-			K = MPInt.int2bytes(sc, False)
+			K = MPInt.int2bytes(sc)
 			
 			
 			print('Shared Secret -int-: %s' % sc)
@@ -682,16 +638,37 @@ class SSHCipher:
 		
 		print('Client id: %s' % client_id)
 		print('server_id: %s' % server_id)
-		print('client_kexinit_payload: %s' % client_kexinit_payload)
-		print('server_kexinit_payload: %s' % server_kexinit_payload)
-		print('server_host_key: %s' % (server_host_key.to_bytes()))
-		print('client_msg.e: %s' % MPInt.int2bytes(client_msg.e, False).hex())
-		print('dh_server_pub: %s' % MPInt.int2bytes(self.f, False).hex())
+		print('client_kexinit_payload: \r\n%s' % hexdump(client_kexinit_payload))
+		print('server_kexinit_payload: \r\n%s' % hexdump(server_kexinit_payload))
+		print('server_host_key:\r\n %s' % hexdump((server_host_key.to_bytes())))
+		print('client_msg.e: %s' % MPInt.int2bytes(client_msg.e).hex())
+		print('dh_server_pub: %s' % MPInt.int2bytes(self.f).hex())
 		print('K: %s' % K)
-		H = self.kex_hash(client_id + server_id + client_kexinit_payload + server_kexinit_payload + server_host_key.to_bytes() + MPInt.int2bytes(client_msg.e, False) +  MPInt.int2bytes(self.f, False) +  K).digest()#H = hash(V_C || V_S || I_C || I_S || K_S || e || f || K)
+		
+		hash_buffer = b''
+		hash_buffer += SSHBytes.to_bytes(client_id)
+		print('client_id end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(server_id)
+		print('server_id end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(client_kexinit_payload)
+		print('client_kexinit_payload end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(server_kexinit_payload)
+		print('server_kexinit_payload end : %s' % hex(len(hash_buffer)))
+		hash_buffer += server_host_key.to_bytes()
+		print('server_host_key end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(MPInt.int2bytes_padded(client_msg.e))
+		print('client_msg.e end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(MPInt.int2bytes_padded(self.f))
+		print('self.f end : %s' % hex(len(hash_buffer)))
+		hash_buffer += SSHBytes.to_bytes(K)
+		
+		print(hexdump(hash_buffer))
+		
+		print('Hash buffer: %s' % hash_buffer.hex())
+		
+		H = self.kex_hash(hash_buffer).digest()#H = hash(V_C || V_S || I_C || I_S || K_S || e || f || K)
 		session_id =  H
 		print('H: %s' % H.hex())
-		
 		
 		self.c2s_init_IV = self.kex_hash(K + H + b'A' + session_id).digest() # Initial IV client to server: HASH(K || H || "A" || session_id)
 		self.s2c_init_IV = self.kex_hash(K + H + b'B' + session_id).digest() # o   Initial IV server to client: HASH(K || H || "B" || session_id)
@@ -700,12 +677,12 @@ class SSHCipher:
 		self.c2s_integrity_key = self.kex_hash(K + H + b'E' + session_id).digest() #o  Integrity key client to server: HASH(K || H || "E" || session_id)
 		self.s2c_integrity_key = self.kex_hash(K + H + b'F' + session_id).digest() #o  Integrity key server to client: HASH(K || H || "F" || session_id)
 		
-		print(self.c2s_init_IV.hex())
-		print(self.s2c_init_IV.hex())
-		print(self.c2s_cipher_key.hex())
-		print(self.s2c_cipher_key.hex())
-		print(self.c2s_integrity_key.hex())
-		print(self.s2c_integrity_key.hex())
+		print('A: %s' % self.c2s_init_IV.hex())
+		print('B: %s' % self.s2c_init_IV.hex())
+		print('C: %s' % self.c2s_cipher_key.hex())
+		print('D: %s' % self.s2c_cipher_key.hex())
+		print('E: %s' % self.c2s_integrity_key.hex())
+		print('F: %s' % self.s2c_integrity_key.hex())
 		
 		h_sig = SSHRSASignatureData()
 		h_sig.rsa_signature_blob = pkey.sign(H)
@@ -737,13 +714,29 @@ class SSHParser:
 				data = await readexactly_or_exc(reader, packet.packet_length)
 				packet.padding_length = data[0]
 				message_type = SSHMessageNumber(data[1])
-				print(message_type)
-				packet.payload = type2msg[message_type].from_bytes(data[1:(packet.packet_length - packet.padding_length - 1)])
+				#print(message_type)
+				packet.payload = type2msg[message_type].from_bytes(data[1:(packet.packet_length - packet.padding_length)])
 				packet.random_padding = data[-packet.padding_length:]
 				packet.mac = None
 				return packet
 		except Exception as e:
 			print(e)
 			
-		
+	@staticmethod
+	def from_bytes(data):
+		return SSHParser.from_buffer(io.BytesIO(data))
+	
+	
+	
+	@staticmethod
+	def from_buffer(buff):
+		packet = SSHPacket()
+		packet.packet_length = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		data = buff.read(packet.packet_length)
+		packet.padding_length = data[0]
+		message_type = SSHMessageNumber(data[1])
+		packet.payload = type2msg[message_type].from_bytes(data[1:(packet.packet_length - packet.padding_length)])
+		packet.random_padding = data[-packet.padding_length:]
+		packet.mac = None
+		return packet
 		

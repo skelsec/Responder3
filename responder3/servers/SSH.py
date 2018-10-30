@@ -70,7 +70,7 @@ class SSH(ResponderServer):
 			packet = SSHPacket()
 			packet.payload = self.session.cipher.generate_server_key_rply()
 			packet_data = packet.to_bytes()
-			self.session.server_kxinit = packet_data
+			self.session.server_kxinit = packet.payload.to_bytes()
 			
 			print('resp')
 			self.cwriter.write(packet_data)
@@ -80,7 +80,7 @@ class SSH(ResponderServer):
 			msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
 			print(str(msg))
 			
-			payload = self.session.cipher.calculate_kex(self.session.client_banner.encode()+b'\r\n', self.session.server_banner.encode()+b'\r\n', self.session.client_kxinit, self.session.server_kxinit, msg.payload)
+			payload = self.session.cipher.calculate_kex(self.session.client_banner.encode(), self.session.server_banner.encode(), self.session.client_kxinit, self.session.server_kxinit, msg.payload)
 			
 			packet = SSHPacket()
 			packet.payload = payload

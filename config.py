@@ -52,4 +52,7 @@ servers = [
 	{
 		'handler'    : 'SSH',
 	},
+	{
+		'handler'    : 'VNC',
+	},
 ]

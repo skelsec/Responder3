@@ -444,6 +444,7 @@ defaultports = {
 	"LDAPS" : [(636, 'tcp')],
 	"NBTNS": [(137, 'udp')],
 	"SOCKS5":[(1080, 'tcp')],
+	"VNC":[(5900, 'tcp')],
 	"LLMNR": [(5355, 'udp')],
 	"MDNS" : [(5353, 'udp')],
 	"HTTPProxy":[(8080, 'tcp')],
