@@ -57,6 +57,14 @@ servers = [
 	},
 	{
 		'handler'    : 'TELNET',
+		'settings'   : {
+			'banner' : '=========\r\nYou are being PWNd!\r\n=========',
+		},
 	},
 ]
-
+remote_manager = {
+	'mode' : 'CLIENT',
+	'config' : {},
+	'server_url' : 'ws://127.0.0.1:9191',
+	
+}
