@@ -14,7 +14,26 @@ import ipaddress
 from responder3.crypto.hashing import *
 import asyncio
 
-
+class LogObjectType(enum.Enum):
+	LOGENTRY = 0
+	PROXYDATA = 1
+	CONNECTION = 3
+	CONNECTION_OPENED = 4
+	CONNECTION_CLOSED = 5
+	CREDENTIAL = 6
+	POISONRESULT = 7
+	EMAILENTRY = 8
+	
+class RemoteLog:
+	def __init__(self, rlog):
+		self.remote_ip = rlog.remote_ip
+		self.remote_port = rlog.remote_port
+		self.client_id = rlog.client_id
+		self.log_obj = logobj2type[LogObjectType(rlog.log_obj_type)].from_dict(rlog.log_obj)
+		
+	def __str__(self):
+		return "[%s][%s:%s] %s" % (self.client_id, self.remote_ip, self.remote_port, str(self.log_obj)) 
+		
 class LogEntry:
 	"""
 	Communications object that is used to pass log information to the LogProcessor
@@ -45,6 +64,15 @@ class LogEntry:
 
 	def __str__(self):
 		return "[%s] %s" % (self.name, self.msg)
+		
+	@staticmethod
+	def from_dict(d):
+		return LogEntry( d['level'], d['name'], d['msg'])
+		
+		
+	@staticmethod
+	def from_json(data):
+		return LogEntry.from_dict(json.loads(data))
 
 
 class ConnectionStatus(enum.Enum):
@@ -265,6 +293,7 @@ class Connection:
 		:return: dict
 		"""
 		t = {}
+		t['connection_id'] = self.connection_id
 		t['remote_ip']   = self.remote_ip
 		t['remote_port'] = self.remote_port
 		t['remote_dns']  = self.remote_dns
@@ -275,6 +304,23 @@ class Connection:
 
 	def to_json(self):
 		return json.dumps(self.to_dict(), cls=UniversalEncoder)
+		
+	@staticmethod
+	def from_dict(d):
+		c = Connection()
+		c.connection_id = d['connection_id']
+		c.remote_ip   = d['remote_ip']
+		c.remote_dns  = d['remote_dns']
+		c.remote_port = d['remote_port']
+		c.local_ip    = d['local_ip']
+		c.local_port  = d['local_port']
+		c.timestamp   = isoformat2dt(d['timestamp'])
+		return c
+		
+		
+	@staticmethod
+	def from_json(data):
+		return Connection.from_dict(json.loads(data))
 
 	def __repr__(self):
 		return str(self)
@@ -296,6 +342,15 @@ class ConnectionOpened:
 	def to_json(self):
 		return json.dumps(self.to_dict(), cls = UniversalEncoder)
 		
+	@staticmethod
+	def from_dict(d):
+		return ConnectionOpened( Connection.from_dict(d))
+		
+		
+	@staticmethod
+	def from_json(data):
+		return ConnectionOpened.from_dict(json.loads(data))
+		
 	def __str__(self):
 		return '[%s] Connection opened from %s to %s' % (self.connection.timestamp.isoformat(), self.connection.get_remote_print_address(), self.connection.get_local_print_address()) 
 
@@ -308,10 +363,22 @@ class ConnectionClosed:
 	def to_dict(self):
 		t = self.connection.to_dict()
 		t['total_connection_time_s'] = self.total_connection_time_s
+		t['disconnect_time'] = self.disconnect_time
 		return t
 		
 	def to_json(self):
 		return json.dumps(self.to_dict(), cls = UniversalEncoder)
+		
+	@staticmethod
+	def from_dict(d):
+		cc = ConnectionClosed( Connection.from_dict(d))
+		cc.disconnect_time = isoformat2dt(d['disconnect_time'])
+		cc.total_connection_time_s = d['total_connection_time_s']
+		return cc
+		
+	@staticmethod
+	def from_json(data):
+		return ConnectionClosed.from_dict(json.loads(data))
 		
 	def __str__(self):
 		return '[%s] Connection from %s to %s has been closed! Lasted %s seconds' % (self.connection.timestamp.isoformat(), self.connection.get_remote_print_address(), self.connection.get_local_print_address(), self.total_connection_time_s) 
@@ -355,10 +422,29 @@ class Credential:
 		t['module'] = self.module
 		t['client_addr'] = self.client_addr
 		t['client_rdns'] = self.client_rdns
+		t['fingerprint'] = self.fingerprint
 		return t
 
 	def to_json(self):
 		return json.dumps(self.to_dict(), cls=UniversalEncoder)
+		
+		
+	@staticmethod
+	def from_dict(d):
+		cc = Credential( d['credtype'])
+		cc.domain   = d['domain']
+		cc.username = d['username']
+		cc.password = d['password']
+		cc.fullhash     = d['fullhash']
+		cc.module   = d['module']
+		cc.client_addr  = d['client_addr']
+		cc.client_rdns  = d['client_rdns']
+		cc.fingerprint = d['fingerprint']
+		return cc
+		
+	@staticmethod
+	def from_json(data):
+		return Credential.from_dict(json.loads(data))
 
 	def __str__(self):
 		return '%s %s %s' % (self.credtype, self.domain, self.fullhash)
@@ -393,6 +479,26 @@ class PoisonResult:
 
 	def __repr__(self):
 		return str(self)
+		
+	@staticmethod
+	def from_dict(d):
+		cc = PoisonResult()
+		cc.module = d['module']
+		cc.target = d['target']
+		cc.request_name = d['request_name']
+		cc.request_type = d['request_type']
+		cc.poison_name = d['poison_name']
+		cc.poison_addr = d['poison_addr']
+		cc.mode = PoisonerMode(d['module'])
+		
+		return cc
+		
+	@staticmethod
+	def from_json(data):
+		return PoisonResult.from_dict(json.loads(data))
+
+	def __str__(self):
+		return '%s %s %s' % (self.credtype, self.domain, self.fullhash)
 
 	def __str__(self):
 		if self.mode == PoisonerMode.ANALYSE:
@@ -421,6 +527,8 @@ class UniversalEncoder(json.JSONEncoder):
 			return obj.isoformat()
 		elif isinstance(obj, enum.Enum):
 			return obj.value
+		elif hasattr(obj, 'to_dict'):
+			return obj.to_dict()
 		else:
 			return json.JSONEncoder.default(self, obj)
 
@@ -459,6 +567,7 @@ defaultports = {
 	"DHCP" : [(67, 'udp')],
 	"NTP"  : [(123, 'udp')],
 	"SSH"  : [(22, 'tcp')],
+	"TELNET"  : [(23, 'tcp')],
 	"HTTP" : [(80, 'tcp')],
 	"KERBEROS": [(88, 'tcp')],
 	"HTTPS": [(443, 'tcp')],
@@ -668,4 +777,18 @@ def tracefunc(frame, event, arg, indent=[0]):
 		print("<" + "-" * indent[0], "exit function", frame.f_code.co_name)
 		indent[0] -= 2
 	return tracefunc
+	
+### needs to be at the bottom!!!
+logobj2type = {
+	LogObjectType.LOGENTRY : LogEntry,
+	LogObjectType.PROXYDATA : ProxyData,
+	LogObjectType.CONNECTION : Connection,
+	LogObjectType.CONNECTION_OPENED : ConnectionOpened,
+	LogObjectType.CONNECTION_CLOSED : ConnectionClosed,
+	LogObjectType.CREDENTIAL : Credential,
+	LogObjectType.POISONRESULT : PoisonResult,
+	LogObjectType.EMAILENTRY : EmailEntry,
+}
+
+logobj2type_inv = {v: k for k, v in logobj2type.items()}
 

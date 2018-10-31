@@ -12,6 +12,7 @@ from pathlib import Path
 import io
 
 from responder3.core.commons import *
+from responder3.core.manager.comms import *
 
 
 class LogExtensionTaskEntry:
@@ -27,7 +28,7 @@ class LogExtensionTaskEntry:
 
 
 class LogProcessor:
-	def __init__(self, log_settings, log_queue, loop = None):
+	def __init__(self, log_settings, log_queue, loop = None, manager_log_queue = None):
 		"""
 		Extensible logging process. Does the logging via python's built-in logging module.
 		:param logsettings: Dictionary describing the logging settings
@@ -38,6 +39,7 @@ class LogProcessor:
 		self.loop = loop if loop is not None else asyncio.get_event_loop()
 		self.log_settings = log_settings
 		self.log_queue = log_queue
+		self.manager_log_queue = manager_log_queue
 		self.logger = None
 		self.extensions_tasks = {}
 		self.extension_task_id = 0
@@ -117,8 +119,11 @@ class LogProcessor:
 			await self.log('setup done', logging.DEBUG)
 			while True:
 				result = await self.log_queue.get()
-				for taskid in self.extensions_tasks:
-					await self.extensions_tasks[taskid].extension_log_queue.put(result)
+				if not isinstance(result, R3CliLog): #not sending unserialized remotelog format to plugins
+					for taskid in self.extensions_tasks:
+						await self.extensions_tasks[taskid].extension_log_queue.put(result)
+				if self.manager_log_queue:
+					await self.manager_log_queue.put(result)
 				if isinstance(result, Credential):
 					await self.handle_credential(result)
 				elif isinstance(result, LogEntry):
@@ -131,6 +136,8 @@ class LogProcessor:
 					await self.handle_poisonresult(result)
 				elif isinstance(result, ProxyData):
 					await self.handle_proxydata(result)
+				elif isinstance(result, (R3CliLog, RemoteLog)):
+					await self.handle_remote_log(result)
 				else:
 					raise Exception('Unknown object in queue! Got type: %s' % type(result))
 
@@ -237,7 +244,20 @@ class LogProcessor:
 				self.log_exception('Error writing proxy data to file!')
 				return
 		await self.log(repr(proxydata), logging.DEBUG)
-
+		
+	async def handle_remote_log(self, remotelog):
+		"""
+		Deserializes remote log object and creates a local log object,
+		then inserts the new object back to the logqueue
+		"""
+		if isinstance(remotelog, RemoteLog):
+			if isinstance(remotelog.log_obj, LogEntry):
+				self.logger.log(remotelog.log_obj.level, str(remotelog))
+			else:
+				self.logger.log(logging.INFO, str(remotelog))
+		else:
+			await self.log_queue.put(RemoteLog(remotelog))
+		
 	# this function is a duplicate, clean it up!
 	async def log_exception(self, message=None):
 		"""

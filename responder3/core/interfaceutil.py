@@ -1,6 +1,7 @@
 import platform
 import ipaddress
 import socket
+import json
 from responder3.core.sockets import SocketConfig
 
 """
@@ -268,6 +269,18 @@ class NetworkInterface:
 		self.ifname = None
 		self.ifindex = None #zone_indices in windows
 		self.addresses = []
+	
+	def to_dict(self):
+		t = {}
+		t['ifname'] = str(self.ifname)
+		t['ifindex'] = str(self.ifindex)
+		t['addresses'] = []
+		for addr in self.addresses:
+			t['addresses'].append(str(addr))
+		return t
+		
+	def to_json(self):
+		return json.dumps(self.to_dict())
 
 	def __repr__(self):
 		return str(self)

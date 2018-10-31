@@ -17,6 +17,8 @@ from responder3.core.interfaceutil import interfaces
 from responder3.core.logtask import LogProcessor, LogEntry
 from responder3.core.servertask import Responder3ServerTask
 from responder3.core.rdns import RDNS
+from responder3.core.manager.r3manager_client import *
+from responder3.core.manager.r3manager_server import *
 
 
 class ServerTaskEntry:
@@ -41,7 +43,8 @@ class Responder3:
 		self.log_queue = asyncio.Queue()
 		self.log_command_queue = asyncio.Queue()
 		self.logprocessor = None
-		self.test_output_queue = None
+		self.test_output_queue = None #log queue for tests only
+		self.manager_log_queue = None #this wueue is to dispatch all local log objects to the manager object if any
 
 		self.override_interfaces = None
 		self.override_ipv4 = None
@@ -51,6 +54,11 @@ class Responder3:
 		self.server_task_id = 0
 		self.servers = []
 		self.server_tasks = {}
+		
+		self.manager_task = None
+		self.manager_cmd_queue_in = asyncio.Queue()
+		self.manager_cmd_queue_out = asyncio.Queue()
+		self.manager_shutdown_evt = asyncio.Event()
 
 
 	@staticmethod
@@ -169,7 +177,103 @@ class Responder3:
 		self.loop.create_task(coro)
 		ste.started_at = datetime.datetime.utcnow()
 		del temp
-
+		
+	
+	async def list_interfaces(self):
+		ifs = {}
+		
+		for ifname in interfaces.interfaces:
+			ifs[ifname] = interfaces.interfaces[ifname].to_json()
+			
+		rply = R3CliListInterfacesRply(interfaces = ifs)
+		await self.send_msg(rply)
+		
+	async def handle_remote_commands(self):
+		"""
+		If manager is set up and is in CLIENT mode, 
+		this method will handle the remote commands 
+		coming from the remot manager server
+		"""
+		try:
+			while True:
+				cmd = await self.manager_cmd_queue_out.get()
+				if cmd.cmd_id == R3ClientCommand.SHUTDOWN:
+					pass
+				elif cmd.cmd_id == R3ClientCommand.STOP_SERVER:
+					pass
+				elif cmd.cmd_id == R3ClientCommand.LIST_SERVERS:
+					pass
+				elif cmd.cmd_id == R3ClientCommand.CREATE_SERVER:
+					pass
+				elif cmd.cmd_id == R3ClientCommand.LIST_INTERFACES:
+					pass
+				else:
+					print('Unknown command in queue!')				
+				
+				#self.manager_cmd_queue_in = asyncio.Queue() #for replies to the remote server
+				
+				
+		except Exception as e:
+			"""
+			if there is an exception we set the shutdown event on the server
+			"""
+			traceback.print_exc()
+			self.manager_shutdown_evt.set()
+			return
+		
+		
+	def start_manager(self):
+		"""
+		Start remote manager client/server if config has it
+		"""
+		if not self.config.manager_settings:
+			return
+		
+		if self.config.manager_settings['mode'] == 'CLIENT':
+			print('Starting manager in CLIENT mode')
+			server_url = self.config.manager_settings['server_url']
+			config = self.config.manager_settings['config']
+			ssl_ctx = None # TODODODODODODODODODODO
+			
+			rc = R3LogTaskConsumer(self.log_queue)
+			logger = Logger('Responder3ManagerClient')
+			logger.add_consumer(rc)
+			asyncio.ensure_future(logger.run()) #starting logger
+			asyncio.ensure_future(self.handle_remote_commands()) #starting command handler
+			
+			self.manager_task = Responder3ManagerClient(server_url, 
+								config, 
+								logger,
+								self.manager_log_queue, 
+								self.manager_cmd_queue_in, 
+								self.manager_cmd_queue_out, 
+								self.manager_shutdown_evt, 
+								ssl_ctx
+			)
+			asyncio.ensure_future(self.manager_task.run())
+		
+		elif self.config.manager_settings['mode'] == 'SERVER':
+			self.manager_log_queue = None #this queue is to dispatch all local log objects to the manager object if any
+			self.manager_task = None
+			
+			print('Starting manager in SERVER mode')
+			listen_ip = self.config.manager_settings['listen_ip']
+			listen_port = self.config.manager_settings['listen_port']
+			config = self.config.manager_settings['config']
+			ssl_ctx = None # TODODODODODODODODODODO
+			
+			rc = R3LogTaskConsumer(self.log_queue)
+			logger = Logger('Responder3ManagerClient')
+			logger.add_consumer(rc)
+			asyncio.ensure_future(logger.run()) #starting logger
+			
+			self.manager_task = Responder3ManagerServer(listen_ip, listen_port, config, logger, self.log_queue, self.manager_cmd_queue_in, self.manager_cmd_queue_out, self.manager_shutdown_evt, ssl_ctx = ssl_ctx)
+			asyncio.ensure_future(self.manager_task.run())
+			
+		
+		else:
+			raise Exception('Failed to set up manager! Unknown mode!')
+	
 	def get_server_process(self, taskid):
 		if taskid not in self.server_tasks:
 			return None
@@ -237,6 +341,10 @@ class Responder3:
 
 	def run(self):
 		try:
+			if self.config.manager_settings is not None:
+				if self.config.manager_settings['mode'] == 'CLIENT':
+					self.manager_log_queue = asyncio.Queue()
+				
 			if self.config.startup is not None:
 				if 'mode' in self.config.startup:
 					if self.config.startup['mode'] == 'STANDARD':
@@ -282,11 +390,13 @@ class Responder3:
 				# starting in standalone mode...
 				pass
 
-			self.logprocessor = LogProcessor(self.config.log_settings, self.log_queue)
+			self.logprocessor = LogProcessor(self.config.log_settings, self.log_queue, manager_log_queue = self.manager_log_queue)
 			self.loop.create_task(self.logprocessor.run())
 
 			for serverconfig in self.get_serverconfigs():
 				self.start_server_task(serverconfig)
+				
+			self.start_manager()
 
 			self.log('Started all servers')
 			self.loop.run_forever()
@@ -303,6 +413,7 @@ class Responder3Config:
 		self.startup = None
 		self.log_settings = None
 		self.server_settings = None
+		self.manager_settings = None
 
 	@staticmethod
 	def from_dict(config):
@@ -310,6 +421,8 @@ class Responder3Config:
 		conf.startup = config['startup']
 		conf.log_settings = config['logsettings']
 		conf.server_settings = config['servers']
+		if 'remote_manager' in config:
+			conf.manager_settings = config['remote_manager']
 		return conf
 
 	@staticmethod
@@ -332,6 +445,7 @@ class Responder3Config:
 		conf.startup = responderconfig.startup
 		conf.log_settings = responderconfig.logsettings
 		conf.server_settings = responderconfig.servers
+		conf.manager_settings =  getattr(responderconfig, 'remote_manager', None) 
 
 		return conf
 
