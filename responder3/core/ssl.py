@@ -55,18 +55,22 @@ class SSLContextBuilder:
 
 		:TODO: if python devs come up with a way to load certificates/key from string rather than from a file then rewrite the certdata part
 		"""
-		protocols = [ssl.PROTOCOL_SSLv23]
+		protocol = ssl.PROTOCOL_SSLv23
 		options = []
 		verify_mode = ssl.CERT_NONE
 		ciphers = 'ALL'
+		check_hostname = None
 
-		if 'protocols' in sslsettings:
+		if 'protocol' in sslsettings:
+			"""
 			protocols = []
 			if isinstance(sslsettings['protocols'], list):
 				for proto in sslsettings['protocols']:
 					protocols.append(getattr(ssl, proto, 0))
 			else:
 				protocols.append(getattr(ssl, sslsettings['protocols'], 0))
+			"""
+			protocol = getattr(ssl, sslsettings['protocol'])
 
 		if 'options' in sslsettings:
 			options = []
@@ -85,9 +89,19 @@ class SSLContextBuilder:
 		if server_side is None:
 			if 'server_side' in sslsettings:
 				server_side = sslsettings['server_side']
+				
+		if server_side == False:
+			check_hostname = True #hey! security first! (or something)
+			if 'check_hostname' in sslsettings:
+				check_hostname = sslsettings['check_hostname']
+			
+			
 
-		context = ssl.SSLContext(protocols[0])
+		context = ssl.SSLContext(protocol)
 		context.verify_mode = verify_mode
+		
+		if check_hostname:
+			context.check_hostname = check_hostname
 
 		# server_side>you need certs, if you are a client, you might need certs
 		if server_side or 'certfile' in sslsettings or 'certdata' in sslsettings:
@@ -102,8 +116,10 @@ class SSLContextBuilder:
 					random_suffix = os.urandom(8).hex()
 					certfile = '%s%s%s' % ('cert', random_suffix, '.crt')
 					certfile_path = str(Path(td, certfile))
+					print(certfile_path)
 					keyfile = '%s%s%s' % ('key', random_suffix, '.crt')
 					keyfile_path = str(Path(td, keyfile))
+					print(keyfile_path)
 					with open(certfile_path, 'w') as f:
 						f.write(sslsettings['certdata'])
 						f.flush()
@@ -118,11 +134,32 @@ class SSLContextBuilder:
 						certfile=certfile_path,
 						keyfile=keyfile_path
 					)
-
-		context.protocol = 0
+		if verify_mode != ssl.CERT_NONE:
+			if 'cafile' in sslsettings:
+				context.load_verify_locations(sslsettings['cafile'])
+			elif 'cadata' in sslsettings:
+				with tempfile.TemporaryDirectory() as td:
+					random_suffix = os.urandom(8).hex()
+					cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
+					cafile_path = str(Path(td, cafile))
+					print(certfile_path)
+					
+					with open(certfile_path, 'w') as f:
+						f.write(sslsettings['cadata'])
+						f.flush()
+						os.fsync(f.fileno())
+						
+					context.load_verify_locations(
+						certfile_path
+					)
+			
+			else:
+				raise Exception('Verify mode of %s needs "cafile " or "cadata" to be set in the settings!' % verify_mode)
+				
+		#context.protocol = 0
 		context.options = 0
-		for p in protocols:
-			context.protocol |= p
+		#for p in protocols:
+		#	context.protocol |= p
 		for o in options:
 			context.options |= o
 		context.set_ciphers(ciphers)

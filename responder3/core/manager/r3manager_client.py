@@ -3,13 +3,14 @@ import asyncio
 
 
 from responder3.core.manager.comms import *
-from responder3.core.manager.commons import *
-from responder3.core.interfaceutil import interfaces
+from responder3.core.logtask import *
+from responder3.core.gwss import *
+from responder3.core.ssl import SSLContextBuilder
 
 class Responder3ManagerClient:
-	def __init__(self, server_url, config, logger, manager_log_queue, cmd_q_in, cmd_q_out, shutdown_evt, ssl_ctx = None):
+	def __init__(self, server_url, config, log_queue, manager_log_queue, cmd_q_in, cmd_q_out, shutdown_evt, ssl_ctx = None):
 		self.config = config
-		self.logger = logger
+		self.logger = Logger('Responder3ManagerClient', logQ = log_queue)
 		self.manager_log_queue = manager_log_queue #log_queue (asyincio.Queue) that yield all the log messages the responder3 instance has
 		self.cmd_q_in = cmd_q_in #commands from the server manager to the clients
 		self.cmd_q_out = cmd_q_out #command results from clients to server manager
@@ -18,8 +19,9 @@ class Responder3ManagerClient:
 		
 		self.server_url = server_url
 		self.ssl_ctx = ssl_ctx
+		if self.ssl_ctx:
+			self.ssl_ctx = SSLContextBuilder.from_dict(ssl_ctx)
 		
-		self.logger = logger
 		self.classloader = R3ClientCommsClassLoader()
 		self.ws = None
 		
@@ -67,7 +69,7 @@ class Responder3ManagerClient:
 			try:
 				self.shutdown_session_evt.clear()
 				await self.logger.info('Connecting to manager server...')
-				async with websockets.connect(self.server_url) as ws:
+				async with websockets.connect(self.server_url, ssl = self.ssl_ctx) as ws:
 					self.ws = ws
 					await self.logger.info('Connected to manager server!')
 					asyncio.ensure_future(self.handle_logs())

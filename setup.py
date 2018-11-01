@@ -33,6 +33,7 @@ setup(
 		"asn1crypto",
 		"oscrypto",
 		"certbuilder",
+		"websockets",
 	],
 
 	python_requires='>=3.6',

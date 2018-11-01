@@ -233,17 +233,15 @@ class Responder3:
 			print('Starting manager in CLIENT mode')
 			server_url = self.config.manager_settings['server_url']
 			config = self.config.manager_settings['config']
-			ssl_ctx = None # TODODODODODODODODODODO
+			ssl_ctx = None
+			if 'ssl_ctx' in self.config.manager_settings:
+				ssl_ctx = self.config.manager_settings['ssl_ctx']
 			
-			rc = R3LogTaskConsumer(self.log_queue)
-			logger = Logger('Responder3ManagerClient')
-			logger.add_consumer(rc)
-			asyncio.ensure_future(logger.run()) #starting logger
 			asyncio.ensure_future(self.handle_remote_commands()) #starting command handler
 			
 			self.manager_task = Responder3ManagerClient(server_url, 
 								config, 
-								logger,
+								self.log_queue,
 								self.manager_log_queue, 
 								self.manager_cmd_queue_in, 
 								self.manager_cmd_queue_out, 
@@ -260,14 +258,12 @@ class Responder3:
 			listen_ip = self.config.manager_settings['listen_ip']
 			listen_port = self.config.manager_settings['listen_port']
 			config = self.config.manager_settings['config']
-			ssl_ctx = None # TODODODODODODODODODODO
+			ssl_ctx = None
+			if 'ssl_ctx' in self.config.manager_settings:
+				ssl_ctx = self.config.manager_settings['ssl_ctx']
 			
-			rc = R3LogTaskConsumer(self.log_queue)
-			logger = Logger('Responder3ManagerClient')
-			logger.add_consumer(rc)
-			asyncio.ensure_future(logger.run()) #starting logger
 			
-			self.manager_task = Responder3ManagerServer(listen_ip, listen_port, config, logger, self.log_queue, self.manager_cmd_queue_in, self.manager_cmd_queue_out, self.manager_shutdown_evt, ssl_ctx = ssl_ctx)
+			self.manager_task = Responder3ManagerServer(listen_ip, listen_port, config, self.log_queue, self.log_queue, self.manager_cmd_queue_in, self.manager_cmd_queue_out, self.manager_shutdown_evt, ssl_ctx = ssl_ctx)
 			asyncio.ensure_future(self.manager_task.run())
 			
 		
@@ -351,6 +347,7 @@ class Responder3:
 						# starting in standalone mode...
 						pass
 					elif self.config.startup['mode'] == 'DEV':
+						print('Starting in DEV mode!')
 						os.environ['PYTHONASYNCIODEBUG'] = '1'
 						os.environ['R3DEEPDEBUG'] = '1'
 						self.loop.set_debug(True)

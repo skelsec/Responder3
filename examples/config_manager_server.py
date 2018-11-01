@@ -27,44 +27,11 @@ logsettings = {
 	}
 }
 
-servers = [
-	{
-		'handler'    : 'FTP',
-	},
-	{
-		'handler'    : 'HTTP',
-	},
-	{
-		'handler'    : 'SMTP',
-	},
-	{
-		'handler'    : 'POP3',
-	},
-	{
-		'handler'    : 'IMAP',
-	},
-	{
-		'handler'    : 'KERBEROS',
-	},
-	{
-		'handler'    : 'LDAP',
-	},
-	{
-		'handler'    : 'VNC',
-	},
-	{
-		'handler'    : 'SOCKS5',
-	},
-	{
-		'handler'    : 'TELNET',
-		'settings'   : {
-			'banner' : '=========\r\nYou are being PWNd!\r\n=========',
-		},
-	},
-]
+servers = []
+
 remote_manager = {
-	'mode' : 'CLIENT',
+	'mode' : 'SERVER',
 	'config' : {},
-	'server_url' : 'ws://127.0.0.1:9191',
-	
+	'listen_ip' : '127.0.0.1',
+	'listen_port' : '9191',
 }

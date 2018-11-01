@@ -9,7 +9,6 @@ def main():
 	parser = Responder3.get_argparser()
 	responder3 = Responder3.from_args(parser.parse_args())
 	loop.run_until_complete(responder3.run())
-	#responder3.join()
 	print('Responder finished!')
 
 if __name__ == '__main__':
