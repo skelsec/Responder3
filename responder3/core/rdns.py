@@ -36,7 +36,7 @@ class RDNS:
 				await writer.drain()
 				
 				data = await DNSPacket.from_streamreader(reader, proto = socket.SOCK_STREAM)
-				return data.Answers[0].domainname
+				return str(data.Answers[0].domainname)
 			else:
 				cli = UDPClient((self.server[0]['ip'], self.server[0]['port']))
 				
@@ -52,7 +52,7 @@ class RDNS:
 						
 				reader, writer = await cli.run(packet.to_bytes())	
 				data = await DNSPacket.from_streamreader(reader)
-				return data.Answers[0].domainname
+				return str(data.Answers[0].domainname)
 		
 		except Exception as e:
 			return None
