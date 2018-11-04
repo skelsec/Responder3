@@ -13,7 +13,7 @@ import importlib.util
 import warnings
 
 from responder3.core.commons import handle_systemd, defaultports, tracefunc
-from responder3.core.interfaceutil import interfaces
+from responder3.core.interfaces.NetworkInterfaces import interfaces
 from responder3.core.logtask import LogProcessor, LogEntry
 from responder3.core.servertask import Responder3ServerTask
 from responder3.core.rdns import RDNS
