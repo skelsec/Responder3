@@ -1,4 +1,12 @@
 import ipaddress
+from socket import AF_INET, AF_INET6, inet_ntop
+from ctypes import (
+    Structure, POINTER,
+    pointer, cast,
+    c_ushort, c_byte, c_uint8, c_void_p, c_char_p, c_uint, c_uint16, c_uint32
+)
+import ctypes.util
+import ctypes
 
 from responder3.core.interfaces.NetworkInterface import NetworkInterface
 
@@ -7,14 +15,6 @@ def get_darwin_ifaddrs():
 	Enumerates all network interfaces and all IP addresses assigned for each interfaces both IPv4 and IPv6 on Macintosh host
 	:return: list of NetworkInterface
 	"""
-	from socket import AF_INET, AF_INET6, inet_ntop
-	from ctypes import (
-		Structure, Union, POINTER,
-		pointer, get_errno, cast,
-		c_ushort, c_byte, c_uint8, c_void_p, c_char_p, c_uint, c_int, c_uint16, c_uint32
-	)
-	import ctypes.util
-	import ctypes
 
 	class struct_sockaddr(Structure):
 		_fields_ = [
@@ -39,15 +39,9 @@ def get_darwin_ifaddrs():
 			('sin6_addr', c_byte * 16),
 			('sin6_scope_id', c_uint32)]
 
-	"""
-	class union_ifa_ifu(Union):
-			_fields_ = [
-					('ifu_broadaddr', POINTER(struct_sockaddr)),
-					('ifu_dstaddr', POINTER(struct_sockaddr)),]
-	"""
-
 	class struct_ifaddrs(Structure):
 		pass
+
 	struct_ifaddrs._fields_ = [
 		('ifa_next', POINTER(struct_ifaddrs)),
 		('ifa_name', c_char_p),
@@ -67,7 +61,7 @@ def get_darwin_ifaddrs():
 				break
 			ifa = ifa.ifa_next.contents
 
-	def getfamaddr(sa):
+	def get_family_and_address(sa):
 		family = sa.sa_family
 		addr = None
 		if family == AF_INET:
@@ -80,15 +74,15 @@ def get_darwin_ifaddrs():
 
 	ifap = POINTER(struct_ifaddrs)()
 	libc.getifaddrs(pointer(ifap))
+	interfacesd = {}
 	try:
-		interfacesd = {}
 		for ifa in ifap_iter(ifap):
 			ifname = ifa.ifa_name.decode("UTF-8")
 			if ifname not in interfacesd:
 				interfacesd[ifname] = NetworkInterface()
 				interfacesd[ifname].ifname = ifname
 				interfacesd[ifname].ifindex = libc.if_nametoindex(ifname)
-			family, addr = getfamaddr(ifa.ifa_addr.contents)
+			family, addr = get_family_and_address(ifa.ifa_addr.contents)
 			if (addr is None):
 				del interfacesd[ifname]
 				continue
@@ -96,4 +90,3 @@ def get_darwin_ifaddrs():
 		return interfacesd
 	finally:
 		libc.freeifaddrs(ifap)
-

@@ -214,8 +214,8 @@ class NetworkInterfaces:
 		except Exception as e:
 			raise Exception('Unknown IP version %s' % repr(ipversion))
 
-		for version in iv:
-			for lookup_ifname, ver in self.name_ip_lookup:
+		for lookup_ifname, ver in self.name_ip_lookup:
+			for version in iv:
 				if ifname != lookup_ifname:
 					continue
 				if ver != version:

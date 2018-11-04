@@ -1,5 +1,5 @@
 startup = {
-	'mode'    : 'DEV',  # STANDARD or DEV or SERVICE
+	'mode'    : 'STANDARD',  # STANDARD or DEV or SERVICE
 	'settings': {
 		'pidfile': "/var/run/responder.pid",  # must be defined if mode==SERVICE, other modes ignore this
 	},
@@ -27,11 +27,9 @@ logsettings = {
 	}
 }
 
-servers = []
+servers = [
+	{
+		'handler'    : 'FTP'
+	}
+]
 
-remote_manager = {
-	'mode' : 'SERVER',
-	'config' : {},
-	'listen_ip' : '127.0.0.1',
-	'listen_port' : '9191',
-}

@@ -43,6 +43,7 @@ def get_linux_ifaddrs():
 
 	class struct_ifaddrs(Structure):
 		pass
+
 	struct_ifaddrs._fields_ = [
 		('ifa_next', POINTER(struct_ifaddrs)),
 		('ifa_name', c_char_p),

@@ -296,7 +296,6 @@ class Responder3:
 
 			else:
 				ifaces = self.override_interfaces
-
 			bind_family = []
 			if self.override_ipv4:
 				bind_family.append(4)
@@ -313,7 +312,7 @@ class Responder3:
 							bind_family.append(int(ver))
 
 			if bind_family == []:
-				raise Exception('IP version (bind_family) MUST be set either in cofig file or in command line!')
+				raise Exception('IP version (bind_family) MUST be set either in config file or in command line!')
 
 			portspecs = serverentry.get(
 				'bind_port',
