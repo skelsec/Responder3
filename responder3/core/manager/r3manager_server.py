@@ -102,7 +102,7 @@ class Responder3ManagerServer:
 	async def client_handler(self, ws, path):
 		################################################################################
 		#!!!! If you see an error here, websockets library might have changed
-		#By default the library doesnt offer high-lvel api to grab the client certificate
+		#By default the library doesnt offer high-level api to grab the client certificate
 		#Check the new documentation of websockets if error comes in here!
 		client_cert = ws.writer.get_extra_info('peercert') 
 		################################################################################

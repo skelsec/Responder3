@@ -13,7 +13,7 @@ import importlib.util
 import warnings
 
 from responder3.core.commons import handle_systemd, defaultports, tracefunc
-from responder3.core.interfaceutil import interfaces
+from responder3.core.interfaces.NetworkInterfaces import interfaces
 from responder3.core.logtask import LogProcessor, LogEntry
 from responder3.core.servertask import Responder3ServerTask
 from responder3.core.rdns import RDNS
@@ -192,7 +192,7 @@ class Responder3:
 		"""
 		If manager is set up and is in CLIENT mode, 
 		this method will handle the remote commands 
-		coming from the remot manager server
+		coming from the remote manager server
 		"""
 		try:
 			while True:
@@ -296,7 +296,6 @@ class Responder3:
 
 			else:
 				ifaces = self.override_interfaces
-
 			bind_family = []
 			if self.override_ipv4:
 				bind_family.append(4)
@@ -313,7 +312,7 @@ class Responder3:
 							bind_family.append(int(ver))
 
 			if bind_family == []:
-				raise Exception('IP version (bind_family) MUST be set either in cofig file or in command line!')
+				raise Exception('IP version (bind_family) MUST be set either in config file or in command line!')
 
 			portspecs = serverentry.get(
 				'bind_port',

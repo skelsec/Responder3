@@ -1,5 +1,5 @@
 startup = {
-	'mode'    : 'STANDARD',  # STANDARD or DEV or SERVICE
+	'mode'    : 'DEV',  # STANDARD or DEV or SERVICE
 	'settings': {
 		'pidfile': "/var/run/responder.pid",  # must be defined if mode==SERVICE, other modes ignore this
 	},
@@ -27,7 +27,38 @@ logsettings = {
 	}
 }
 
-servers = []
+servers = [
+        {
+                'handler'    : 'FTP',
+        },
+        {
+                'handler'    : 'HTTP',
+        },
+        {
+                'handler'    : 'SMTP',
+        },
+        {
+                'handler'    : 'POP3',
+        },
+        {
+                'handler'    : 'IMAP',
+        },
+        {
+                'handler'    : 'KERBEROS',
+        },
+        {
+                'handler'    : 'LDAP',
+        },
+        {
+                'handler'    : 'VNC',
+        },
+        {
+                'handler'    : 'SOCKS5',
+        },
+        {
+                'handler'    : 'TELNET',
+        },
+]
 
 remote_manager = {
 	'mode' : 'SERVER',
