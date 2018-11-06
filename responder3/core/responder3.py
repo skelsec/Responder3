@@ -192,7 +192,7 @@ class Responder3:
 		"""
 		If manager is set up and is in CLIENT mode, 
 		this method will handle the remote commands 
-		coming from the remot manager server
+		coming from the remote manager server
 		"""
 		try:
 			while True:

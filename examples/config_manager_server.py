@@ -27,7 +27,38 @@ logsettings = {
 	}
 }
 
-servers = []
+servers = [
+        {
+                'handler'    : 'FTP',
+        },
+        {
+                'handler'    : 'HTTP',
+        },
+        {
+                'handler'    : 'SMTP',
+        },
+        {
+                'handler'    : 'POP3',
+        },
+        {
+                'handler'    : 'IMAP',
+        },
+        {
+                'handler'    : 'KERBEROS',
+        },
+        {
+                'handler'    : 'LDAP',
+        },
+        {
+                'handler'    : 'VNC',
+        },
+        {
+                'handler'    : 'SOCKS5',
+        },
+        {
+                'handler'    : 'TELNET',
+        },
+]
 
 remote_manager = {
 	'mode' : 'SERVER',

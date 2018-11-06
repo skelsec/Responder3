@@ -1,22 +1,21 @@
 import json
 
 class NetworkInterface:
+
 	def __init__(self):
 		"""
 		Container object to describe a network interface
 		"""
 		self.ifname = None
-		self.ifindex = None #zone_indices in windows
+		self.ifindex = None # zone_indices in windows
 		self.addresses = []
 	
 	def to_dict(self):
-		t = {}
-		t['ifname'] = str(self.ifname)
-		t['ifindex'] = str(self.ifindex)
-		t['addresses'] = []
-		for addr in self.addresses:
-			t['addresses'].append(str(addr))
-		return t
+		return {
+            "ifname": str(self.ifname),
+            "ifindex": str(self.ifindex),
+            "addresses": self.addresses
+        }
 		
 	def to_json(self):
 		return json.dumps(self.to_dict())
@@ -30,6 +29,5 @@ class NetworkInterface:
 		t += 'ifindex: %s\r\n' % self.ifindex
 		for addr in self.addresses:
 			t += 'Address: %s\r\n' % str(addr)
-		
 		return t
 
