@@ -57,7 +57,7 @@ class MDNS(ResponderServer):
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = setup_base_socket(
 				socket_config,
-				bind_ip_override = ipaddress.ip_address('0.0.0.0') if socket_config.platform == ResponderPlatform.WINDOWS else None
+				bind_ip_override = ipaddress.ip_address('0.0.0.0') #if socket_config.platform == ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)

@@ -196,7 +196,7 @@ class UDPServer:
 			data, addr = await recvfrom(self._loop, self._socket, 65536)
 			reader = UDPReader(data, addr)
 			writer = UDPWriter(self._loop, self._socket, addr, self._laddr)
-			self._callback(reader, writer)
+			await self._callback(reader, writer)
 
 	async def run(self):
 		"""

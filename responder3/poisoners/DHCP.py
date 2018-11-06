@@ -55,6 +55,7 @@ class DHCPGlobalSession(ResponderServerGlobalSession):
 		self.leasetime     = random.randint(600,1000)
 		self.offer_options = None
 		self.ack_options   = None
+		self.ip_pool = None
 		self.poisonermode = PoisonerMode.ANALYSE
 
 		start = ipaddress.IPv4Address('192.168.1.100')
@@ -68,12 +69,12 @@ class DHCPGlobalSession(ResponderServerGlobalSession):
 			end   = ipaddress.IPv4Address(self.settings['ip_pool'][:m+1] + self.settings['ip_pool'].split('-')[1].strip())
 			ipnets = ipaddress.summarize_address_range(start, end)
 
-		ips = []
-		for ipnet in ipnets:
-			for ip in ipnet:
-				ips.append(ip)
+			ips = []
+			for ipnet in ipnets:
+				for ip in ipnet:
+					ips.append(ip)
 
-		self.ip_pool = iter(ips)
+			self.ip_pool = iter(ips)
 
 
 		if self.settings is None:
