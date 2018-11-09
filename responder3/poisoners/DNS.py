@@ -7,7 +7,7 @@ import ipaddress
 import datetime
 import collections
 
-from responder3.core.interfaceutil import interfaces
+from responder3.core.interfaces.NetworkInterfaces import interfaces
 from responder3.core.commons import PoisonerMode
 from responder3.protocols.DNS import * 
 from responder3.core.udpwrapper import UDPClient

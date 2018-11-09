@@ -1,4 +1,5 @@
 import json
+from responder3.core.commons import *
 
 class NetworkInterface:
 
@@ -18,7 +19,7 @@ class NetworkInterface:
         }
 		
 	def to_json(self):
-		return json.dumps(self.to_dict())
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
 
 	def __repr__(self):
 		return str(self)

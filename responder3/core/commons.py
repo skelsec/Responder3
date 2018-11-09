@@ -527,6 +527,8 @@ class UniversalEncoder(json.JSONEncoder):
 			return obj.isoformat()
 		elif isinstance(obj, enum.Enum):
 			return obj.value
+		elif isinstance(obj, (ipaddress.IPv4Address, ipaddress.IPv6Address)):
+			return str(obj)
 		elif hasattr(obj, 'to_dict'):
 			return obj.to_dict()
 		else:

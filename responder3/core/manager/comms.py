@@ -16,6 +16,8 @@ class R3ClientCommsClass:
 		for name in self.__dict__:
 			setattr(self, name, d[name])
 
+		self.cmd_id = R3ClientCommand(d['cmd_id'])
+
 	def from_json(self, data):
 		self.to_dict(json.loads(data))
 		

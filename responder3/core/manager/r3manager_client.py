@@ -44,12 +44,16 @@ class Responder3ManagerClient:
 				self.shutdown_session_evt.set()
 				raise e
 			
+			print('Command in! %s' % cmd_data)
 			cmd = self.classloader.from_json(cmd_data)
+			print(cmd)
+			await self.cmd_q_in.put(cmd)
 	
 	@r3exception 
 	async def handle_outgoing_replies(self):
 		while not self.shutdown_session_evt.is_set():
 			rply = await self.cmd_q_out.get()
+			print(rply)
 			await self.send_msg(rply)
 		
 	@r3exception
@@ -74,6 +78,7 @@ class Responder3ManagerClient:
 					await self.logger.info('Connected to manager server!')
 					asyncio.ensure_future(self.handle_logs())
 					asyncio.ensure_future(self.handle_incoming_commands())
+					asyncio.ensure_future(self.handle_outgoing_replies())
 					await self.shutdown_session_evt.wait()
 					await asyncio.sleep(1)
 			except Exception as e:

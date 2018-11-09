@@ -7,7 +7,6 @@ import argparse
 import datetime
 import asyncio
 import itertools
-import multiprocessing
 import importlib.machinery
 import importlib.util
 import warnings
@@ -26,7 +25,10 @@ class ServerTaskEntry:
 		self.taskid = taskid
 		self.startup_config = None
 		self.task = None
-		self.command_channel_manager, self.command_channel_client = multiprocessing.Pipe()
+		self.server = None
+		self.command_channel_manager = asyncio.Queue()
+		self.command_channel_client = asyncio.Queue()
+		#self.shutdown_event = asyncio.Event()
 		self.created_at = datetime.datetime.utcnow()
 		self.started_at = None
 
@@ -40,7 +42,9 @@ class Responder3:
 		self.resolver_server = [{'ip':'8.8.8.8', 'port':53, 'proto' : 'udp'}]
 		self.resolver_server6 = [{ 'ip': '2001:4860:4860::8888', 'port':53, 'proto' : 'udp'}]
 
+
 		self.log_queue = asyncio.Queue()
+		self.logger = Logger('Responder3 MAIN', logQ = self.log_queue)
 		self.log_command_queue = asyncio.Queue()
 		self.logprocessor = None
 		self.test_output_queue = None #log queue for tests only
@@ -59,6 +63,8 @@ class Responder3:
 		self.manager_cmd_queue_in = asyncio.Queue()
 		self.manager_cmd_queue_out = asyncio.Queue()
 		self.manager_shutdown_evt = asyncio.Event()
+
+		self.shutdown_evt = asyncio.Event()
 
 
 	@staticmethod
@@ -147,19 +153,13 @@ class Responder3:
 		responder.config = config
 		return responder
 
-	async def aio_log(self, logentry):
-		await self.log_queue.put(logentry)
-
-	def log(self, message, level=logging.INFO):
-		log = LogEntry(level, 'Responder3 MAIN', message)
-		self.loop.create_task(self.aio_log(log))
-
 	def get_taskid(self):
 		taskid = self.server_task_id
 		self.server_task_id += 1
 		return taskid
 
-	def start_server_task(self, serverconfig):
+	@r3exception
+	async def start_server_task(self, serverconfig):
 		ste = ServerTaskEntry(self.get_taskid())
 		temp = copy.deepcopy(serverconfig)
 		resolver_server = temp['resolver'] if 'resolver' in temp else self.resolver_server
@@ -172,22 +172,74 @@ class Responder3:
 			server_command_queue=None,
 			loop=self.loop
 		)
-		coro = ste.task.create_server_coro(temp)
+		ste.server = await ste.task.create_server(temp)
 		self.server_tasks[ste.taskid] = ste
-		self.loop.create_task(coro)
+		asyncio.ensure_future(ste.server.serve_forever())
 		ste.started_at = datetime.datetime.utcnow()
 		del temp
+
+		return ste.taskid
+
+	@r3exception
+	async def list_servers(self, cmd):
+		print('list_servers')
+		servers = {}
+		for taskid in self.server_tasks:
+			servers[taskid] = self.server_tasks[taskid].startup_config
+		rply = R3CliListServersRply(servers = servers)
+		await self.manager_cmd_queue_out.put(rply)
+
+
+	@r3exception
+	async def create_server(self, cmd):
+		print('create_server')
+		server_id = await self.start_server_task(cmd.server_config) #TODO! dict_config
+
+		rply = R3CliCreateServerRply(server_id = server_id)
+		await self.manager_cmd_queue_out.put(rply)
 		
-	
-	async def list_interfaces(self):
-		ifs = {}
-		
-		for ifname in interfaces.interfaces:
-			ifs[ifname] = interfaces.interfaces[ifname].to_json()
+	@r3exception
+	async def list_interfaces(self, cmd):
+		try:
+			print('list interfaces cmd in')
+			ifs = {}
 			
-		rply = R3CliListInterfacesRply(interfaces = ifs)
-		await self.send_msg(rply)
+			for ifname in interfaces.interfaces:
+				ifs[ifname] = interfaces.interfaces[ifname].to_json()
+				
+			rply = R3CliListInterfacesRply(interfaces = ifs)
+			await self.manager_cmd_queue_out.put(rply)
+			print('Reply sent')
+		except Exception as e:
+			traceback.print_exc()
+
+	@r3exception
+	async def stop_server(self, cmd):
+		if cmd.server_id not in self.server_tasks:
+			print('Server ID doesnt exist!')
+			return
 		
+		try:
+			self.server_tasks[cmd.server_id].server.close()
+			del self.server_tasks[cmd.server_id]
+			print(type(self.server_tasks[cmd.server_id].task))
+		except Exception as e:
+			traceback.print_exc()
+			rply = R3CliServerStopRply(status = 'NO')
+		else:
+			rply = R3CliServerStopRply(status = 'OK')
+		
+		await self.manager_cmd_queue_out.put(rply)
+
+
+	@r3exception
+	async def shutdown(self, cmd):
+		#TODO: make it fancy
+
+		self.shutdown_evt.set()
+		
+
+	@r3exception
 	async def handle_remote_commands(self):
 		"""
 		If manager is set up and is in CLIENT mode, 
@@ -196,22 +248,20 @@ class Responder3:
 		"""
 		try:
 			while True:
-				cmd = await self.manager_cmd_queue_out.get()
+				cmd = await self.manager_cmd_queue_in.get()
+				print(cmd.cmd_id)
 				if cmd.cmd_id == R3ClientCommand.SHUTDOWN:
-					pass
+					await self.shutdown(cmd)
 				elif cmd.cmd_id == R3ClientCommand.STOP_SERVER:
-					pass
+					await self.stop_server(cmd)
 				elif cmd.cmd_id == R3ClientCommand.LIST_SERVERS:
-					pass
+					await self.list_servers(cmd)
 				elif cmd.cmd_id == R3ClientCommand.CREATE_SERVER:
-					pass
+					await self.create_server(cmd)
 				elif cmd.cmd_id == R3ClientCommand.LIST_INTERFACES:
-					pass
+					await self.list_interfaces(cmd)
 				else:
 					print('Unknown command in queue!')				
-				
-				#self.manager_cmd_queue_in = asyncio.Queue() #for replies to the remote server
-				
 				
 		except Exception as e:
 			"""
@@ -221,8 +271,8 @@ class Responder3:
 			self.manager_shutdown_evt.set()
 			return
 		
-		
-	def start_manager(self):
+	@r3exception
+	async def start_manager(self):
 		"""
 		Start remote manager client/server if config has it
 		"""
@@ -239,7 +289,8 @@ class Responder3:
 			
 			asyncio.ensure_future(self.handle_remote_commands()) #starting command handler
 			
-			self.manager_task = Responder3ManagerClient(server_url, 
+			self.manager_task = Responder3ManagerClient(
+								server_url, 
 								config, 
 								self.log_queue,
 								self.manager_log_queue, 
@@ -269,20 +320,6 @@ class Responder3:
 		
 		else:
 			raise Exception('Failed to set up manager! Unknown mode!')
-	
-	def get_server_process(self, taskid):
-		if taskid not in self.server_tasks:
-			return None
-		return self.server_tasks[taskid]
-
-	def get_taskid_list(self):
-		return self.server_tasks.keys()
-
-	def send_server_command(self, taskid, command):
-		spe = self.get_server_process(taskid)
-		if spe is None:
-			return None
-		spe.command_queue.put(command)
 
 	def get_serverconfigs(self):
 		# Setting up and starting servers
@@ -334,7 +371,8 @@ class Responder3:
 					serverentry['listener_socket_config'] = socket_config
 					yield serverentry
 
-	def run(self):
+	@r3exception
+	async def run(self):
 		try:
 			if self.config.manager_settings is not None:
 				if self.config.manager_settings['mode'] == 'CLIENT':
@@ -390,15 +428,16 @@ class Responder3:
 			self.loop.create_task(self.logprocessor.run())
 
 			for serverconfig in self.get_serverconfigs():
-				self.start_server_task(serverconfig)
+				await self.start_server_task(serverconfig)
 				
-			self.start_manager()
+			await self.start_manager()
 
-			self.log('Started all servers')
-			self.loop.run_forever()
+			await self.logger.info('Started all servers')
+			#self.loop.run_forever()
+			await self.shutdown_evt.wait()
 
 		except KeyboardInterrupt:
-			self.log('CTRL+C pressed, exiting!')
+			await self.logger.warning('CTRL+C pressed, exiting!')
 			sys.exit(0)
 
 

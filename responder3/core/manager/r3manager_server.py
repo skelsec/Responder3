@@ -35,6 +35,7 @@ class Responder3ClientSession:
 		while True:
 			cmd = await self.cmd_queue_in.get()
 			try:
+				print('sending command!')
 				await self.ws.send(cmd.to_json())
 			except Exception as e:
 				await self.logger.exception()
@@ -50,7 +51,7 @@ class Responder3ClientSession:
 				await self.logger.exception()
 				self.shutdown_evt.set()
 				return
-				
+			print(rply_data)
 			try:
 				msg = self.classloader.from_json(rply_data)
 			except Exception as e:
@@ -75,7 +76,7 @@ class Responder3ClientSession:
 	async def run(self):
 		asyncio.ensure_future(self.handle_commands_in())
 		asyncio.ensure_future(self.handle_commands_out())
-		await self.cmd_queue_in.put(R3CliListInterfacesCmd())
+		#await self.cmd_queue_in.put(R3CliListInterfacesCmd())
 			
 		await self.shutdown_evt.wait()
 	
@@ -96,7 +97,27 @@ class Responder3ManagerServer:
 			self.ssl_ctx = SSLContextBuilder.from_dict(ssl_ctx)
 		
 		self.clients = {} #client_id -> Responder3ClientSession
-		
+
+	@r3exception
+	async def client_cmd_dispatcher(self):
+		while not self.shutdown_evt.is_set():
+			client_id, cmd = await self.cmd_q_in.get()
+			if client_id == 'ALL':
+				for client_id in self.clients:
+					try:
+						await self.clients[client_id].cmd_queue_in.put(cmd)
+					except Exception as e:
+						traceback.print_exc()
+				continue
+
+			if client_id not in self.clients:
+				print('Client ID doesnt exist! %s' % client_id)
+				continue
+
+			await self.clients[client_id].cmd_queue_in.put(cmd)
+
+
+
 		
 	@r3exception
 	async def client_handler(self, ws, path):
@@ -126,6 +147,7 @@ class Responder3ManagerServer:
 		
 	@r3exception
 	async def run(self):
+		asyncio.ensure_future(self.client_cmd_dispatcher())
 		server = await websockets.serve(self.client_handler, self.listen_ip, self.listen_port, ssl=self.ssl_ctx)
 		await server.wait_closed()
 		

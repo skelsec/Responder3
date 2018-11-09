@@ -121,7 +121,16 @@ class LogProcessor:
 				result = await self.log_queue.get()
 				if not isinstance(result, R3CliLog): #not sending unserialized remotelog format to plugins
 					for taskid in self.extensions_tasks:
-						await self.extensions_tasks[taskid].extension_log_queue.put(result)
+						#await self.extensions_tasks[taskid].extension_log_queue.put(result)
+						
+						"""
+						not using await for filling up the extension input queues, because if one extension malfuntions
+						it stops the whole application by calling await on a full queue thet will never be empty
+						"""
+						try:
+							self.extensions_tasks[taskid].extension_log_queue.put_nowait(result)
+						except asyncio.QueueFull:
+							pass
 				if self.manager_log_queue:
 					await self.manager_log_queue.put(result)
 				if isinstance(result, Credential):
@@ -287,16 +296,17 @@ class LoggerExtensionTask(ABC):
 		self.loop = loop
 		self.config = config
 		self.modulename = '%s-%s' % ('LogExt', self.__class__.__name__)
+		self.logger = Logger(self.modulename, logQ = self.log_queue)
 		self.init()
 
 	async def run(self):
 		try:
 			await self.setup()
-			await self.log('Started!', logging.DEBUG)
+			await self.logger.debug('Started!')
 			await self.main()
-			await self.log('Exiting!', logging.DEBUG)
+			await self.logger.debug('Exiting!')
 		except Exception:
-			await self.log_exception('Exception in main function!')
+			await self.logger.exception('Exception in main function!')
 
 	
 	async def create_coro(self):
@@ -313,39 +323,6 @@ class LoggerExtensionTask(ABC):
 	@abstractmethod
 	async def setup(self):
 		pass
-
-	async def log_exception(self, message=None):
-		"""
-		Custom exception handler to log exceptions via the logging interface
-		:param message: Extra message for the exception if any
-		:type message: str
-		:return: None
-		"""
-		sio = io.StringIO()
-		ei = sys.exc_info()
-		tb = ei[2]
-		traceback.print_exception(ei[0], ei[1], tb, None, sio)
-		msg = sio.getvalue()
-		if msg[-1] == '\n':
-			msg = msg[:-1]
-		sio.close()
-		if message is not None:
-			msg = message + msg
-		await self.log(msg, level=logging.ERROR)
-
-	async def log(self, message, level=logging.INFO):
-		"""
-		Sends the log messages onto the logqueue. If no logqueue is present then prints them out on console.
-		:param message: The message to be sent
-		:type message: str
-		:param level: Log level
-		:type level: int
-		:return: None
-		"""
-		if self.log_queue is not None:
-			await self.log_queue.put(LogEntry(level, self.modulename, message))
-		else:
-			print(str(LogEntry(level, self.modulename, message)))
 
 
 class TestExtension(LoggerExtensionTask):
@@ -364,13 +341,13 @@ class TestExtension(LoggerExtensionTask):
 				result = await self.result_queue.get()
 				self.output_queue.put(result)
 		except Exception as e:
-			await self.log_exception()
+			await self.logger.exception()
 
 
 class Logger:
 	"""
-	This class is used to provied a better logging experience for asyncio based classes/functions
-	Probably will replace servertask "solution" with this one in the future
+	This class is used to provie a better logging experience for asyncio based classes/functions
+	Probably will replace logtask "solution" with this one in the future
 	TODO
 	"""
 	def __init__(self, name, logger = None, logQ = None, level = logging.DEBUG):
@@ -444,6 +421,25 @@ class Logger:
 		Level MUST be bigger than 0!!!
 		"""
 		await self.logQ.put(LogEntry(level, self.name, msg))
+
+	async def log_connection(self, connection, status):
+		"""
+		Logs incoming connection
+		:param connection: The Connection object to log
+		:type connection: Connection
+		:param status: Connection status
+		:type: ConnectionStatus
+		:return: None
+		"""
+		if status == ConnectionStatus.OPENED or status == ConnectionStatus.STATELESS:
+			await self.info('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
+			co = ConnectionOpened(connection)
+			await self.logQ.put(co)
+			
+		elif status == ConnectionStatus.CLOSED:
+			await self.info('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
+			cc = ConnectionClosed(connection)
+			await self.logQ.put(cc)
 		
 	def add_consumer(self, consumer):
 		self.consumers[consumer] = 0
@@ -461,7 +457,8 @@ def r3exception(funct):
 	async def wrapper(*args, **kwargs):
 		this = args[0] #renaming self to 'this'
 		try:
-			await funct(*args, **kwargs)
+			t = await funct(*args, **kwargs)
+			return t
 		except Exception as e:
 			await this.logger.exception(funct.__name__)
 			return

@@ -23,6 +23,22 @@ class SocketConfig:
 		self.is_server = True
 		self.platform = get_platform()
 
+	def to_dict(self):
+		t = {}
+		t['bind_iface'] = self.bind_iface
+		t['bind_port'] = self.bind_port
+		t['bind_family'] = self.bind_family
+		t['bind_protocol'] = self.bind_protocol
+		t['bind_iface_idx'] = self.bind_iface_idx
+		t['reuse_address'] = self.reuse_address
+		t['reuse_port'] = self.reuse_port
+		t['is_ssl_wrapped'] = self.is_ssl_wrapped
+		t['is_server'] = self.is_server
+		return t
+
+	def to_json(self):
+		return json.dumps(self.to_dict())
+
 	def get_protocolname(self):
 		"""
 		Returns protocol type as string

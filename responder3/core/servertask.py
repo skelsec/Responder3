@@ -12,6 +12,7 @@ import datetime
 from responder3.core.ssl import SSLContextBuilder
 from responder3.core.commons import LogEntry, ConnectionStatus, ConnectionFactory, get_platform, ConnectionClosed, ConnectionOpened
 from responder3.core.sockets import setup_base_socket
+from responder3.core.logtask import *
 
 class ConnectionTask:
 	def __init__(self, connection):
@@ -22,6 +23,8 @@ class ConnectionTask:
 
 class Responder3ServerTask:
 	def __init__(self, log_queue = None, reverse_domain_table=None, server_command_queue=None, loop=None, rdns_resolver = None):
+		self.logger = Logger('Responder3ServerTask', logQ = log_queue)
+		self.shutdown_evt = asyncio.Event()
 		self.loop = loop if loop is not None else asyncio.get_event_loop()
 		self.log_queue = log_queue if log_queue is not None else asyncio.Queue()
 		self.reverse_domain_table = reverse_domain_table if reverse_domain_table is not None else {}
@@ -39,6 +42,7 @@ class Responder3ServerTask:
 		self.connection_factory = ConnectionFactory(self.reverse_domain_table, self.rdns_resolver)
 		self.udpserver = None
 
+	@r3exception
 	async def accept_client(self, client_reader, client_writer):
 		"""
 		Handles incoming connection.
@@ -52,35 +56,30 @@ class Responder3ServerTask:
 		:type client_writer: asyncio.StreamWriter
 		:return: None
 		"""
+		connection = await self.connection_factory.from_streamwriter(client_writer)
+		await self.logger.log_connection(connection, ConnectionStatus.OPENED)
+		ct = ConnectionTask(connection)
+		ct.handler = self.server_handler(
+			(client_reader, client_writer),
+			self.server_handler_session(connection, self.log_queue),
+			self,
+			self.server_handler_global_session,
+			self.loop
+		)
+		ct.started_at = datetime.datetime.utcnow()
+		await self.logger.debug('Starting server task!')
+		self.connections[ct] = 1
+
+		await ct.handler.run()
+		await self.logger.log_connection(ct.connection, ConnectionStatus.CLOSED)
+
 		try:
-			connection = await self.connection_factory.from_streamwriter(client_writer)
-			self.log_connection(connection, ConnectionStatus.OPENED)
-			ct = ConnectionTask(connection)
-			ct.handler = self.server_handler(
-				(client_reader, client_writer),
-				self.server_handler_session(connection, self.log_queue),
-				self,
-				self.server_handler_global_session,
-				self.loop
-			)
-			ct.handler.coro = ct.handler.run()
-			task = self.loop.create_task(ct.handler.coro)
-			ct.started_at = datetime.datetime.utcnow()
+			ct.connection.writer.close()
+		except Exception as e:
+			#if we cannot close the socket then be it
+			pass
 
-			self.log('Starting server task!', logging.DEBUG)
-			self.connections[task] = ct
-
-			def client_done(task):
-				try:
-					self.log_connection(ct.connection, ConnectionStatus.CLOSED)
-					ct.connection.writer.close()
-					del self.connections[task]
-				except Exception as e:
-					print(str(e))
-
-			task.add_done_callback(client_done)
-		except Exception:
-			self.log_exception()
+		del self.connections[ct]
 
 	@staticmethod
 	def import_template(template_name):
@@ -101,7 +100,8 @@ class Responder3ServerTask:
 
 		return servermodule
 
-	def create_server_coro(self, server_task_config):
+	@r3exception
+	async def create_server(self, server_task_config):
 		self.server_config = server_task_config
 
 		if 'listener_socket_config' in server_task_config and server_task_config['listener_socket_config'] is not None:
@@ -133,6 +133,9 @@ class Responder3ServerTask:
 		if self.listener_socket_ssl_context is not None:
 			self.server_name += '-SSL'
 
+		#replacing logger with a new one that has the name now
+		self.logger = Logger(self.server_name, logQ = self.log_queue)
+
 		self.server_coro = None
 
 		if self.listener_socket_config.bind_protocol == socket.SOCK_STREAM:
@@ -143,7 +146,7 @@ class Responder3ServerTask:
 			else:
 				sock = setup_base_socket(self.listener_socket_config)
 
-			self.server_coro = asyncio.start_server(self.accept_client, sock=sock, ssl=self.listener_socket_ssl_context)
+			self.server_coro = await asyncio.start_server(self.accept_client, sock=sock, ssl=self.listener_socket_ssl_context)
 
 		elif self.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
 			udpserver_obj = getattr(importlib.import_module('responder3.core.udpwrapper'), 'UDPServer')
@@ -159,59 +162,3 @@ class Responder3ServerTask:
 			raise Exception('Unknown protocol type!')
 
 		return self.server_coro
-
-	def log_exception(self, message=None):
-		"""
-		Custom exception handler to log exceptions via the logging interface
-		:param message: Extra message for the exception if any
-		:type message: str
-		:return: None
-		"""
-		sio = io.StringIO()
-		ei = sys.exc_info()
-		tb = ei[2]
-		traceback.print_exception(ei[0], ei[1], tb, None, sio)
-		msg = sio.getvalue()
-		if msg[-1] == '\n':
-			msg = msg[:-1]
-		sio.close()
-		if message is not None:
-			msg = message + msg
-		self.log(msg, level=logging.ERROR)
-
-	async def aio_log(self, logentry):
-		await self.log_queue.put(logentry)
-
-	def log(self, message, level=logging.INFO):
-		"""
-		Sends the log messages onto the logqueue. If no logqueue is present then prints them out on console.
-		:param message: The message to be sent
-		:type message: str
-		:param level: Log level
-		:type level: int
-		:return: None
-		"""
-
-		if self.log_queue is not None:
-			self.loop.create_task(self.aio_log(LogEntry(level, self.server_name, message)))
-		else:
-			print(str(LogEntry(level, self.server_name, message)))
-			
-	def log_connection(self, connection, status):
-		"""
-		Logs incoming connection
-		:param connection: The Connection object to log
-		:type connection: Connection
-		:param status: Connection status
-		:type: ConnectionStatus
-		:return: None
-		"""
-		if status == ConnectionStatus.OPENED or status == ConnectionStatus.STATELESS:
-			self.log('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
-			co = ConnectionOpened(connection)
-			self.loop.create_task(self.aio_log(co))
-			
-		elif status == ConnectionStatus.CLOSED:
-			self.log('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
-			cc = ConnectionClosed(connection)
-			self.loop.create_task(self.aio_log(cc))
