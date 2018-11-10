@@ -19,10 +19,19 @@ logsettings = {
 					'class': 'logging.StreamHandler',
 					'level': 'DEBUG',
 				},
+				'file': {
+					'class': 'logging.handlers.RotatingFileHandler',
+					'level': 'DEBUG',
+					'formatter': 'detailed',
+					'filename': 'coffeelog.txt',
+					'mode': 'a',
+					'maxBytes': 0,
+					'backupCount': 0,
+				},
 		},
 		'root'      : {
 			'level'   : 'DEBUG',
-			'handlers': ['console']
+			'handlers': ['console', 'file']
 		}
 	}
 }
