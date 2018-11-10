@@ -697,8 +697,49 @@ class SMTPAuthStatus(enum.Enum):
 
 
 class SMTPAuthMethod(enum.Enum):
+	LOGIN = enum.auto()
 	PLAIN = enum.auto()
 	CRAM_MD5 = enum.auto()
+
+# http://www.samlogic.net/articles/smtp-commands-reference-auth.htm
+class SMTPLOGINAuth:
+	def __init__(self, creds):
+		self.creds = creds
+		self.username = None
+		self.password = None
+
+	def update_creds(self, cmd):
+		if not self.username:
+			if cmd.data is not None:
+				authdata = b64decode(cmd.data)
+				self.username = authdata.decode()
+				return SMTPAuthStatus.MORE_DATA_NEEDED, 'UGFzc3dvcmQ6'
+			else:
+				raise Exception('No data for username!')
+
+		else:
+			if cmd.data is not None:
+				authdata = b64decode(cmd.data)
+				self.password = authdata.decode()
+				return self.verify_creds()
+
+			else:
+				raise Exception('No data for username!')
+
+
+	def verify_creds(self):
+		c = SMTPPlainCred(self.username, self.password)
+		if self.creds is None:
+			return SMTPAuthStatus.OK, c.toCredential()
+		else:
+			if c.username in self.creds:
+				if self.creds[c.username] == c.password:
+					return SMTPAuthStatus.OK, c.toCredential()
+
+			else:
+				return SMTPAuthStatus.NO, c.toCredential()
+
+		return SMTPAuthStatus.NO, c.toCredential()
 
 
 class SMTPPlainAuth:
@@ -761,6 +802,8 @@ class SMTPAuthHandler:
 			self.authahndler = SMTPPlainAuth(creds)
 		elif authtype == SMTPAuthMethod.CRAM_MD5:
 			self.authahndler = SMTPCRAM_MD5Auth(creds, salt)
+		elif authtype == SMTPAuthMethod.LOGIN:
+			self.authahndler = SMTPLOGINAuth(creds)
 		else:
 			raise NotImplementedError
 

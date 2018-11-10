@@ -108,20 +108,20 @@ class POP3(ResponderServer):
 								self.session.current_state = POP3State.TRANSACTION
 								continue
 					else:
-						raise Exception('Wrong POP3 command received for AUTHORIZATION state!')
+						raise Exception('Wrong POP3 command received for AUTHORIZATION state! Command: %s' % cmd.command)
 
 				elif self.session.current_state == POP3State.TRANSACTION:
 					if cmd.command in POP3TransactionStateCommands:
 						raise NotImplementedError
 					else:
-						raise Exception('Wrong POP3 command received for TRANSACTION state!')
+						raise Exception('Wrong POP3 command received for TRANSACTION state!Command: %s' % cmd.command)
 
 				elif self.session.current_state == POP3State.UPDATE:
 					if cmd.command in POP3UpdateStateCommands:
 						# be careful QUIT has a different meaning here!
 						raise NotImplementedError
 					else:
-						raise Exception('Wrong POP3 command received for UPDATE state!')
+						raise Exception('Wrong POP3 command received for UPDATE state! Command: %s' % cmd.command)
 
 		except Exception as e:
 			await self.log_exception()

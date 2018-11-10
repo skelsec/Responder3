@@ -10,13 +10,13 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 class SMTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
-		self.creds = None # {'alma':'alma2'}
+		self.creds = {} # {'alma':'alma2'}
 		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
 		self.encoding = 'utf8'  # THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
 		self.parser = SMTPCommandParser(encoding=self.encoding)
 		self.emailparser = email.parser.Parser()
 		self.current_state = SMTPServerState.START
-		self.supported_auth_types = [SMTPAuthMethod.PLAIN, SMTPAuthMethod.CRAM_MD5]
+		self.supported_auth_types = [SMTPAuthMethod.LOGIN, SMTPAuthMethod.PLAIN, SMTPAuthMethod.CRAM_MD5]
 		self.authhandler = None
 		self.emailFrom = ''
 		self.emailTo = []
@@ -141,11 +141,18 @@ class SMTP(ResponderServer):
 									self.send_data(SMTPReply.construct(334).to_bytes()),
 									timeout=1)
 								continue
+
+						elif cmd.mechanism == 'LOGIN':
+							self.session.authhandler = SMTPAuthHandler(SMTPAuthMethod.LOGIN, self.session.creds)
+							await asyncio.wait_for(
+									self.send_data(SMTPReply.construct(334, 'VXNlcm5hbWU6').to_bytes()),
+									timeout=1)
+							continue
 						else:
 							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(535).to_bytes()),
 								timeout=1)
-							raise Exception('Not supported auth mechanism, client ried to use %s' % cmd.mechanism)
+							raise Exception('Not supported auth mechanism, client tried to use %s' % cmd.mechanism)
 					else:
 						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(503).to_bytes()),
@@ -158,26 +165,29 @@ class SMTP(ResponderServer):
 					here we expect to have non-smtp conform messages (without command code)
 					"""
 					if cmd.command == SMTPCommand.XXXX:
-						res, cred = self.session.authhandler.do_AUTH(cmd)
-						if cred is not None:
-							await self.log_credential(cred)
-						if res == SMTPAuthStatus.MORE_DATA_NEEDED:
+						res, res_data = self.session.authhandler.do_AUTH(cmd)
+						if res in [SMTPAuthStatus.OK, SMTPAuthStatus.NO]:
+							if res_data is not None:
+								await self.log_credential(res_data)
+								
+						if res == SMTPAuthStatus.OK:
+							self.session.current_state = SMTPServerState.AUTHENTICATED
 							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(334).to_bytes()),
+								self.send_data(SMTPReply.construct(235).to_bytes()),
 								timeout=1)
 							continue
-						else:
-							if res == SMTPAuthStatus.OK:
-								self.session.current_state = SMTPServerState.AUTHENTICATED
-								await asyncio.wait_for(
-									self.send_data(SMTPReply.construct(235).to_bytes()),
-									timeout=1)
-								continue
-							else:
-								await asyncio.wait_for(
-									self.send_data(SMTPReply.construct(535).to_bytes()),
-									timeout=1)
-								return
+
+						if res == SMTPAuthStatus.MORE_DATA_NEEDED:
+							await asyncio.wait_for(
+								self.send_data(SMTPReply.construct(334, res_data).to_bytes()),
+								timeout=1)
+							continue
+						
+						if res == SMTPAuthStatus.NO:
+							await asyncio.wait_for(
+								self.send_data(SMTPReply.construct(535).to_bytes()),
+								timeout=1)
+							return
 
 				# should be checking which commands are allowed in this state...
 				elif self.session.current_state == SMTPServerState.AUTHENTICATED:
