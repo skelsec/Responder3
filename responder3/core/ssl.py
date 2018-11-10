@@ -49,6 +49,7 @@ class SSLContextBuilder:
 	def load_certificates(context, sslsettings):
 		#or 'certfile' in sslsettings or 'certdata' in sslsettings:
 		if 'certfile' in sslsettings:
+			print('loading certfile!')
 			context.load_cert_chain(
 				certfile=sslsettings['certfile'],
 				keyfile=sslsettings['keyfile']
@@ -111,6 +112,7 @@ class SSLContextBuilder:
 
 		:TODO: if python devs come up with a way to load certificates/key from string rather than from a file then rewrite the certdata part
 		"""
+		print(sslsettings)
 		protocol = ssl.PROTOCOL_SSLv23
 		options = []
 		verify_mode = ssl.CERT_NONE
@@ -160,10 +162,12 @@ class SSLContextBuilder:
 			context.check_hostname = check_hostname
 
 		# server_side>you need certs, if you are a client, you might need certs
-		if server_side:
+		if server_side == True:
+			print('aaaaaaaaaa')
 			SSLContextBuilder.load_certificates(context, sslsettings)
 		
 		else:
+			print(verify_mode)
 			if verify_mode != ssl.CERT_NONE:
 				SSLContextBuilder.load_certificates(context, sslsettings)
 				SSLContextBuilder.load_ca_certs(context, sslsettings)

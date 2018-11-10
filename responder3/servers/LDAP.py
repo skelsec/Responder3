@@ -63,6 +63,9 @@ class LDAP(ResponderServer):
 		try:
 			while True:
 				msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
+				if not msg:
+					return
+					
 				req = msg.native
 				
 				if self.session.is_authed == False:

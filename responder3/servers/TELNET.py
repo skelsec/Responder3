@@ -59,6 +59,8 @@ class TELNET(ResponderServer):
 			#await self.send_data(b'\x00')
 			while not self.creader.at_eof():
 				data = await self.parse_message()
+				if not data:
+					return
 				if isinstance(data, bytes):
 					#extended options list, not handled bc it's a dumb server
 					if self.banner:

@@ -145,6 +145,9 @@ class SOCKS5(ResponderServer):
 		try:
 			while True:
 				msg = await asyncio.wait_for(self.parse_message(), timeout = 1)
+				if not msg:
+					return
+					
 				if self.session.current_state == SOCKS5ServerState.NEGOTIATION:
 					mutual, mutual_idx = get_mutual_preference(self.session.supported_auth_types,msg.METHODS)
 					if mutual is None:

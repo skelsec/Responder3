@@ -58,6 +58,8 @@ class VNC(ResponderServer):
 					
 			while True:
 				msg = await self.parse_message()
+				if not msg:
+					return
 					
 				if self.session.status == VNCSessionStatus.SECURITY:
 					if isinstance(msg, SecurityHandshakeResponse):
