@@ -145,7 +145,7 @@ class SMTP(ResponderServer):
 							await asyncio.wait_for(
 								self.send_data(SMTPReply.construct(535).to_bytes()),
 								timeout=1)
-							raise Exception('Not supported auth mechanism')
+							raise Exception('Not supported auth mechanism, client ried to use %s' % cmd.mechanism)
 					else:
 						await asyncio.wait_for(
 							self.send_data(SMTPReply.construct(503).to_bytes()),
