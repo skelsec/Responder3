@@ -156,7 +156,8 @@ class Responder3ServerTask:
 				sock = self.server_handler.custom_socket(self.listener_socket_config)
 
 			udpserver = udpserver_obj(self.accept_client, self.listener_socket_config, sock=sock)
-			self.server_coro = udpserver.run()
+			#self.server_coro = udpserver.run()
+			self.server_coro = udpserver
 
 		else:
 			raise Exception('Unknown protocol type!')

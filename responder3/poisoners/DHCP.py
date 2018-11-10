@@ -83,7 +83,7 @@ class DHCPGlobalSession(ResponderServerGlobalSession):
 		
 		else:
 			if 'mode' in self.settings:
-				self.poisonermode = self.settings['mode']
+				self.poisonermode = PoisonerMode(self.settings['mode'].upper())
 			if 'subnetmask' in self.settings:
 				self.subnetmask = self.settings['subnetmask']
 			if 'leasetime' in self.settings:
@@ -134,11 +134,14 @@ class DHCP(ResponderServer):
 		try:
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
-				print(msg.dhcpmessagetype)
-				#we only will see ACKs broadcasted from server to client
+				#print(msg.dhcpmessagetype)
+				for opt in msg.options:
+						if isinstance(opt, DHCPOptHOSTNAME) == True:
+							await self.log('DHCP device hostname: %s' % opt.hostname)
+
 				if msg.dhcpmessagetype == DHCPOptMessageType.DHCPACK:
 					result = DHCPResult.from_dhcpmessage(msg)
-					print(str(result))
+					await self.log(str(result))
 					return
 
 			else:

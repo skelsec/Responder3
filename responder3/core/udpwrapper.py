@@ -189,7 +189,7 @@ class UDPServer:
 		if loop is None:
 			self._loop = asyncio.get_event_loop()
 
-	async def main(self):
+	async def serve_forever(self):
 		if self._socket is None:
 			self._socket = setup_base_socket(self.listener_socket_config)
 		while True:
@@ -203,4 +203,4 @@ class UDPServer:
 		Main function. Create the reader and writer objects and calls the callback function.
 		:return: None
 		"""
-		return await self.main()
+		return await self.serve_forever()

@@ -489,7 +489,7 @@ class PoisonResult:
 		cc.request_type = d['request_type']
 		cc.poison_name = d['poison_name']
 		cc.poison_addr = d['poison_addr']
-		cc.mode = PoisonerMode(d['module'])
+		cc.mode = PoisonerMode(d['mode'])
 		
 		return cc
 		
@@ -550,8 +550,8 @@ class PoisonerMode(enum.Enum):
 	"""
 	Enum to specify the posioner module's mode of operation
 	"""
-	SPOOF = enum.auto()
-	ANALYSE = enum.auto()
+	SPOOF = 'SPOOF'
+	ANALYSE = 'ANALYSE'
 
 
 class ServerFunctionality(enum.Enum):

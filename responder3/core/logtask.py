@@ -394,7 +394,6 @@ class Logger:
 		await self.logQ.put(LogEntry(logging.DEBUG, self.name, msg))
 		
 	async def info(self, msg):
-		print('debug info')
 		await self.logQ.put(LogEntry(logging.INFO, self.name, msg))
 	
 	async def exception(self, message = None):
