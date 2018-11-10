@@ -121,6 +121,7 @@ class Responder3ManagerServer:
 		
 	@r3exception
 	async def client_handler(self, ws, path):
+		await self.logger.debug('Manager Client connected from %s' % ('%s:%d' % ws.remote_address, ))
 		################################################################################
 		#!!!! If you see an error here, websockets library might have changed
 		#By default the library doesnt offer high-level api to grab the client certificate
