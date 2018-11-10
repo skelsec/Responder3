@@ -104,7 +104,8 @@ class SSLContextBuilder:
 			context.check_hostname = check_hostname
 
 		# server_side>you need certs, if you are a client, you might need certs
-		if server_side or 'certfile' in sslsettings or 'certdata' in sslsettings:
+		if server_side:
+			#or 'certfile' in sslsettings or 'certdata' in sslsettings:
 			if 'certfile' in sslsettings:
 				context.load_cert_chain(
 					certfile=sslsettings['certfile'],
@@ -134,47 +135,49 @@ class SSLContextBuilder:
 						certfile=certfile_path,
 						keyfile=keyfile_path
 					)
-		if verify_mode != ssl.CERT_NONE:
-			if 'cafile' in sslsettings:
-				context.load_verify_locations(sslsettings['cafile'])
-			elif 'cadata' in sslsettings:
-				with tempfile.TemporaryDirectory() as td:
-					random_suffix = os.urandom(8).hex()
-					cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
-					cafile_path = str(Path(td, cafile))
-					print(certfile_path)
-					
-					with open(certfile_path, 'w') as f:
-						f.write(sslsettings['cadata'])
-						f.flush()
-						os.fsync(f.fileno())
-						
-					context.load_verify_locations(
-						certfile_path
-					)
-			
-			else:
-				raise Exception('Verify mode of %s needs "cafile " or "cadata" to be set in the settings!' % verify_mode)
 		
 		else:
-			if 'cafile' in sslsettings:
-				context.load_verify_locations(sslsettings['cafile'])
-		
-			if 'cadata' in sslsettings:
-				with tempfile.TemporaryDirectory() as td:
-					random_suffix = os.urandom(8).hex()
-					cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
-					cafile_path = str(Path(td, cafile))
-					print(certfile_path)
-					
-					with open(certfile_path, 'w') as f:
-						f.write(sslsettings['cadata'])
-						f.flush()
-						os.fsync(f.fileno())
+			if verify_mode != ssl.CERT_NONE:
+				if 'cafile' in sslsettings:
+					context.load_verify_locations(sslsettings['cafile'])
+				elif 'cadata' in sslsettings:
+					with tempfile.TemporaryDirectory() as td:
+						random_suffix = os.urandom(8).hex()
+						cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
+						cafile_path = str(Path(td, cafile))
+						print(certfile_path)
 						
-					context.load_verify_locations(
-						certfile_path
-					)
+						with open(certfile_path, 'w') as f:
+							f.write(sslsettings['cadata'])
+							f.flush()
+							os.fsync(f.fileno())
+							
+						context.load_verify_locations(
+							certfile_path
+						)
+				
+				else:
+					raise Exception('Verify mode of %s needs "cafile " or "cadata" to be set in the settings!' % verify_mode)
+		
+			else:
+				if 'cafile' in sslsettings:
+					context.load_verify_locations(sslsettings['cafile'])
+			
+				if 'cadata' in sslsettings:
+					with tempfile.TemporaryDirectory() as td:
+						random_suffix = os.urandom(8).hex()
+						cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
+						cafile_path = str(Path(td, cafile))
+						print(certfile_path)
+						
+						with open(certfile_path, 'w') as f:
+							f.write(sslsettings['cadata'])
+							f.flush()
+							os.fsync(f.fileno())
+							
+						context.load_verify_locations(
+							certfile_path
+						)
 
 		#context.protocol = 0
 		context.options = 0
