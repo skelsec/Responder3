@@ -134,7 +134,7 @@ class SSLContextBuilder:
 						certfile=certfile_path,
 						keyfile=keyfile_path
 					)
-		elif verify_mode != ssl.CERT_NONE:
+		if verify_mode != ssl.CERT_NONE:
 			if 'cafile' in sslsettings:
 				context.load_verify_locations(sslsettings['cafile'])
 			elif 'cadata' in sslsettings:
@@ -156,9 +156,11 @@ class SSLContextBuilder:
 			else:
 				raise Exception('Verify mode of %s needs "cafile " or "cadata" to be set in the settings!' % verify_mode)
 		
-		elif 'cafile' in sslsettings:
-			context.load_verify_locations(sslsettings['cafile'])
-		elif 'cadata' in sslsettings:
+		else:
+			if 'cafile' in sslsettings:
+				context.load_verify_locations(sslsettings['cafile'])
+		
+			if 'cadata' in sslsettings:
 				with tempfile.TemporaryDirectory() as td:
 					random_suffix = os.urandom(8).hex()
 					cafile = '%s%s%s' % ('cert', random_suffix, '.crt')
