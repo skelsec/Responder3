@@ -269,17 +269,20 @@ class LogProcessor:
 		Deserializes remote log object and creates a local log object,
 		then inserts the new object back to the logqueue
 		"""
-		if isinstance(remotelog, RemoteLog):
-			if isinstance(remotelog.log_obj, LogEntry):
-				self.logger.log(remotelog.log_obj.level, '[%s]%s' % ('REMOTE',str(remotelog)))
-			elif isinstance(remotelog.log_obj, TrafficLog):
-				for line in remotelog.log_obj.get_loglines():
-					self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',line))
+		try:
+			if isinstance(remotelog, RemoteLog):
+				if isinstance(remotelog.log_obj, LogEntry):
+					self.logger.log(remotelog.log_obj.level, '[%s]%s' % ('REMOTE',str(remotelog)))
+				elif isinstance(remotelog.log_obj, TrafficLog):
+					for line in remotelog.log_obj.get_loglines():
+						self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',line))
 
+				else:
+					self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',str(remotelog)))
 			else:
-				self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',str(remotelog)))
-		else:
-			await self.log_queue.put(RemoteLog(remotelog))
+				await self.log_queue.put(RemoteLog(remotelog))
+		except Exception as e:
+			self.log_exception('handle_remote_log')
 		
 	# this function is a duplicate, clean it up!
 	async def log_exception(self, message=None):
