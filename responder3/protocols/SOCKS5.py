@@ -9,6 +9,7 @@ import socket
 import asyncio
 
 from responder3.core.asyncio_helpers import *
+from responder3.core.logging.log_objects import *
 
 
 class SOCKS5ServerMode(enum.Enum):
@@ -146,14 +147,14 @@ class SOCKS5PlainCredentials:
 		self.password = password
 
 
-	def toCredential(self):
-		res = {
-			'type'     : 'PLAIN', 
-			'user'     : self.username,
-			'cleartext': self.password,
-			'fullhash' : '%s:%s' % (self.username, self.password)
-		}
-		return res
+	def to_credential(self):
+		cred = Credential(
+			'PLAIN',
+			username = self.username,
+			password = self.password,
+			fullhash = '%s:%s' % (self.username, self.password)
+		)
+		return cred
 
 
 class SOCKS5PlainAuth:

@@ -4,6 +4,7 @@ import enum
 import io
 
 from responder3.core.commons import *
+from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
 
 class VNCSessionStatus:

@@ -4,7 +4,8 @@ import io
 import enum
 import asyncio
 
-from responder3.core.commons import read_element, Credential
+from responder3.core.commons import read_element
+from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
 
 class IMAPVersion(enum.Enum):
@@ -221,7 +222,7 @@ class IMAPCAPABILITYResp:
 		for cap in additional_capabilities:
 			resp.capabilities.append(cap.name)
 		for auth in supported_auth_types:
-			resp.capabilities.append('AUTH=%s' % auth)
+			resp.capabilities.append('AUTH=%s' % auth.name)
 
 		return resp
 
@@ -394,7 +395,7 @@ class IMAPLOGINCmd:
 		t, bbuff = read_element(bbuff)
 		cmd.command = IMAPCommand[t]
 		cmd.username, bbuff = read_element(bbuff)
-		cmd.password = bbuff[1:-1]
+		cmd.password = bbuff
 		return cmd
 
 	@staticmethod

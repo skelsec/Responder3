@@ -13,6 +13,7 @@ import enum
 import os
 
 from responder3.core.commons import *
+from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
 
 TAG = 'explicit'
@@ -21,6 +22,21 @@ TAG = 'explicit'
 UNIVERSAL = 0
 APPLICATION = 1
 CONTEXT = 2
+
+class scope(core.Enumerated):
+	_map = {
+		0 : 'baseObject',
+		1 : 'singleLevel',
+		2 : 'wholeSubtree',
+	}
+
+class derefAliases(core.Enumerated):
+	_map = {
+		0 : 'neverDerefAliases',
+		1 : 'derefInSearching',
+		2 : 'derefFindingBaseObj',
+		3 : 'derefAlways',
+	}
 
 class resultCode(core.Enumerated):
 	_map = {
@@ -131,12 +147,137 @@ class BindResponse(core.Sequence):
 		('serverSaslCreds', core.OctetString, {'optional': True}),
 	]
 
+class AttributeDescription(LDAPString):
+	pass
+
+class AttributeValue(core.OctetString):
+	pass
+
+
+class MatchingRuleId(LDAPString):
+	pass
+
+class AssertionValue(core.OctetString):
+	pass
+
+class AttributeValueAssertion(core.Sequence):
+	_fields = [
+		('attributeDesc', AttributeDescription),
+		('assertionValue', AssertionValue),
+	]
+
+class SubString(core.Choice):
+	_alternatives = [
+		('initial', AssertionValue, {'implicit': (APPLICATION , 0) }  ),
+		('any', AssertionValue, {'implicit': (APPLICATION , 1) }  ),
+		('final', AssertionValue, {'implicit': (APPLICATION , 2) }  ),
+	]
+
+
+class SubstringFilter(core.Sequence):
+	_fields = [
+		('type', AttributeDescription),
+		('substrings', AssertionValue),
+	]
+
+class MatchingRuleAssertion(core.Sequence):
+	_fields = [
+		('matchingRule', MatchingRuleId, {'implicit': (APPLICATION, 1), 'optional' : True}  ),
+		('type', AttributeDescription, {'implicit': (APPLICATION, 2), 'optional' : True}  ),
+		('matchValue', AssertionValue, {'implicit': (APPLICATION, 3), 'optional' : False}  ),
+		('dnAttributes', core.Boolean, {'implicit': (APPLICATION, 4), 'optional' : False}  ),
+	]
+
+
+
+class Filter(core.Choice):
+	_alternatives = [
+		#('and', Filters, {'implicit': (CONTEXT , 0) }  ),
+		#('or', Filters, {'implicit': (CONTEXT , 1) }  ),
+		#('not', Filter, {'implicit': (CONTEXT , 2) }  ),
+		('equalityMatch', AttributeValueAssertion, {'implicit': (CONTEXT , 3) }  ),
+		('substrings', SubstringFilter, {'implicit': (CONTEXT , 4) }  ),
+		('greaterOrEqual', AttributeValueAssertion, {'implicit': (CONTEXT , 5) }  ),
+		('lessOrEqual', AttributeValueAssertion, {'implicit': (CONTEXT , 6) }  ),
+		('present', AttributeDescription, {'implicit': (CONTEXT , 7) }  ),
+		('approxMatch', AttributeValueAssertion, {'implicit': (CONTEXT , 8) }  ),
+		('extensibleMatch', MatchingRuleAssertion, {'implicit': (CONTEXT , 9) }  ),
+
+	]
+class Filters(core.SequenceOf):
+	_child_spec = Filter
+
+class AttributeSelection(core.SequenceOf):
+	_child_spec = LDAPString
+
+class SearchRequest(core.Sequence):
+	_fields = [
+		('baseObject', LDAPDN),
+		('scope', scope),
+		('derefAliases', derefAliases),
+		('sizeLimit', core.Integer),
+		('timeLimit', core.Integer),
+		('typesOnly', core.Boolean),
+		('filter', Filter),
+		('attributes', AttributeSelection),
+	]
+"""
+SearchRequest ::= [APPLICATION 3] SEQUENCE {
+             baseObject      LDAPDN,
+             scope           ENUMERATED {
+                  baseObject              (0),
+                  singleLevel             (1),
+                  wholeSubtree            (2),
+                  ...  },
+             derefAliases    ENUMERATED {
+                  neverDerefAliases       (0),
+                  derefInSearching        (1),
+                  derefFindingBaseObj     (2),
+                  derefAlways             (3) },
+             sizeLimit       INTEGER (0 ..  maxInt),
+             timeLimit       INTEGER (0 ..  maxInt),
+             typesOnly       BOOLEAN,
+             filter          Filter,
+             attributes      AttributeSelection }
+
+        AttributeSelection ::= SEQUENCE OF selector LDAPString
+                        -- The LDAPString is constrained to
+                        -- <attributeSelector> in Section 4.5.1.8
+
+        Filter ::= CHOICE {
+             and             [0] SET SIZE (1..MAX) OF filter Filter,
+             or              [1] SET SIZE (1..MAX) OF filter Filter,
+             not             [2] Filter,
+             equalityMatch   [3] AttributeValueAssertion,
+             substrings      [4] SubstringFilter,
+             greaterOrEqual  [5] AttributeValueAssertion,
+             lessOrEqual     [6] AttributeValueAssertion,
+             present         [7] AttributeDescription,
+             approxMatch     [8] AttributeValueAssertion,
+             extensibleMatch [9] MatchingRuleAssertion,
+             ...  }
+
+        SubstringFilter ::= SEQUENCE {
+             type           AttributeDescription,
+             substrings     SEQUENCE SIZE (1..MAX) OF substring CHOICE {
+                  initial [0] AssertionValue,  -- can occur at most once
+                  any     [1] AssertionValue,
+                  final   [2] AssertionValue } -- can occur at most once
+             }
+
+        MatchingRuleAssertion ::= SEQUENCE {
+             matchingRule    [1] MatchingRuleId OPTIONAL,
+             type            [2] AttributeDescription OPTIONAL,
+             matchValue      [3] AssertionValue,
+             dnAttributes    [4] BOOLEAN DEFAULT FALSE }
+"""
+
 class protocolOp(core.Choice):
 	_alternatives = [
 		('bindRequest', BindRequest, {'implicit': (APPLICATION , 0) }  ),
 		('bindResponse', BindResponse, {'implicit': (APPLICATION , 1) }  ),
-		#('unbindRequest', UnbindRequest, {'implicit': (APPLICATION,0) }  ),
-		#('searchRequest', SearchRequest, {'implicit': (APPLICATION,0) }  ),
+		#('unbindRequest', UnbindRequest, {'implicit': (APPLICATION,2) }  ),
+		('searchRequest', SearchRequest, {'implicit': (APPLICATION,3) }  ),
 		#('searchResEntry', searchResEntry, {'implicit': (APPLICATION,0) }  ),
 		#('searchResDone', SearchResultDone, {'implicit': (APPLICATION,0) }  ),
 		#('searchResRef', SearchResultReference, {'implicit': (APPLICATION,0) }  ),

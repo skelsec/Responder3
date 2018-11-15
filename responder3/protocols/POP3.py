@@ -3,7 +3,8 @@ import hashlib
 import io
 import enum
 import asyncio
-from responder3.core.commons import read_element, Credential
+from responder3.core.commons import read_element
+from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
 
 

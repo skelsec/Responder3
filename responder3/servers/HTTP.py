@@ -3,6 +3,8 @@ import logging
 import asyncio
 from urllib.parse import urlparse
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.HTTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
@@ -10,14 +12,14 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 class HTTPProxy:
 	def __init__(self):
 		pass
-
-
+		
 class HTTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.server_mode = HTTPServerMode.CREDSTEALER
 		self.current_state = HTTPState.UNAUTHENTICATED
 		self.log_data = False
+		self.parser = HTTPRequest
 
 		self.http_version = HTTPVersion.HTTP11
 		self.http_content_encoding = HTTPContentEncoding.IDENTITY
@@ -48,7 +50,6 @@ class HTTPSession(ResponderServerSession):
 
 class HTTP(ResponderServer):
 	def init(self):
-		self.parser = HTTPRequest
 		self.parse_settings()
 
 	def parse_settings(self):
@@ -80,7 +81,7 @@ class HTTP(ResponderServer):
 
 	async def parse_message(self, timeout = None):
 		try:
-			req = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout = timeout)
+			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = timeout)
 			return req
 		except asyncio.TimeoutError:
 			await self.log('Timeout!', logging.DEBUG)
@@ -137,7 +138,7 @@ class HTTP(ResponderServer):
 				try:
 					remote_reader, remote_writer = await asyncio.wait_for(asyncio.open_connection(host=rhost, port=int(rport)), timeout=1)
 				except Exception as e:
-					await self.log_exception('Failed to create remote connection to %s:%s!' % (rhost, rport))
+					await self.logger.exception('Failed to create remote connection to %s:%s!' % (rhost, rport))
 					return
 
 				# indicating to the client that TCP socket has opened towards the remote host
@@ -191,7 +192,7 @@ class HTTP(ResponderServer):
 				try:
 					remote_reader, remote_writer = await asyncio.wait_for(asyncio.open_connection(host=rhost, port=int(rport)), timeout=1)
 				except Exception as e:
-					await self.log_exception()
+					await self.logger.exception()
 					return
 					
 
@@ -217,43 +218,38 @@ class HTTP(ResponderServer):
 					self.cwriter.close()
 					return
 
+	@r3trafficlogexception				
 	async def run(self):
-		try:
-			while not self.session.close_session.is_set():
-				req = await asyncio.wait_for(self.parse_message(), timeout = None)
-				if req is None:
-					# connection closed exception happened in the parsing
-					self.session.close_session.set()
-					return
+		while not self.shutdown_evt.is_set() or not self.session.close_session.is_set():
+			try:
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
+			except asyncio.CancelledError as e:
+				raise e
+			if isinstance(result[0], R3ConnectionClosed):
+				return
+			elif isinstance(result[0], Exception):
+				raise result[0]
+			else:
+				req = result[0]
 
-				if 'R3DEEPDEBUG' in os.environ:
-					await self.log(req, logging.DEBUG)
-					await self.log(repr(self.session), logging.DEBUG)
-
-				if self.session.log_data:
-					pass
+			if 'R3DEEPDEBUG' in os.environ:
+				await self.logger.debug(req)
+				await self.logger.debug(repr(self.session))
 				
-				if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.http_auth_mecha is None:
-					self.session.current_state = HTTPState.AUTHENTICATED
-				
-				if self.session.current_state == HTTPState.UNAUTHENTICATED:
-					await self.session.http_auth_mecha.do_AUTH(req, self)
+			if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.http_auth_mecha is None:
+				self.session.current_state = HTTPState.AUTHENTICATED
+			
+			if self.session.current_state == HTTPState.UNAUTHENTICATED:
+				await self.session.http_auth_mecha.do_AUTH(req, self)
 
-				if self.session.current_state == HTTPState.AUTHFAILED:
-					await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').to_bytes()), timeout = 1)
-					self.cwriter.close()
+			if self.session.current_state == HTTPState.AUTHFAILED:
+				await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').to_bytes()), timeout = 1)
+				self.cwriter.close()
+				return
+
+			if self.session.current_state == HTTPState.AUTHENTICATED:
+				if self.session.server_mode == HTTPServerMode.PROXY:
+					a = await asyncio.wait_for(self.httpproxy(req), timeout = None)
+				else:
+					await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
 					return
-
-				if 'R3DEEPDEBUG' in os.environ:
-					await self.log(req, logging.DEBUG)
-					await self.log(repr(self.session), logging.DEBUG)
-
-				if self.session.current_state == HTTPState.AUTHENTICATED:
-					if self.session.server_mode == HTTPServerMode.PROXY:
-						a = await asyncio.wait_for(self.httpproxy(req), timeout = None)
-					else:
-						await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
-						return
-
-		except Exception as e:
-			await self.log_exception()

@@ -4,7 +4,8 @@ import enum
 import asyncio
 import traceback
 
-from responder3.core.commons import read_element, Credential
+from responder3.core.logging.log_objects import Credential
+from responder3.core.commons import read_element
 from responder3.core.asyncio_helpers import *
 
 class FTPState(enum.Enum):

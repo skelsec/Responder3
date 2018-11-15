@@ -1,25 +1,49 @@
 import sys
 import socket
 import copy
-import io
-import logging
 import importlib
 import importlib.util
 import asyncio
-import traceback
 import datetime
 
 from responder3.core.ssl import SSLContextBuilder
-from responder3.core.commons import LogEntry, ConnectionStatus, ConnectionFactory, get_platform, ConnectionClosed, ConnectionOpened
+from responder3.core.commons import *
+from responder3.core.logging.logtask import *
+from responder3.core.logging.logger import *
+
+
 from responder3.core.sockets import setup_base_socket
-from responder3.core.logtask import *
+
+from responder3.core.streams.logging_streams import *
 
 class ConnectionTask:
 	def __init__(self, connection):
 		self.connection = connection
-		self.handler_coro = None
+		self.handler    = None
 		self.created_at = datetime.datetime.utcnow()
 		self.started_at = None
+
+class ConnectionWhatchDog:
+	"""
+	Terminates the connection in case there wasnt any activity on it after a given period of time
+	"""
+	def __init__(self, task, reader, logger, connection_closing_evt, timeout = 10):
+		self.target_task = task
+		self.creader = reader
+		self.timeout = timeout
+		self.logger = logger
+		self.connection_closing_evt = connection_closing_evt
+
+	@r3exception
+	async def run(self):
+		while not self.connection_closing_evt.is_set():
+			last_activity = (datetime.datetime.utcnow() - self.creader.last_activity).total_seconds()
+			if last_activity > self.timeout:
+				print('cancelling task!')
+				self.target_task.cancel()
+				break
+				#raise Exception('Client connection timeout')
+			await asyncio.sleep(self.timeout)
 
 class Responder3ServerTask:
 	def __init__(self, log_queue = None, reverse_domain_table=None, server_command_queue=None, loop=None, rdns_resolver = None):
@@ -40,7 +64,6 @@ class Responder3ServerTask:
 		self.connections = {}
 		self.rdns_resolver = rdns_resolver
 		self.connection_factory = ConnectionFactory(self.reverse_domain_table, self.rdns_resolver)
-		self.udpserver = None
 
 	@r3exception
 	async def accept_client(self, client_reader, client_writer):
@@ -56,22 +79,44 @@ class Responder3ServerTask:
 		:type client_writer: asyncio.StreamWriter
 		:return: None
 		"""
+		client_reader = StreamReaderLogging(client_reader)
+		client_writer = StreamWriterLogging(client_writer)
 		connection = await self.connection_factory.from_streamwriter(client_writer)
-		await self.logger.log_connection(connection, ConnectionStatus.OPENED)
+		shutdown_evt = asyncio.Event()
+		await self.logger.connection(connection, ConnectionStatus.OPENED)
 		ct = ConnectionTask(connection)
+		
+		#setting up server temaplte
 		ct.handler = self.server_handler(
-			(client_reader, client_writer),
+			self.server_name,
+			self.server_handler_settings,
+			client_reader,
+			client_writer,
 			self.server_handler_session(connection, self.log_queue),
-			self,
-			self.server_handler_global_session,
-			self.loop
+			self.log_queue,
+			self.listener_socket_config,
+			self.listener_socket_ssl_context,
+			shutdown_evt,
+			rdns_resolver = self.rdns_resolver,
+			globalsession = self.server_handler_global_session,
+			loop = self.loop
 		)
 		ct.started_at = datetime.datetime.utcnow()
 		await self.logger.debug('Starting server task!')
 		self.connections[ct] = 1
 
-		await ct.handler.run()
-		await self.logger.log_connection(ct.connection, ConnectionStatus.CLOSED)
+		#starting server template
+		template_run_task = asyncio.create_task(ct.handler.run())
+
+		#starting whatchdog
+		whatchdog = ConnectionWhatchDog(template_run_task, client_reader, Logger('%s[WHATCHDOG]' % self.server_name, logQ = self.log_queue), ct.handler.shutdown_evt, timeout = 10)
+		whatchdog_task = asyncio.create_task(whatchdog.run())
+
+		#waiting template to finish
+		await template_run_task
+
+		ct.handler.shutdown_evt.set()
+		await self.logger.connection(ct.connection, ConnectionStatus.CLOSED)
 
 		try:
 			ct.connection.writer.close()
@@ -80,6 +125,7 @@ class Responder3ServerTask:
 			pass
 
 		del self.connections[ct]
+		return
 
 	@staticmethod
 	def import_template(template_name):
@@ -129,9 +175,11 @@ class Responder3ServerTask:
 			self.listener_socket_config.is_ssl_wrapped = True
 			self.listener_socket_ssl_context = SSLContextBuilder.from_dict(server_task_config['bind_sslctx'], server_side=True)
 
-		self.server_name = '%s-%s' % (self.server_handler.__name__, self.listener_socket_config.get_protocolname())
+		
 		if self.listener_socket_ssl_context is not None:
-			self.server_name += '-SSL'
+			self.server_name = '%s-%s' % (self.server_handler.__name__, 'SSL')
+		else:
+			self.server_name = '%s-%s' % (self.server_handler.__name__, self.listener_socket_config.get_protocolname())
 
 		#replacing logger with a new one that has the name now
 		self.logger = Logger(self.server_name, logQ = self.log_queue)

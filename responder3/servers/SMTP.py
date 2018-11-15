@@ -2,6 +2,8 @@ import logging
 import asyncio
 import email.parser
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.SMTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
@@ -47,193 +49,180 @@ class SMTP(ResponderServer):
 		if self.session.supported_auth_types is not None:
 			self.session.capabilities.append('AUTH ' + ' '.join([a.name for a in self.session.supported_auth_types]))
 
-	async def parse_message(self, timeout=None):
-		try:
-			req = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=timeout)
-			return req
-		except asyncio.TimeoutError:
-			await self.log('Timeout!', logging.DEBUG)
-			return None
-		except ConnectionClosed:
-			return None
-		except Exception:
-			await self.log_exception()
-			return None
-
-
 	async def send_data(self, data):
 		self.cwriter.write(data)
 		await self.cwriter.drain()
 
+	@r3trafficlogexception
 	async def run(self):
-		try:
-			# send hello
-			await asyncio.wait_for(
-				self.send_data(SMTPReply.construct(220, 'hello from Honeyport SMTP server %s' % self.session.salt).to_bytes()), timeout=1)
+		# send hello
+		await asyncio.wait_for(
+			self.send_data(SMTPReply.construct(220, 'hello from Honeyport SMTP server %s' % self.session.salt).to_bytes()), timeout=1)
 
-			# main loop
-			while True:
-				cmd = await asyncio.wait_for(self.parse_message(), timeout=None)
-				if cmd is None:
-					return
+		# main loop
+		while not self.shutdown_evt.is_set():
+			try:
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
+			except asyncio.CancelledError as e:
+				raise e
+			if isinstance(result[0], R3ConnectionClosed):
+				return
+			elif isinstance(result[0], Exception):
+				raise result[0]
+			else:
+				cmd = result[0]
 
-				if 'R3DEEPDEBUG' in os.environ:
-					await self.log(cmd, logging.DEBUG)
-					await self.log(self.session.current_state, logging.DEBUG)
 
-				if self.session.log_data:
-					pass
+			if 'R3DEEPDEBUG' in os.environ:
+				await self.logger.debug(cmd)
+				await self.logger.debug(self.session.current_state)
 
-				if self.session.current_state == SMTPServerState.START:
-					if cmd.command == SMTPEHLOCmd or cmd.command == SMTPHELOCmd:
-						if self.session.supported_auth_types is None:
-							self.session.current_state = SMTPServerState.AUTHENTICATED
+			if self.session.current_state == SMTPServerState.START:
+				if cmd.command == SMTPEHLOCmd or cmd.command == SMTPHELOCmd:
+					if self.session.supported_auth_types is None:
+						self.session.current_state = SMTPServerState.AUTHENTICATED
 
-					if cmd.command == SMTPCommand.HELO:
-						await asyncio.wait_for(
-							self.send_data(
-								SMTPReply.construct(250, [self.session.helo_msg] + self.session.capabilities).to_bytes()),
-							timeout=1)
-						continue
+				if cmd.command == SMTPCommand.HELO:
+					await asyncio.wait_for(
+						self.send_data(
+							SMTPReply.construct(250, [self.session.helo_msg] + self.session.capabilities).to_bytes()),
+						timeout=1)
+					continue
 
-					elif cmd.command == SMTPCommand.EHLO:
-						await asyncio.wait_for(
-							self.send_data(
-								SMTPReply.construct(250, [self.session.ehlo_msg] + self.session.capabilities).to_bytes()),
-							timeout=1)
-						continue
+				elif cmd.command == SMTPCommand.EHLO:
+					await asyncio.wait_for(
+						self.send_data(
+							SMTPReply.construct(250, [self.session.ehlo_msg] + self.session.capabilities).to_bytes()),
+						timeout=1)
+					continue
 
-					elif cmd.command == SMTPCommand.EXPN:
-						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(502).to_bytes()),
-							timeout=1)
-						continue
+				elif cmd.command == SMTPCommand.EXPN:
+					await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(502).to_bytes()),
+						timeout=1)
+					continue
 
-					elif cmd.command == SMTPCommand.VRFY:
-						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(502).to_bytes()),
-							timeout=1)
-						continue
+				elif cmd.command == SMTPCommand.VRFY:
+					await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(502).to_bytes()),
+						timeout=1)
+					continue
 
-					elif cmd.command == SMTPCommand.AUTH:
-						self.session.current_state = SMTPServerState.AUTHSTARTED
-						# NOTE: the protocol allows the authentication data to be sent immediately by the client
-						# if this happens, the initdata will be not none and needs to be evaluated.
-						if cmd.mechanism == 'PLAIN':
-							self.session.authhandler = SMTPAuthHandler(SMTPAuthMethod.PLAIN, self.session.creds)
-							if cmd.data is not None:
-								res, cred = self.session.authhandler.do_AUTH(cmd)
-								if cred is not None:
-									await self.log_credential(cred)
-								if res == SMTPAuthStatus.OK:
-									self.session.current_state = SMTPServerState.AUTHENTICATED
-									await asyncio.wait_for(
-										self.send_data(SMTPReply.construct(235).to_bytes()),
-										timeout=1)
-									continue
-								else:
-									await asyncio.wait_for(
-										self.send_data(SMTPReply.construct(535).to_bytes()),
-										timeout=1)
-									return
-							else:
+				elif cmd.command == SMTPCommand.AUTH:
+					self.session.current_state = SMTPServerState.AUTHSTARTED
+					# NOTE: the protocol allows the authentication data to be sent immediately by the client
+					# if this happens, the initdata will be not none and needs to be evaluated.
+					if cmd.mechanism == 'PLAIN':
+						self.session.authhandler = SMTPAuthHandler(SMTPAuthMethod.PLAIN, self.session.creds)
+						if cmd.data is not None:
+							res, cred = self.session.authhandler.do_AUTH(cmd)
+							if cred is not None:
+								await self.logger.credential(cred)
+							if res == SMTPAuthStatus.OK:
+								self.session.current_state = SMTPServerState.AUTHENTICATED
 								await asyncio.wait_for(
-									self.send_data(SMTPReply.construct(334).to_bytes()),
+									self.send_data(SMTPReply.construct(235).to_bytes()),
 									timeout=1)
 								continue
-
-						elif cmd.mechanism == 'LOGIN':
-							self.session.authhandler = SMTPAuthHandler(SMTPAuthMethod.LOGIN, self.session.creds)
-							await asyncio.wait_for(
-									self.send_data(SMTPReply.construct(334, 'VXNlcm5hbWU6').to_bytes()),
+							else:
+								await asyncio.wait_for(
+									self.send_data(SMTPReply.construct(535).to_bytes()),
 									timeout=1)
-							continue
+								return
 						else:
 							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(535).to_bytes()),
+								self.send_data(SMTPReply.construct(334).to_bytes()),
 								timeout=1)
-							raise Exception('Not supported auth mechanism, client tried to use %s' % cmd.mechanism)
+							continue
+
+					elif cmd.mechanism == 'LOGIN':
+						self.session.authhandler = SMTPAuthHandler(SMTPAuthMethod.LOGIN, self.session.creds)
+						await asyncio.wait_for(
+								self.send_data(SMTPReply.construct(334, 'VXNlcm5hbWU6').to_bytes()),
+								timeout=1)
+						continue
 					else:
 						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(503).to_bytes()),
+							self.send_data(SMTPReply.construct(535).to_bytes()),
+							timeout=1)
+						raise Exception('Not supported auth mechanism, client tried to use %s' % cmd.mechanism)
+				else:
+					await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(503).to_bytes()),
+						timeout=1)
+					continue
+
+			# this state is only for the authentication part
+			elif self.session.current_state == SMTPServerState.AUTHSTARTED:
+				"""
+				here we expect to have non-smtp conform messages (without command code)
+				"""
+				if cmd.command == SMTPCommand.XXXX:
+					res, res_data = self.session.authhandler.do_AUTH(cmd)
+					if res in [SMTPAuthStatus.OK, SMTPAuthStatus.NO]:
+						if res_data is not None:
+							await self.logger.credential(res_data)
+							
+					if res == SMTPAuthStatus.OK:
+						self.session.current_state = SMTPServerState.AUTHENTICATED
+						await asyncio.wait_for(
+							self.send_data(SMTPReply.construct(235).to_bytes()),
 							timeout=1)
 						continue
 
-				# this state is only for the authentication part
-				elif self.session.current_state == SMTPServerState.AUTHSTARTED:
-					"""
-					here we expect to have non-smtp conform messages (without command code)
-					"""
-					if cmd.command == SMTPCommand.XXXX:
-						res, res_data = self.session.authhandler.do_AUTH(cmd)
-						if res in [SMTPAuthStatus.OK, SMTPAuthStatus.NO]:
-							if res_data is not None:
-								await self.log_credential(res_data)
-								
-						if res == SMTPAuthStatus.OK:
-							self.session.current_state = SMTPServerState.AUTHENTICATED
-							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(235).to_bytes()),
-								timeout=1)
-							continue
-
-						if res == SMTPAuthStatus.MORE_DATA_NEEDED:
-							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(334, res_data).to_bytes()),
-								timeout=1)
-							continue
+					if res == SMTPAuthStatus.MORE_DATA_NEEDED:
+						await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(334, res_data).to_bytes()),
+							timeout=1)
+						continue
 						
-						if res == SMTPAuthStatus.NO:
-							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(535).to_bytes()),
-								timeout=1)
-							return
-
-				# should be checking which commands are allowed in this state...
-				elif self.session.current_state == SMTPServerState.AUTHENTICATED:
-					if cmd.command == SMTPCommand.MAIL:
-						self.session.emailFrom = cmd.emailaddress
+					if res == SMTPAuthStatus.NO:
 						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(250).to_bytes()),
-							timeout=1)
-						continue
-
-					elif cmd.command == SMTPCommand.RCPT:
-						self.session.emailTo.append(cmd.emailaddress)
-						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(250).to_bytes()),
-							timeout=1)
-						continue
-
-					elif cmd.command == SMTPCommand.DATA:
-						# we get data command, switching current_state and sending a reply to client can send data
-						if cmd.emaildata is None:
-							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(354).to_bytes()),
-								timeout=1)
-							continue
-						else:
-							em = EmailEntry()
-							em.email = self.session.emailparser.parsestr(cmd.emaildata)
-							em.fromAddress = self.session.emailFrom  # string
-							em.toAddress = self.session.emailTo  # list
-							await self.log_email(em)
-							await asyncio.wait_for(
-								self.send_data(SMTPReply.construct(250).to_bytes()),
-								timeout=1)
-							continue
-					else:
-						await asyncio.wait_for(
-							self.send_data(SMTPReply.construct(503).to_bytes()),
+							self.send_data(SMTPReply.construct(535).to_bytes()),
 							timeout=1)
 						return
 
+			# should be checking which commands are allowed in this state...
+			elif self.session.current_state == SMTPServerState.AUTHENTICATED:
+				if cmd.command == SMTPCommand.MAIL:
+					self.session.emailFrom = cmd.emailaddress
+					await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(250).to_bytes()),
+						timeout=1)
+					continue
+
+				elif cmd.command == SMTPCommand.RCPT:
+					self.session.emailTo.append(cmd.emailaddress)
+					await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(250).to_bytes()),
+						timeout=1)
+					continue
+
+				elif cmd.command == SMTPCommand.DATA:
+					# we get data command, switching current_state and sending a reply to client can send data
+					if cmd.emaildata is None:
+						await asyncio.wait_for(
+							self.send_data(SMTPReply.construct(354).to_bytes()),
+							timeout=1)
+						continue
+					else:
+						em = EmailEntry()
+						em.email = self.session.emailparser.parsestr(cmd.emaildata)
+						em.fromAddress = self.session.emailFrom  # string
+						em.toAddress = self.session.emailTo  # list
+						await self.logger.email(em)
+						await asyncio.wait_for(
+							self.send_data(SMTPReply.construct(250).to_bytes()),
+							timeout=1)
+						continue
 				else:
 					await asyncio.wait_for(
 						self.send_data(SMTPReply.construct(503).to_bytes()),
 						timeout=1)
 					return
 
-		except Exception as e:
-			await self.log_exception()
-			return
+			else:
+				await asyncio.wait_for(
+					self.send_data(SMTPReply.construct(503).to_bytes()),
+					timeout=1)
+				return

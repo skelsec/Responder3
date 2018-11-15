@@ -11,6 +11,8 @@ import uuid
 from pathlib import Path
 import io
 
+from responder3.core.logging.logger import *
+from responder3.core.logging.log_objects import *
 from responder3.core.commons import *
 from responder3.core.manager.comms import *
 
@@ -145,6 +147,8 @@ class LogProcessor:
 					await self.handle_poisonresult(result)
 				elif isinstance(result, ProxyData):
 					await self.handle_proxydata(result)
+				elif isinstance(result, TrafficLog):
+					await self.handle_traffic(result)
 				elif isinstance(result, (R3CliLog, RemoteLog)):
 					await self.handle_remote_log(result)
 				else:
@@ -182,6 +186,10 @@ class LogProcessor:
 		elif isinstance(con, ConnectionClosed):
 			self.logger.log(logging.INFO, str(con))
 
+	async def handle_traffic(self,traffic):
+		for line in traffic.get_loglines():
+			self.logger.log(logging.INFO, line)
+
 	async def handle_credential(self, result):
 		"""
 		Logs credential object arriving from logqueue
@@ -202,7 +210,9 @@ class LogProcessor:
 		else:
 			await self.log('Duplicate result found! Filtered.')
 		"""
-		await self.log(str(result.to_dict()), logging.INFO)
+		#line = '%s[%s] %s' % (result.module, 'CREDENTIAL', result.fullhash)
+		self.logger.log(logging.INFO, str(result))
+		#await self.log(str(result.to_dict()), logging.INFO)
 			
 	async def handle_email(self, email):
 		"""
@@ -261,9 +271,13 @@ class LogProcessor:
 		"""
 		if isinstance(remotelog, RemoteLog):
 			if isinstance(remotelog.log_obj, LogEntry):
-				self.logger.log(remotelog.log_obj.level, str(remotelog))
+				self.logger.log(remotelog.log_obj.level, '[%s]%s' % ('REMOTE',str(remotelog)))
+			elif isinstance(remotelog.log_obj, TrafficLog):
+				for line in remotelog.log_obj.get_loglines():
+					self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',line))
+
 			else:
-				self.logger.log(logging.INFO, str(remotelog))
+				self.logger.log(logging.INFO, '[%s]%s' % ('REMOTE',str(remotelog)))
 		else:
 			await self.log_queue.put(RemoteLog(remotelog))
 		
@@ -342,124 +356,3 @@ class TestExtension(LoggerExtensionTask):
 				self.output_queue.put(result)
 		except Exception as e:
 			await self.logger.exception()
-
-
-class Logger:
-	"""
-	This class is used to provie a better logging experience for asyncio based classes/functions
-	Probably will replace logtask "solution" with this one in the future
-	TODO
-	"""
-	def __init__(self, name, logger = None, logQ = None, level = logging.DEBUG):
-		self.level = level
-		self.consumers = {}
-		self.logger = logger
-		self.name = name
-		
-		self.is_final = True
-		if logQ:
-			self.logQ = logQ
-			self.is_final = False
-		else:
-			self.logQ = asyncio.Queue()
-		
-	async def run(self):
-		"""
-		you only need to call this function IF the logger instance is the final dst!
-		Also, consumers will not work if this is not the final one!
-		"""
-		if self.is_final == False:
-			return
-		try:
-			while True:
-				logmsg = await self.logQ.get()
-				await self.handle_logger(logmsg)
-				if len(self.consumers) > 0:
-					await self.handle_consumers(logmsg)
-		
-		except Exception as e:
-			print('Logger run exception! %s' % e)
-			
-	async def handle_logger(self, msg):
-		print('%s %s %s %s' % (datetime.datetime.utcnow().isoformat(), self.name, level, msg))
-		
-	async def handle_consumers(self, msg):
-		try:
-			for consumer in self.consumers:
-				await consumer.process_log(msg)
-		except Exception as e:
-			print(e)
-			
-	async def debug(self, msg):
-		await self.logQ.put(LogEntry(logging.DEBUG, self.name, msg))
-		
-	async def info(self, msg):
-		await self.logQ.put(LogEntry(logging.INFO, self.name, msg))
-	
-	async def exception(self, message = None):
-		sio = io.StringIO()
-		ei = sys.exc_info()
-		tb = ei[2]
-		traceback.print_exception(ei[0], ei[1], tb, None, sio)
-		msg = sio.getvalue()
-		if msg[-1] == '\n':
-			msg = msg[:-1]
-		sio.close()
-		if message is not None:
-			msg = '%s : %s' % (message,msg)
-		await self.logQ.put(LogEntry(logging.ERROR, self.name, msg))
-			
-	async def error(self, msg):
-		await self.logQ.put(LogEntry(logging.ERROR, self.name, msg))
-		
-	async def warning(self, msg):
-		await self.logQ.put(LogEntry(logging.WARNING, self.name, msg))
-		
-	async def log(self, level, msg):
-		"""
-		Level MUST be bigger than 0!!!
-		"""
-		await self.logQ.put(LogEntry(level, self.name, msg))
-
-	async def log_connection(self, connection, status):
-		"""
-		Logs incoming connection
-		:param connection: The Connection object to log
-		:type connection: Connection
-		:param status: Connection status
-		:type: ConnectionStatus
-		:return: None
-		"""
-		if status == ConnectionStatus.OPENED or status == ConnectionStatus.STATELESS:
-			await self.info('New connection opened from %s:%d' % (connection.remote_ip, connection.remote_port))
-			co = ConnectionOpened(connection)
-			await self.logQ.put(co)
-			
-		elif status == ConnectionStatus.CLOSED:
-			await self.info('Connection closed by %s:%d' % (connection.remote_ip, connection.remote_port))
-			cc = ConnectionClosed(connection)
-			await self.logQ.put(cc)
-		
-	def add_consumer(self, consumer):
-		self.consumers[consumer] = 0
-		
-	def del_consumer(self, consumer):
-		if consumer in self.consumers:
-			del self.consumers[consumer]
-			
-			
-def r3exception(funct):
-	"""
-	Decorator for handling exceptions
-	Use it with the Logger class only!!!
-	"""
-	async def wrapper(*args, **kwargs):
-		this = args[0] #renaming self to 'this'
-		try:
-			t = await funct(*args, **kwargs)
-			return t
-		except Exception as e:
-			await this.logger.exception(funct.__name__)
-			return
-			
-	return wrapper

@@ -24,11 +24,11 @@ async def readexactly_or_exc(reader, n, timeout = None):
 	try:
 		data = await asyncio.wait_for(reader.readexactly(n), timeout = timeout)
 	except:
-		raise ConnectionClosed()
+		raise R3ConnectionClosed()
 
 	if data == b'':
 		if reader.at_eof():
-			raise ConnectionClosed()
+			raise R3ConnectionClosed()
 
 	return data
 
@@ -47,11 +47,11 @@ async def read_or_exc(reader, n, timeout = None):
 	try:
 		data = await asyncio.wait_for(reader.read(n), timeout = timeout)
 	except:
-		raise ConnectionClosed()
+		raise R3ConnectionClosed()
 
 	if data == b'':
 		if reader.at_eof():
-			raise ConnectionClosed()
+			raise R3ConnectionClosed()
 
 	return data
 
@@ -70,11 +70,11 @@ async def readuntil_or_exc(reader, pattern, timeout = None):
 	try:
 		data = await asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
 	except:
-		raise ConnectionClosed()
+		raise R3ConnectionClosed()
 
 	if data == b'':
 		if reader.at_eof():
-			raise ConnectionClosed()
+			raise R3ConnectionClosed()
 
 	return data
 
@@ -91,11 +91,11 @@ async def readline_or_exc(reader, timeout = None):
 	try:
 		data = await asyncio.wait_for(reader.readline(), timeout = timeout)
 	except:
-		raise ConnectionClosed()
+		raise R3ConnectionClosed()
 
 	if data == b'':
 		if reader.at_eof():
-			raise ConnectionClosed()
+			raise R3ConnectionClosed()
 
 	return data
 
@@ -113,10 +113,10 @@ async def sendall(writer, data):
 		writer.write(data)
 		await writer.drain()
 	except Exception as e:
-		raise ConnectionClosed()
+		raise R3ConnectionClosed()
 
 
-class ConnectionClosed(Exception):
+class R3ConnectionClosed(Exception):
 	pass
 
 

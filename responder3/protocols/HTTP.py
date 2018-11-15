@@ -8,6 +8,7 @@ import asyncio
 import collections
 
 from responder3.core.commons import *
+from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
 from responder3.protocols.NTLM import NTLMAUTHHandler
 from responder3.protocols.SMB.ntstatus import *
@@ -515,9 +516,9 @@ class HTTPBasicAuth:
 	async def do_AUTH(self, http_request, http_server):
 		try:
 			auth_header_key = 'Authorization' if http_server.session.server_mode != HTTPServerMode.PROXY else 'Proxy-Authorization'
-			print('hdr key: %s' % auth_header_key)
+			#print('hdr key: %s' % auth_header_key)
 			req_auth_header = http_request.get_header(auth_header_key)
-			print('Auth header: %s' % req_auth_header)
+			#print('Auth header: %s' % req_auth_header)
 			if req_auth_header is not None and req_auth_header[:5].upper() == 'BASIC':
 				temp = base64.b64decode(req_auth_header[5:]).decode('ascii')
 				marker = temp.find(':')
@@ -528,7 +529,7 @@ class HTTPBasicAuth:
 				user_creds.username = temp[:marker]
 				user_creds.password = temp[marker+1:]
 
-				await http_server.log_credential(user_creds.to_credential())
+				await http_server.logger.credential(user_creds.to_credential())
 
 				if user_creds.verify(self.verify_creds):
 					http_server.session.current_state = HTTPState.AUTHENTICATED
@@ -542,7 +543,7 @@ class HTTPBasicAuth:
 					a = await asyncio.wait_for(http_server.send_data(HTTP401Resp('Basic').to_bytes()), timeout = 1)
 				return
 		except Exception as e:
-			await http_server.log_exception()
+			await http_server.loggerexception()
 
 
 class BASICUserCredentials:
@@ -582,10 +583,9 @@ class HTTPNTLMAuth:
 			req_auth_header = http_request.get_header(auth_header_key)
 			if req_auth_header is not None and req_auth_header[:4].upper() == 'NTLM':
 				auth_status, ntlm_message, creds = self.handler.do_AUTH(base64.b64decode(req_auth_header[5:]))
-				print(auth_status)
 				if creds is not None:
 					for cred in creds:
-						await httpserver.log_credential(cred.to_credential())
+						await httpserver.logger.credential(cred.to_credential())
 
 				if auth_status == NTStatus.STATUS_MORE_PROCESSING_REQUIRED:
 					if httpserver.session.server_mode == HTTPServerMode.PROXY:
@@ -609,4 +609,4 @@ class HTTPNTLMAuth:
 					a = await asyncio.wait_for(httpserver.send_data(HTTP401Resp('NTLM').to_bytes()), timeout = 1)
 				return
 		except Exception as e:
-			await httpserver.log_exception()
+			await httpserver.logger.exception()

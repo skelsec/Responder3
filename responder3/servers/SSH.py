@@ -9,6 +9,8 @@ import logging
 import asyncio
 
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.SSH import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
@@ -24,6 +26,7 @@ class SSHSession(ResponderServerSession):
 		self.server_banner = 'SSH-2.0-OpenSSH_7.2p2 Ubuntu-4ubuntu2.2'
 		self.client_kxinit = None
 		self.server_kxinit = None
+		self.parser = SSHParser
 
 	def __repr__(self):
 		t  = '== SSHSession ==\r\n'
@@ -32,21 +35,11 @@ class SSHSession(ResponderServerSession):
 
 class SSH(ResponderServer):
 	def init(self):
-		self.parser = SSHParser
 		self.parse_settings()
 		
 	def parse_settings(self):
 		pass
 
-	async def parse_message(self, timeout=None):
-		try:
-			req = await asyncio.wait_for(self.parser.from_streamreader(self.creader, self.session.cipher.server_cipher), timeout=timeout)
-			return req
-		except asyncio.TimeoutError:
-			await self.log('Timeout!', logging.DEBUG)
-		except Exception as e:
-			print(e)
-			
 	async def banner_exchange(self, timeout=1):
 		try:
 			#read client banner
@@ -92,27 +85,21 @@ class SSH(ResponderServer):
 		except Exception as e:
 			traceback.print_exc()
 		
-
+	@r3trafficlogexception
 	async def run(self):
-		try:
-			while True:
-				if self.session.state == 'BANNER':
-					status = await self.banner_exchange()
-					if status == 'OK':
-						self.session.state = 'KEX'
-						continue
-					raise Exception('Banned exchange failed!')
+		while not self.shutdown_evt.is_set():
+			if self.session.state == 'BANNER':
+				status = await self.banner_exchange()
+				if status == 'OK':
+					self.session.state = 'KEX'
+					continue
+				raise Exception('Banned exchange failed!')
 					
-				msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
-				print(str(msg))
+			msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
+			print(str(msg))
 					
-				if self.session.state == 'KEX':
-					print('KEX')
-					await self.key_exchange(msg)
-					return
-					
+			if self.session.state == 'KEX':
+				print('KEX')
+				await self.key_exchange(msg)
+				return
 				
-					
-		except Exception as e:
-			await self.log_exception()
-			pass

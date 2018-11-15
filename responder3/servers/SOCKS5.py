@@ -1,6 +1,8 @@
 import logging
 import asyncio
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.SOCKS5 import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
@@ -19,6 +21,7 @@ class SOCKS5Session(ResponderServerSession):
 		self.creds = None
 		self.proxy_closed = asyncio.Event()
 		self.timeout = None
+		self.parser = SOCKS5CommandParser
 
 	def __repr__(self):
 		t  = '== SOCKS5Session ==\r\n'
@@ -34,7 +37,6 @@ class SOCKS5Session(ResponderServerSession):
 
 class SOCKS5(ResponderServer):
 	def init(self):
-		self.parser = SOCKS5CommandParser
 		self.parse_settings()
 		
 	def parse_settings(self):
@@ -92,14 +94,6 @@ class SOCKS5(ResponderServer):
 
 		return None, None
 
-
-	async def parse_message(self, timeout=None):
-		try:
-			req = await asyncio.wait_for(self.parser.from_streamreader(self.creader, self.session), timeout=timeout)
-			return req
-		except asyncio.TimeoutError:
-			await self.log('Timeout!', logging.DEBUG)
-
 	async def send_data(self, data):
 		self.cwriter.write(data)
 		await self.cwriter.drain()
@@ -125,8 +119,8 @@ class SOCKS5(ResponderServer):
 				break
 			
 
-			await self.log_proxy('original data: %s' % data.hex(), laddr, raddr)
-			await self.log_proxydata(data, laddr, raddr, False, ProxyDataType.BINARY)
+			await self.logger.proxy('original data: %s' % data.hex(), laddr, raddr)
+			await self.logger.proxydata(data, laddr, raddr, False, ProxyDataType.BINARY)
 			modified_data = await self.modify_data(data)
 			if modified_data != data:
 				await self.log_proxy('modified data: %s' % repr(modified_data),laddr, raddr)
@@ -141,84 +135,89 @@ class SOCKS5(ResponderServer):
 
 		return
 
+	@r3trafficlogexception
 	async def run(self):
-		try:
-			while True:
-				msg = await asyncio.wait_for(self.parse_message(), timeout = 1)
-				if not msg:
-					return
+		while not self.shutdown_evt.is_set():
+			try:
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader, self.session), timeout=None)], return_exceptions=True)
+			except asyncio.CancelledError as e:
+				raise e
+			if isinstance(result[0], R3ConnectionClosed):
+				return
+			elif isinstance(result[0], Exception):
+				raise result[0]
+			else:
+				msg = result[0]
 					
-				if self.session.current_state == SOCKS5ServerState.NEGOTIATION:
-					mutual, mutual_idx = get_mutual_preference(self.session.supported_auth_types,msg.METHODS)
-					if mutual is None:
-						await self.log('No common authentication types! Client supports %s' % (','.join([str(x) for x in msg.METHODS])))
+			if self.session.current_state == SOCKS5ServerState.NEGOTIATION:
+				mutual, mutual_idx = get_mutual_preference(self.session.supported_auth_types,msg.METHODS)
+				if mutual is None:
+					await self.logger.debug('No common authentication types! Client supports %s' % (','.join([str(x) for x in msg.METHODS])))
+					t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes()), timeout = 1)
+					return
+				await self.logger.debug('Mutual authentication type: %s' % mutual)
+				self.session.mutual_auth_type = mutual
+				self.session.authHandler = SOCKS5AuthHandler(self.session.mutual_auth_type, self.session.creds) 
+
+				if self.session.mutual_auth_type == SOCKS5Method.NOAUTH:
+					self.session.current_state = SOCKS5ServerState.REQUEST # if no authentication is requred then we skip the auth part
+				else:
+					self.session.current_state = SOCKS5ServerState.NOT_AUTHENTICATED
+
+				t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct(self.session.mutual_auth_type).to_bytes()), timeout = 1)
+
+			elif self.session.current_state == SOCKS5ServerState.NOT_AUTHENTICATED:
+				if self.session.mutual_auth_type == SOCKS5Method.PLAIN:
+					status, creds = self.session.authHandler.do_AUTH(msg)
+					await self.logger.credential(creds.to_credential())
+					if status:
+						self.session.current_state = SOCKS5ServerState.REQUEST
+						t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).to_bytes()), timeout = 1)
+					else:
 						t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes()), timeout = 1)
 						return
-					await self.log('Mutual authentication type: %s' % mutual, logging.DEBUG)
-					self.session.mutual_auth_type = mutual
-					self.session.authHandler = SOCKS5AuthHandler(self.session.mutual_auth_type, self.session.creds) 
+				else:
+					#put GSSAPI implementation here
+					raise Exception('Not implemented!')
 
-					if self.session.mutual_auth_type == SOCKS5Method.NOAUTH:
-						self.session.current_state = SOCKS5ServerState.REQUEST # if no authentication is requred then we skip the auth part
+			elif self.session.current_state == SOCKS5ServerState.REQUEST:
+				await self.logger.debug('Remote client wants to connect to %s:%d' % (str(msg.DST_ADDR), msg.DST_PORT))
+				if msg.CMD == SOCKS5Command.CONNECT:
+					if self.session.proxymode == SOCKS5ServerMode.OFF:
+						#so long and thanks for all the fish...
+						return
+
+					elif self.session.proxymode == SOCKS5ServerMode.NORMAL:
+						#in this case the server acts as a normal socks5 server
+						proxy_reader, proxy_writer = await asyncio.wait_for(asyncio.open_connection(host=str(msg.DST_ADDR),port = msg.DST_PORT), timeout=1)
+						await self.logger.debug('Connected!')
+						self.session.current_state = SOCKS5ServerState.RELAYING
+						t = await asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.session.allinterface, 0).to_bytes()), timeout = 1)
+						self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(msg.DST_ADDR),int(msg.DST_PORT)), self.caddr))
+						self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr, (str(msg.DST_ADDR),int(msg.DST_PORT))))
+
+						await asyncio.wait_for(self.session.proxy_closed.wait(), timeout = None)
+						return
+						
 					else:
-						self.session.current_state = SOCKS5ServerState.NOT_AUTHENTICATED
+						#in this case we route the traffic to a specific server :)
+						fake_dest_ip, fake_dest_port = self.fake_dest_lookup(str(msg.DST_ADDR), msg.DST_PORT)
+						if fake_dest_ip is None:
+							await self.logger.debug('Could not find fake address for %s:%d' % (str(msg.DST_ADDR), msg.DST_PORT))
+							return
 
-					t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct(self.session.mutual_auth_type).to_bytes()), timeout = 1)
-
-				elif self.session.current_state == SOCKS5ServerState.NOT_AUTHENTICATED:
-					if self.session.mutual_auth_type == SOCKS5Method.PLAIN:
-						status, creds = self.session.authHandler.do_AUTH(msg)
-						if status:
-							self.session.current_state = SOCKS5ServerState.REQUEST
-							t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOAUTH).to_bytes()), timeout = 1)
 						else:
-							t = await asyncio.wait_for(self.send_data(SOCKS5NegoReply.construct_auth(SOCKS5Method.NOTACCEPTABLE).to_bytes()), timeout = 1)
-							return
-					else:
-						#put GSSAPI implementation here
-						raise Exception('Not implemented!')
-
-				elif self.session.current_state == SOCKS5ServerState.REQUEST:
-					await self.log('Remote client wants to connect to %s:%d' % (str(msg.DST_ADDR), msg.DST_PORT))
-					if msg.CMD == SOCKS5Command.CONNECT:
-						if self.session.proxymode == SOCKS5ServerMode.OFF:
-							#so long and thanks for all the fish...
-							return
-
-						elif self.session.proxymode == SOCKS5ServerMode.NORMAL:
-							#in this case the server acts as a normal socks5 server
-							proxy_reader, proxy_writer = await asyncio.wait_for(asyncio.open_connection(host=str(msg.DST_ADDR),port = msg.DST_PORT), timeout=1)
-							await self.log('Connected!', logging.DEBUG)
+							proxy_reader, proxy_writer = await asyncio.wait_for(asyncio.open_connection(host=str(fake_dest_ip),port = fake_dest_port), timeout=1)
+							await self.logger.debug('Connected!')
 							self.session.current_state = SOCKS5ServerState.RELAYING
-							t = await asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.session.allinterface, 0).to_bytes()), timeout = 1)
-							self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(msg.DST_ADDR),int(msg.DST_PORT)), self.caddr))
-							self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr, (str(msg.DST_ADDR),int(msg.DST_PORT))))
+							t = await asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes()), timeout = 1)
+							self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(fake_dest_ip),int(fake_dest_port)), self.caddr))
+							self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr,  (str(fake_dest_ip),int(fake_dest_port))))
 
 							await asyncio.wait_for(self.session.proxy_closed.wait(), timeout = None)
 							return
-						
-						else:
-							#in this case we route the traffic to a specific server :)
-							fake_dest_ip, fake_dest_port = self.fake_dest_lookup(str(msg.DST_ADDR), msg.DST_PORT)
-							if fake_dest_ip is None:
-								await self.log('Could not find fake address for %s:%d' % (str(msg.DST_ADDR), msg.DST_PORT))
-								return
 
-							else:
-								proxy_reader, proxy_writer = await asyncio.wait_for(asyncio.open_connection(host=str(fake_dest_ip),port = fake_dest_port), timeout=1)
-								await self.log('Connected!', logging.DEBUG)
-								self.session.current_state = SOCKS5ServerState.RELAYING
-								t = await asyncio.wait_for(self.send_data(SOCKS5Reply.construct(SOCKS5ReplyType.SUCCEEDED, self.allinterface, 0).to_bytes()), timeout = 1)
-								self.loop.create_task(self.proxy_forwarder(proxy_reader, self.cwriter, (str(fake_dest_ip),int(fake_dest_port)), self.caddr))
-								self.loop.create_task(self.proxy_forwarder(self.creader, proxy_writer, self.caddr,  (str(fake_dest_ip),int(fake_dest_port))))
-
-								await asyncio.wait_for(self.session.proxy_closed.wait(), timeout = None)
-								return
-
-					else:
-						t = await asyncio.wait_for(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.session.allinterface, 0).to_bytes(), timeout = 1)
-						return				
+				else:
+					t = await asyncio.wait_for(SOCKS5Reply.construct(SOCKS5ReplyType.COMMAND_NOT_SUPPORTED, self.session.allinterface, 0).to_bytes(), timeout = 1)
+					return				
 					
-		except Exception as e:
-			await self.log_exception()
-			pass

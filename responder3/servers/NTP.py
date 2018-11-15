@@ -4,6 +4,8 @@ import traceback
 import ipaddress
 import datetime
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.NTP import * 
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession, ResponderServerGlobalSession
@@ -37,29 +39,32 @@ class NTPGlobalSession(ResponderServerGlobalSession):
 
 
 class NTPSession(ResponderServerSession):
-	pass
+	def __init__(self, connection, log_queue):
+		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
+		self.parser = NTPmsg
 
 
 class NTP(ResponderServer):
 	def init(self):
-		self.parser = NTPmsg
-
-	async def parse_message(self):
-		return self.parser.from_buffer(self.creader.buff)
-
+		pass
+		
 	async def send_data(self, data):
 		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
 		return
 
+	@r3trafficlogexception
 	async def run(self):
-		try:
-			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
-			await self.log('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
-			response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
-			
-			await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)
+		result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
+		except asyncio.CancelledError as e:
+			raise e
+		if isinstance(result[0], R3ConnectionClosed):
+			return
+		elif isinstance(result[0], Exception):
+			raise result[0]
+		else:
+			msg = result[0]
 
-		except Exception as e:
-			traceback.print_exc()
-			await self.log('Exception! %s' % (str(e),))
-			pass
+		await self.logger.info('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
+		response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
+			
+		await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)

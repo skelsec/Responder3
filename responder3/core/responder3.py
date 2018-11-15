@@ -13,7 +13,8 @@ import warnings
 
 from responder3.core.commons import handle_systemd, defaultports, tracefunc
 from responder3.core.interfaces.NetworkInterfaces import interfaces
-from responder3.core.logtask import LogProcessor, LogEntry
+from responder3.core.logging.logger import *
+from responder3.core.logging.logtask import *
 from responder3.core.servertask import Responder3ServerTask
 from responder3.core.rdns import RDNS
 from responder3.core.manager.r3manager_client import *
@@ -123,13 +124,17 @@ class Responder3:
 
 	@staticmethod
 	def from_args(args):
+		if args.list_interfaces == True:
+			print('====== Interfaces list ======')
+			print(interfaces)
+			return None
+
 		responder = Responder3()
 		responder.override_interfaces = args.I
 		responder.override_ipv4 = args.ip4
 		responder.override_ipv6 = args.ip6
 		responder.override_verb = args.verbose
 		if args.config is not None:
-			print(args.config)
 			responder.config = Responder3Config.from_file(args.config)
 		elif args.python_config is not None:
 			responder.config = Responder3Config.from_python_script(args.python_config)

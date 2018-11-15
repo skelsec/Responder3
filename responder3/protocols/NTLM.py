@@ -7,7 +7,8 @@ import hmac
 
 from responder3.crypto.symmetric import DES
 from responder3.crypto.hashing import *
-from responder3.core.commons import timestamp2datetime, Credential
+from responder3.core.commons import timestamp2datetime
+from responder3.core.logging.log_objects import Credential
 from responder3.protocols.SMB.ntstatus import *
 
 

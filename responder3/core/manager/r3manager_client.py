@@ -3,7 +3,7 @@ import asyncio
 
 
 from responder3.core.manager.comms import *
-from responder3.core.logtask import *
+from responder3.core.logging.logger import *
 from responder3.core.gwss import *
 from responder3.core.ssl import SSLContextBuilder
 

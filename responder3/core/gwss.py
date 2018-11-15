@@ -24,7 +24,8 @@ import asyncio
 import websockets
 import uuid
 
-from responder3.core.logtask import *
+from responder3.core.logging.logger import *
+from responder3.core.logging.log_objects import *
 from responder3.core.commons import *
 
 class GWSSPacket:
