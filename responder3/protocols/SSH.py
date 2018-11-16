@@ -4,9 +4,7 @@
 #  Tamas Jos (@skelsec)
 #
 
-# https://tools.ietf.org/html/rfc4511
-# https://msdn.microsoft.com/en-us/library/cc223501.aspx
-# https://ldap3.readthedocs.io/bind.html
+
 
 from asn1crypto import core
 import enum
@@ -15,11 +13,13 @@ import io
 
 from responder3.core.commons import *
 from responder3.core.asyncio_helpers import *
+from responder3.crypto.pure.AES.AES import Counter, AESModeOfOperationCTR
 
 import hashlib
 import struct
 import rsa
 from rsa import pkcs1
+import hmac
 
 MAX_PACKET_LENGTH = 35000
 zero_byte = b'\x00'
@@ -180,6 +180,7 @@ class SSHMessageNumber(enum.Enum):
 	SSH_MSG_DEBUG=4
 	SSH_MSG_SERVICE_REQUEST=5
 	SSH_MSG_SERVICE_ACCEPT=6
+
 	SSH_MSG_KEXINIT=20
 	SSH_MSG_NEWKEYS=21
 	
@@ -488,17 +489,66 @@ byte      SSH_MSG_KEXDH_REPLY
       mpint     f
       string    signature of H
 """
-		
+class SSH_MSG_NEWKEYS:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_NEWKEYS
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_NEWKEYS.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_NEWKEYS()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		return data
+
+class SSH_MSG_SERVICE_REQUEST:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_SERVICE_REQUEST
+		self.service_name = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_SERVICE_REQUEST.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_SERVICE_REQUEST()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.service_name = SSHstring.from_buff(buff)
+		return msg
+
+class SSH_MSG_SERVICE_ACCEPT:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_SERVICE_ACCEPT
+		self.service_name = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_SERVICE_REQUEST.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_SERVICE_REQUEST()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.service_name = SSHstring.from_buff(buff)
+		return msg
 
 type2msg = {
 	SSHMessageNumber.SSH_MSG_DISCONNECT : None, 
 	SSHMessageNumber.SSH_MSG_IGNORE : None, 
 	SSHMessageNumber.SSH_MSG_UNIMPLEMENTED : None, 
 	SSHMessageNumber.SSH_MSG_DEBUG : None, 
-	SSHMessageNumber.SSH_MSG_SERVICE_REQUEST : None, 
-	SSHMessageNumber.SSH_MSG_SERVICE_ACCEPT : None, 
+	SSHMessageNumber.SSH_MSG_SERVICE_REQUEST : SSH_MSG_SERVICE_REQUEST, 
+	SSHMessageNumber.SSH_MSG_SERVICE_ACCEPT : SSH_MSG_SERVICE_ACCEPT, 
 	SSHMessageNumber.SSH_MSG_KEXINIT : SSH_MSG_KEXINIT, 
-	SSHMessageNumber.SSH_MSG_NEWKEYS : None,
+	SSHMessageNumber.SSH_MSG_NEWKEYS : SSH_MSG_NEWKEYS,
 	SSHMessageNumber.SSH2_MSG_KEXDH_INIT : SSH2_MSG_KEXDH_INIT,
 	SSHMessageNumber.SSH2_MSG_KEXDH_REPLY : SSH2_MSG_KEXDH_REPLY,
 }
@@ -539,7 +589,8 @@ class DH:
 class SSHCipher:
 	def __init__(self):	
 		self.server_host_keys = {
-			SSHPrivKey.name : SSHPrivKey.load_privkey_from_file('C:\\Users\\windev\\Desktop\\Responder3\\responder3\\tools\\ssh_server_test_cert.priv')
+			#SSHPrivKey.name : SSHPrivKey.load_privkey_from_file('C:\\Users\\windev\\Desktop\\Responder3\\responder3\\tools\\ssh_server_test_cert.priv')
+			SSHPrivKey.name : SSHPrivKey.load_privkey_from_file('/home/responder/Desktop/Responder3/responder3/tools/ssh_server_test_cert.priv')
 		}
 		
 		"""
@@ -573,6 +624,8 @@ class SSHCipher:
 		self.kex = DH(14)
 		self.server_cipher = None
 		self.client_cipher = None
+		self.server_hmac = None
+		self.client_hmac = None
 		
 	def generate_server_key_rply(self):
 		msg = SSH_MSG_KEXINIT()
@@ -670,12 +723,13 @@ class SSHCipher:
 		session_id =  H
 		print('H: %s' % H.hex())
 		
-		self.c2s_init_IV = self.kex_hash(K + H + b'A' + session_id).digest() # Initial IV client to server: HASH(K || H || "A" || session_id)
-		self.s2c_init_IV = self.kex_hash(K + H + b'B' + session_id).digest() # o   Initial IV server to client: HASH(K || H || "B" || session_id)
-		self.c2s_cipher_key = self.kex_hash(K + H + b'C' + session_id).digest() #o  Encryption key client to server: HASH(K || H || "C" || session_id)
-		self.s2c_cipher_key = self.kex_hash(K + H + b'D' + session_id).digest() #o  Encryption key server to client: HASH(K || H || "D" || session_id)
-		self.c2s_integrity_key = self.kex_hash(K + H + b'E' + session_id).digest() #o  Integrity key client to server: HASH(K || H || "E" || session_id)
-		self.s2c_integrity_key = self.kex_hash(K + H + b'F' + session_id).digest() #o  Integrity key server to client: HASH(K || H || "F" || session_id)
+		K_enc = SSHBytes.to_bytes(K)
+		self.c2s_init_IV = self.kex_hash(K_enc + H + b'A' + session_id).digest() # Initial IV client to server: HASH(K || H || "A" || session_id)
+		self.s2c_init_IV = self.kex_hash(K_enc + H + b'B' + session_id).digest() # o   Initial IV server to client: HASH(K || H || "B" || session_id)
+		self.c2s_cipher_key = self.kex_hash(K_enc + H + b'C' + session_id).digest() #o  Encryption key client to server: HASH(K || H || "C" || session_id)
+		self.s2c_cipher_key = self.kex_hash(K_enc + H + b'D' + session_id).digest() #o  Encryption key server to client: HASH(K || H || "D" || session_id)
+		self.c2s_integrity_key = self.kex_hash(K_enc + H + b'E' + session_id).digest() #o  Integrity key client to server: HASH(K || H || "E" || session_id)
+		self.s2c_integrity_key = self.kex_hash(K_enc + H + b'F' + session_id).digest() #o  Integrity key server to client: HASH(K || H || "F" || session_id)
 		
 		print('A: %s' % self.c2s_init_IV.hex())
 		print('B: %s' % self.s2c_init_IV.hex())
@@ -683,6 +737,11 @@ class SSHCipher:
 		print('D: %s' % self.s2c_cipher_key.hex())
 		print('E: %s' % self.c2s_integrity_key.hex())
 		print('F: %s' % self.s2c_integrity_key.hex())
+
+		self.server_cipher = AESModeOfOperationCTR(self.s2c_cipher_key[:16], Counter(int.from_bytes(self.s2c_init_IV[:16], byteorder = 'big', signed = False) ))
+		self.client_cipher = AESModeOfOperationCTR(self.c2s_cipher_key[:16], Counter(int.from_bytes(self.c2s_init_IV[:16], byteorder = 'big', signed = False) ))
+		self.server_hmac = hmac.new(self.s2c_integrity_key, digestmod=hashlib.sha1)
+		self.client_hmac = hmac.new(self.c2s_integrity_key, digestmod=hashlib.sha1)
 		
 		h_sig = SSHRSASignatureData()
 		h_sig.rsa_signature_blob = pkey.sign(H)
@@ -719,14 +778,33 @@ class SSHParser:
 				packet.random_padding = data[-packet.padding_length:]
 				packet.mac = None
 				return packet
+			else:
+				blocksize = 16
+				packet_length_enc = await readexactly_or_exc(reader, blocksize)
+				print(packet_length_enc)
+				packet_length_dec = cipher.client_cipher.decrypt(packet_length_enc)
+				print(packet_length_dec)
+				packet.packet_length = int.from_bytes(packet_length_dec[:4], byteorder = 'big', signed = False)
+				print(packet.packet_length)
+				if packet.packet_length > MAX_PACKET_LENGTH:
+					raise Exception('SSH packet too large!')
+				data_enc = await readexactly_or_exc(reader, packet.packet_length)
+				data = packet_length_dec[4:] + cipher.client_cipher.decrypt(data_enc)
+				packet.padding_length = data[0]
+				print(data)
+				message_type = SSHMessageNumber(data[1])
+				#print(message_type)
+				packet.payload = type2msg[message_type].from_bytes(data[1:(packet.packet_length - packet.padding_length)])
+				packet.random_padding = data[-packet.padding_length:]
+				packet.mac = await readexactly_or_exc(reader, self.client_hmac.digest_size) 
+				return packet
+
 		except Exception as e:
 			print(e)
 			
 	@staticmethod
 	def from_bytes(data):
-		return SSHParser.from_buffer(io.BytesIO(data))
-	
-	
+		return SSHParser.from_buffer(io.BytesIO(data))	
 	
 	@staticmethod
 	def from_buffer(buff):

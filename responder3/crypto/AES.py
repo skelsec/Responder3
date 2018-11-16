@@ -6,7 +6,7 @@ currently it's not the perfect wrapper, needs to be extended
 """
 
 from responder3.crypto.BASE import symmetricBASE, cipherMODE
-from responder3.crypto.pure.AES import AESModeOfOperationECB, AESModeOfOperationCBC
+from responder3.crypto.pure.AES import AESModeOfOperationECB, AESModeOfOperationCBC, AESModeOfOperationCTR
 try:
 	from Crypto.Cipher import AES as _pyCryptoAES
 except:
@@ -36,6 +36,8 @@ class pureAES(symmetricBASE):
 			self._cipher = AESModeOfOperationECB(self.key)
 		elif self.mode == cipherMODE.CBC:
 			self._cipher = AESModeOfOperationCBC(self.key, iv = self.IV)
+		elif self.mode == cipherMODE.CTR:
+			self._cipher = AESModeOfOperationCTR(self.key, iv = self.IV)
 		else:
 			raise Exception('Unknown cipher mode!')
 
@@ -60,6 +62,8 @@ class pyCryptoAES(symmetricBASE):
 		
 		elif self.mode == cipherMODE.CBC:
 			self._cipher = _pyCryptoAES.new(self.key, _pyCryptoAES.MODE_CBC, self.IV)
+		elif self.mode == cipherMODE.CTR:
+			self._cipher = _pyCryptoAES.new(self.key, _pyCryptoAES.MODE_CTR, self.IV)
 		else:
 			raise Exception('Unknown cipher mode!')
 		
@@ -76,6 +80,8 @@ class cryptographyAES(symmetricBASE):
 			self.IV = modes.ECB()
 		elif mode == cipherMODE.CBC:
 			self.IV = modes.CBC(IV)
+		elif mode == cipherMODE.CBC:
+			self.IV = modes.CTR(IV)
 		else:
 			raise Exception('Unknown cipher mode!')
 		

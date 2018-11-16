@@ -20,7 +20,7 @@ from responder3.core.servertemplate import ResponderServer, ResponderServerSessi
 class SSHSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
-		self.cipher = SSHCipher()
+		self.cipher = None
 		self.state = 'BANNER'
 		self.client_banner = None
 		self.server_banner = 'SSH-2.0-OpenSSH_7.2p2 Ubuntu-4ubuntu2.2'
@@ -59,9 +59,10 @@ class SSH(ResponderServer):
 			
 	async def key_exchange(self, msg, timeout = 1):
 		try:
+			cipher = SSHCipher()
 			self.session.client_kxinit = msg.payload.raw
 			packet = SSHPacket()
-			packet.payload = self.session.cipher.generate_server_key_rply()
+			packet.payload = cipher.generate_server_key_rply()
 			packet_data = packet.to_bytes()
 			self.session.server_kxinit = packet.payload.to_bytes()
 			
@@ -70,10 +71,10 @@ class SSH(ResponderServer):
 			await self.cwriter.drain()
 			
 			print('getting resp')
-			msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
+			msg = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = 20)
 			print(str(msg))
 			
-			payload = self.session.cipher.calculate_kex(self.session.client_banner.encode(), self.session.server_banner.encode(), self.session.client_kxinit, self.session.server_kxinit, msg.payload)
+			payload = cipher.calculate_kex(self.session.client_banner.encode(), self.session.server_banner.encode(), self.session.client_kxinit, self.session.server_kxinit, msg.payload)
 			
 			packet = SSHPacket()
 			packet.payload = payload
@@ -81,6 +82,13 @@ class SSH(ResponderServer):
 			print('resp')
 			self.cwriter.write(packet.to_bytes())
 			await self.cwriter.drain()
+
+			packet = SSHPacket()
+			packet.payload = SSH_MSG_NEWKEYS()
+			self.cwriter.write(packet.to_bytes())
+			await self.cwriter.drain()
+			
+			return cipher
 			
 		except Exception as e:
 			traceback.print_exc()
@@ -93,13 +101,37 @@ class SSH(ResponderServer):
 				if status == 'OK':
 					self.session.state = 'KEX'
 					continue
-				raise Exception('Banned exchange failed!')
+				raise Exception('Banner exchange failed!')
+
+			try:
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader, cipher = self.session.cipher), timeout=None)], return_exceptions=True)
+			except asyncio.CancelledError as e:
+				raise e
+			if isinstance(result[0], R3ConnectionClosed):
+				return
+			elif isinstance(result[0], Exception):
+				raise result[0]
+			else:
+				msg = result[0]
 					
-			msg = await asyncio.wait_for(self.parse_message(), timeout = 2)
 			print(str(msg))
 					
 			if self.session.state == 'KEX':
 				print('KEX')
-				await self.key_exchange(msg)
-				return
+				cipher = await self.key_exchange(msg)
+				self.session.state = 'EXPECT_NEWKEYS'
+				continue
+
+			elif self.session.state == 'EXPECT_NEWKEYS':
+				if not isinstance(msg.payload, SSH_MSG_NEWKEYS):
+					raise Exception('Expected NEWKEYS, got %s' % type(msg.payload))
+
+				self.session.cipher = cipher
+				self.session.state = 'AUTHENTICATION'
+				continue
+
+			elif self.session.state == 'AUTHENTICATION':
+				#here should be the atuhentication part
+				print('AUTHENTICATION')
+				break
 				

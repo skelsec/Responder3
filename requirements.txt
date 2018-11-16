@@ -2,3 +2,4 @@ asn1crypto
 oscrypto
 certbuilder
 websockets
+rsa

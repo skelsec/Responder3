@@ -34,6 +34,7 @@ setup(
 		"oscrypto",
 		"certbuilder",
 		"websockets",
+		"rsa",
 	],
 
 	python_requires='>=3.6',
