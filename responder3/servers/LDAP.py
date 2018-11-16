@@ -36,6 +36,77 @@ class LDAP(ResponderServer):
 	def parse_settings(self):
 		pass
 
+	async def send_search_done(self, msg_id):
+		t = {
+			'resultCode' : 0, # succsess
+			'matchedDN' : b'',
+			'diagnosticMessage' : b'',
+		}
+		po = {'searchResDone' : SearchResultDone(t)}
+		b= {
+			'messageID' : msg_id,
+			'protocolOp' : protocolOp(po),					
+		}
+
+		resp = LDAPMessage(b)
+		self.cwriter.write(resp.dump())
+		await self.cwriter.drain()
+
+
+	async def send_search_result(self, msg_id, search_result_dict):
+		po = {'searchResEntry' : SearchResultEntry(search_result_dict)}
+
+		b= {
+			'messageID' : msg_id,
+			'protocolOp' : protocolOp(po),					
+		}
+		resp = LDAPMessage(b)
+		self.cwriter.write(resp.dump())
+		await self.cwriter.drain()
+
+		await self.send_search_done(msg_id)
+		
+
+	async def send_capabilities(self, msg_id):
+		x = [
+				{
+					'type' : b'supportedCapabilities',
+					'attributes': [
+						'1.2.840.113556.1.4.800'.encode(),
+						'1.2.840.113556.1.4.1670'.encode(),
+						'1.2.840.113556.1.4.1791'.encode(),
+						'1.2.840.113556.1.4.1935'.encode(),
+						'1.2.840.113556.1.4.1935'.encode(),
+						'1.2.840.113556.1.4.2080'.encode(),
+						'1.2.840.113556.1.4.2237'.encode(),
+					],
+				},
+			]
+		t = {
+			'objectName' : b'', # invalidcredz
+			'attributes' : PartialAttributeList(x),
+		}
+		await self.send_search_result(msg_id, t)
+
+	async def send_sasl_mechanisms(self, msg_id):
+		x = [
+				{
+					'type' : b'supportedSASLMechanisms',
+					'attributes': [
+						#'GSSAPI'.encode(),
+						#'GSS-SPNEGO'.encode(),
+						#'DIGEST-MD5'.encode(),
+						#'EXTERNAL'.encode(),
+						'NTLM'.encode(),
+						],
+				},
+			]
+		t = {
+			'objectName' : b'', # invalidcredz
+			'attributes' : PartialAttributeList(x),
+		}
+		await self.send_search_result(msg_id, t)		
+
 	async def send_unauthorized_msg(self, msg_id):
 		t = {
 			'resultCode' : 49, # invalidcredz
@@ -73,11 +144,15 @@ class LDAP(ResponderServer):
 			#### Currenly we only support bindrequest, but windows adexplorer for example polls the capabilities first
 			#### That is not implement currently :(
 			#### TODO! 
-			print(type(msg['protocolOp'].chosen))
+			#print(type(msg['protocolOp'].chosen))
 			if not isinstance(msg['protocolOp'].chosen, BindRequest):
-				print(req['protocolOp']['attributes'])
+				if req['protocolOp']['attributes'][0] == b'supportedCapabilities':
+					await self.send_capabilities(req['messageID'])
+					continue
 
-				await self.send_unauthorized_msg(req['messageID'])
+				elif req['protocolOp']['attributes'][0] == b'supportedSASLMechanisms':
+					await self.send_sasl_mechanisms(req['messageID'])
+					continue
 			####
 			
 			if self.session.is_authed == False:
@@ -86,15 +161,14 @@ class LDAP(ResponderServer):
 				bindreq = msg['protocolOp'].chosen
 				auth_data = req['protocolOp']['authentication']
 				auth_type = bindreq['authentication'].chosen
-					
-				if isinstance(auth_type, SicilyPackageDiscovery):
-					self.session.auth_type = 'NTLM'
-					self.auth_handler = NTLMAUTHHandler()
-					self.auth_handler.setup()
-						
+											
 				if not self.session.auth_type:
+					if isinstance(auth_type, (SicilyPackageDiscovery, SicilyNegotiate)):
+						self.session.auth_type = 'NTLM'
+						self.auth_handler = NTLMAUTHHandler()
+						self.auth_handler.setup()
 						
-					if isinstance(auth_type, SaslCredentials):
+					elif isinstance(auth_type, SaslCredentials):
 						#extend here if you with to support other SASL types
 						if auth_data['mechanism'] == b'PLAIN':
 							username, password = auth_data['credentials'][1:].split(b'\x00')
@@ -104,7 +178,7 @@ class LDAP(ResponderServer):
 									password = password.decode(),
 									fullhash='%s:%s' % (username.decode(), password.decode())		
 								)
-							await self.log_credential(cred)
+							await self.logger.credential(cred)
 							
 						await self.send_unauthorized_msg(msg_id)
 						return
@@ -116,7 +190,7 @@ class LDAP(ResponderServer):
 									password = req['protocolOp']['authentication'].decode(),
 									fullhash='%s:%s' % (req['protocolOp']['name'].decode(), req['protocolOp']['authentication'].decode())		
 								)
-						await self.log_credential(cred)
+						await self.logger.credential(cred)
 						await self.send_unauthorized_msg(msg_id)
 						return
 						
@@ -165,7 +239,7 @@ class LDAP(ResponderServer):
 						status, challenge, creds = self.auth_handler.do_AUTH(auth_data)
 						if creds:
 							for cred in creds:
-								await self.log_credential(cred.to_credential())
+								await self.logger.credential(cred.to_credential())
 									
 						await self.send_unauthorized_msg(msg_id)
 						return

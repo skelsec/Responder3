@@ -1,4 +1,5 @@
 # https://www.ietf.org/rfc/rfc1939.txt
+# https://www.ietf.org/rfc/rfc2449.txt
 import hashlib
 import io
 import enum
@@ -11,6 +12,7 @@ from responder3.core.asyncio_helpers import *
 class POP3AuthMethod(enum.Enum):
 	PLAIN = enum.auto()
 	APOP = enum.auto()
+	AUTH = enum.auto()
 
 
 class POP3State(enum.Enum):
@@ -38,6 +40,8 @@ class POP3Command(enum.Enum):
 	USER = enum.auto()
 	PASS = enum.auto()
 	APOP = enum.auto()
+	CAPA = enum.auto()
+	AUTH = enum.auto()
 	XXXX = enum.auto()
 
 
@@ -49,13 +53,18 @@ POP3TransactionStateCommands = [
 	POP3Command.RETR,
 	POP3Command.DELE,
 	POP3Command.NOOP,
-	POP3Command.RSET
+	POP3Command.RSET,
+	POP3Command.CAPA,
+	POP3Command.QUIT,
 ]
 
 POP3AuthorizationStateCommands = [
 	POP3Command.USER,
 	POP3Command.PASS,
-	POP3Command.APOP
+	POP3Command.APOP,
+	POP3Command.CAPA,
+	POP3Command.QUIT,
+	POP3Command.AUTH,
 ]
 
 POP3UpdateStateCommands = [
@@ -116,8 +125,35 @@ class POP3QUITCmd:
 		t += 'ARGS    : %s\r\n' % None
 		return t
 
+class POP3CAPACmd:
+	# NO ARGS
+	def __init__(self, encoding='ascii'):
+		self.encoding = encoding
+		self.command = POP3Command.CAPA
 
-class POP3STATCmd():
+	def from_buffer(buff, encoding='ascii'):
+		return POP3CAPACmd.from_bytes(buff.readline(), encoding)
+
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = POP3CAPACmd()
+		cmd.command = POP3Command[bbuff]
+		return cmd
+
+	def construct():
+		cmd = POP3CAPACmd()
+		return cmd
+
+	def to_bytes(self):
+		return ('%s %s\r\n' % self.command.value).encode(self.encoding)
+
+	def __repr__(self):
+		t = '== POP3 %s Command ==\r\n' % self.command.name
+		t += 'Command : %s\r\n' % self.command.name
+		return t
+
+
+class POP3STATCmd:
 	# NO ARGS
 	def __init__(self, encoding='ascii'):
 		self.encoding = encoding
@@ -344,6 +380,37 @@ class POP3NOOPCmd():
 		t += 'ARGS    : %s\r\n' % None
 		return t
 
+class POP3AUTHCmd:
+	def __init__(self, encoding='ascii'):
+		self.encoding = encoding
+		self.command = POP3Command.AUTH
+		self.auth_type = None
+
+	def from_buffer(buff, encoding='ascii'):
+		return POP3AUTHCmd.from_bytes(buff.readline(), encoding)
+
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = POP3AUTHCmd()
+		t, bbuff = read_element(bbuff, toend=True)
+		cmd.command = POP3Command[t]
+		if bbuff.strip() != '':
+			cmd.auth_type, bbuff = read_element(bbuff, toend=True)
+		return cmd
+
+	def construct(auth_type):
+		cmd = POP3AUTHCmd()
+		cmd.auth_type = auth_type
+		return cmd
+
+	def to_bytes(self):
+		return ('%s %s\r\n' % (self.command.value, self.auth_type)).encode(self.encoding)
+
+	def __repr__(self):
+		t = '== POP3 %s Command ==\r\n' % self.command.name
+		t += 'Command   : %s\r\n' % self.command.name
+		t += 'Auth-type : %s\r\n' % self.auth_type
+		return t
 
 class POP3USERCmd():
 	def __init__(self, encoding='ascii'):
@@ -655,6 +722,8 @@ class POP3AuthHandler:
 	def __init__(self, authtype, creds=None, salt = None):
 		if authtype == POP3AuthMethod.PLAIN:
 			self.authahndler = POP3PlainAuth(creds)
+		elif authtype == POP3AuthMethod.AUTH:
+			self.authahndler = POP3AUTHAuth(creds)
 		elif authtype == POP3AuthMethod.APOP:
 			self.authahndler = POP3APOPAuth(creds, salt)
 		else:
@@ -662,6 +731,48 @@ class POP3AuthHandler:
 
 	def do_AUTH(self, pop3cmd, salt = None):
 		return self.authahndler.update_creds(pop3cmd)
+
+#
+#
+
+class POP3AUTHAuth:
+	def __init__(self, creds):
+		self.creds = creds
+		self.username = None
+		self.password = None
+
+	def update_creds(self, pop3cmd):
+		if pop3cmd.command == POP3Command.AUTH:
+			return POP3AuthStatus.MORE_DATA_NEEDED, b'\r\n'
+		
+		if not self.username:
+			self.username = pop3cmd.username
+			return POP3AuthStatus.MORE_DATA_NEEDED, POP3OKResp.construct('').to_bytes()
+
+		elif not self.password:
+			self.password = pop3cmd.password
+
+		else:
+			raise Exception('Wrong command for authentication!')
+
+		if self.username is not None and self.password is not None:
+			return self.verify_creds()
+
+		else:
+			return POP3AuthStatus.MORE_DATA_NEEDED, b'\r\n'
+
+	def verify_creds(self):
+		c = POP3PlainCred(self.username, self.password)
+		if self.creds is None:
+			return POP3AuthStatus.OK, c.toCredential()
+		else:
+			if c.username in self.creds:
+				if self.creds[c.username] == c.password:
+					return POP3AuthStatus.OK, c.toCredential()
+			else:
+				return POP3AuthStatus.NO, c.toCredential()
+
+		return POP3AuthStatus.NO, c.toCredential()
 
 
 class POP3APOPAuth:
@@ -728,7 +839,7 @@ class POP3PlainAuth:
 			return self.verify_creds()
 
 		else:
-			return POP3AuthStatus.MORE_DATA_NEEDED, None
+			return POP3AuthStatus.MORE_DATA_NEEDED, POP3OKResp.construct('').to_bytes()
 
 	def verify_creds(self):
 		c = POP3PlainCred(self.username, self.password)
@@ -775,5 +886,7 @@ POP3CMD = {
 	POP3Command.USER: POP3USERCmd,
 	POP3Command.PASS: POP3PASSCmd,
 	POP3Command.APOP: POP3APOPCmd,
+	POP3Command.CAPA: POP3CAPACmd,
 	POP3Command.XXXX: POP3XXXXCmd,
+	POP3Command.AUTH: POP3AUTHCmd,
 }

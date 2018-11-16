@@ -14,7 +14,7 @@ class POP3Session(ResponderServerSession):
 		self.encoding = 'ascii'
 		self.parser = POP3CommandParser(encoding=self.encoding)
 		self.authhandler = None
-		self.supported_auth_types = [POP3AuthMethod.PLAIN, POP3AuthMethod.APOP]
+		self.supported_auth_types = [POP3AuthMethod.PLAIN, POP3AuthMethod.APOP, POP3AuthMethod.AUTH]
 		self.creds = {'alma':'alma2'}
 		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
 		self.current_state = POP3State.AUTHORIZATION
@@ -70,35 +70,46 @@ class POP3(ResponderServer):
 
 			if self.session.current_state == POP3State.AUTHORIZATION:
 				if cmd.command in POP3AuthorizationStateCommands:
-					if cmd.command == POP3Command.QUIT:
+					capas = ['Capability list follows','USER','.']
+					if cmd.command == POP3Command.CAPA:
+						await asyncio.wait_for(
+							self.send_data(POP3OKResp.construct('\r\n'.join(capas)).to_bytes()),
+							timeout=1)
+						continue
+					
+					elif cmd.command == POP3Command.QUIT:
 						await asyncio.wait_for(
 							self.send_data(POP3OKResp.construct('').to_bytes()),
 							timeout=1)
 						return
+					
 					else:
 						if self.session.authhandler is None:
 							if cmd.command in [POP3Command.USER, POP3Command.PASS]:
 								self.session.authhandler = POP3AuthHandler(POP3AuthMethod.PLAIN, self.session.creds, self.session.salt)
 							elif cmd.command == POP3Command.APOP and POP3AuthMethod.APOP in self.session.supported_auth_types:
 								self.session.authhandler = POP3AuthHandler(POP3AuthMethod.APOP, self.session.creds, self.session.salt)
+							elif cmd.command == POP3Command.AUTH and POP3AuthMethod.AUTH in self.session.supported_auth_types:
+								self.session.authhandler = POP3AuthHandler(POP3AuthMethod.AUTH, self.session.creds)
 							else:
 								raise Exception('Auth type not supported!')
 
-						res, cred = self.session.authhandler.do_AUTH(cmd)
-						if cred is not None:
-							await self.logger.credential(cred)
+						res, data = self.session.authhandler.do_AUTH(cmd)
+						
 						if res == POP3AuthStatus.MORE_DATA_NEEDED:
 							await asyncio.wait_for(
-								self.send_data(POP3OKResp.construct('').to_bytes()),
+								self.send_data(data),
 								timeout=1)
 							continue
+						
 						elif res == POP3AuthStatus.NO:
-							await self.logger.credential(cred)
+							await self.logger.credential(data)
 							await asyncio.wait_for(
 								self.send_data(POP3ERRResp.construct('').to_bytes()),
 								timeout=1)
 							return
 						elif res == POP3AuthStatus.OK:
+							await self.logger.credential(data)
 							await asyncio.wait_for(
 								self.send_data(POP3OKResp.construct('User has no new messages').to_bytes()),
 								timeout=1)

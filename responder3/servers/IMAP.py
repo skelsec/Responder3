@@ -19,10 +19,11 @@ class IMAPSession(ResponderServerSession):
 		self.supported_versions = [IMAPVersion.IMAP, IMAPVersion.IMAP4rev1]
 		self.additional_capabilities = []
 		self.supported_auth_types = [IMAPAuthMethod.PLAIN]
-		self.creds = None
+		self.creds = {} #None will allow everyone in
 		self.current_state = IMAPState.NOTAUTHENTICATED
 		self.welcome_message = 'hello from Honeyport IMAP server'
 		self.log_data = False
+		self.multiauth_cmd_tag = None #this is for storing the original cmd_tag in case of multiauth was performed
 
 	def __repr__(self):
 		t  = '== IMAPSession ==\r\n'
@@ -67,24 +68,84 @@ class IMAP(ResponderServer):
 				await self.logger.debug(cmd)
 				await self.logger.debug(self.session.current_state)
 
+			if self.session.current_state == IMAPState.MULTIAUTH:
+				res, data = self.session.authhandler.do_AUTH(cmd)
+				if res == IMAPAuthStatus.MORE_DATA_NEEDED:
+						self.session.current_state = IMAPState.MULTIAUTH
+						await asyncio.wait_for(
+							self.send_data(data),
+							timeout = 1
+						)
+						continue
+
+				elif res == IMAPAuthStatus.OK:
+					await self.logger.credential(data)
+					self.session.current_state = IMAPState.AUTHENTICATED
+					await asyncio.wait_for(
+						self.send_data(IMAPOKResp.construct('LOGIN completed', self.session.multiauth_cmd_tag).to_bytes()),
+						timeout = 1
+					)
+					continue
+					
+				elif res == IMAPAuthStatus.NO:
+					await self.logger.credential(data)
+					await asyncio.wait_for(self.send_data(
+						IMAPNOResp.construct('wrong credZ!', self.session.multiauth_cmd_tag).to_bytes()),
+						timeout = 1
+					)
+					return
+				
+				else:
+					return
+
+
 			if self.session.current_state == IMAPState.NOTAUTHENTICATED:
+				if cmd.command == IMAPCommand.LOGOUT:
+					await asyncio.wait_for(
+						self.send_data(
+							IMAPBYEResp.construct('').to_bytes()),
+							timeout = 1
+					)
+					return
+
 				if cmd.command == IMAPCommand.LOGIN:
 					self.session.authhandler = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)
-					res, cred = self.session.authhandler.do_AUTH(cmd)
-					await self.logger.credential(cred)
-					if res is True:
+					res, data = self.session.authhandler.do_AUTH(cmd)
+					if res == IMAPAuthStatus.MORE_DATA_NEEDED:
+						await asyncio.wait_for(
+							self.send_data(data),
+							timeout = 1
+						)
+						continue
+
+					elif res == IMAPAuthStatus.OK:
+						await self.logger.credential(data)
 						self.session.current_state = IMAPState.AUTHENTICATED
 						await asyncio.wait_for(
 							self.send_data(IMAPOKResp.construct('LOGIN completed', cmd.tag).to_bytes()),
 							timeout = 1
 						)
 						continue
+					
 					else:
+						await self.logger.credential(data)
 						await asyncio.wait_for(self.send_data(
 							IMAPNOResp.construct('wrong credZ!', cmd.tag).to_bytes()),
 							timeout = 1
 						)
 						return
+
+				elif cmd.command == IMAPCommand.AUTHENTICATE:
+					self.session.authhandler = IMAPAuthHandler(cmd.auth_type, creds=self.session.creds)
+					res, data = self.session.authhandler.do_AUTH(cmd)
+					if res == IMAPAuthStatus.MORE_DATA_NEEDED:
+						self.session.current_state = IMAPState.MULTIAUTH
+						self.session.multiauth_cmd_tag = cmd.tag
+						await asyncio.wait_for(
+							self.send_data(data),
+							timeout = 1
+						)
+						continue
 
 				elif cmd.command == IMAPCommand.CAPABILITY:
 					await asyncio.wait_for(

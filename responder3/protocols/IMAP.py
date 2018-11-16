@@ -3,10 +3,17 @@
 import io
 import enum
 import asyncio
+import traceback
+import base64
 
 from responder3.core.commons import read_element
 from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
+
+class IMAPAuthStatus(enum.Enum):
+	OK = enum.auto()
+	NO = enum.auto()
+	MORE_DATA_NEEDED = enum.auto()
 
 class IMAPVersion(enum.Enum):
 	IMAP    = 'IMAP'
@@ -18,6 +25,7 @@ class IMAPAuthMethod(enum.Enum):
 
 class IMAPState(enum.Enum):
 	NOTAUTHENTICATED = enum.auto()
+	MULTIAUTH        = enum.auto()
 	AUTHENTICATED    = enum.auto()
 	SELECTED         = enum.auto()
 	LOGOUT           = enum.auto()
@@ -87,6 +95,7 @@ class IMAPCommandParser:
 		line = buff.readline()
 		try:
 			tag, command, *params = line.strip().decode(self.encoding).split(' ')
+			command = command.upper()
 			if command in IMAPCommand.__members__:
 				cmd = IMAPCMD[IMAPCommand[command]].from_bytes(line)
 			else:
@@ -94,7 +103,7 @@ class IMAPCommandParser:
 			return cmd
 
 		except Exception as e:
-			print(str(e))
+			traceback.print_exc()
 			return IMAPXXX.from_bytes(line)
 
 
@@ -174,8 +183,8 @@ class IMAPCAPABILITYCmd:
 	def from_bytes(bbuff, encoding = 'utf-7'):
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = IMAPCAPABILITYCmd()
-		cmd.tag, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[bbuff]
+		cmd.tag, bbuff = read_element(bbuff, toend = True)
+		cmd.command = IMAPCommand[bbuff.upper()]
 		return cmd
 
 	@staticmethod
@@ -208,7 +217,7 @@ class IMAPCAPABILITYResp:
 		resp = IMAPCAPABILITYResp()
 		resp.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		resp.command = IMAPCommand[t]
+		resp.command = IMAPCommand[t.upper()]
 		resp.capabilities = bbuff.split(' ')
 
 		return resp
@@ -250,7 +259,7 @@ class IMAPNOOPCmd():
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = IMAPNOOPCmd()
 		cmd.tag, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[bbuff]
+		cmd.command = IMAPCommand[bbuff.upper()]
 		return cmd
 
 	@staticmethod
@@ -283,7 +292,7 @@ class IMAPLOGOUTCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = IMAPLOGOUTCmd()
 		cmd.tag, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[bbuff]
+		cmd.command = IMAPCommand[bbuff.upper()]
 		return cmd
 
 	@staticmethod
@@ -315,7 +324,7 @@ class IMAPSTARTTLSCmd:
 		bbuff = bbuff.decode(encoding).strip()
 		cmd = IMAPSTARTTLSCmd()
 		cmd.tag, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[bbuff]
+		cmd.command = IMAPCommand[bbuff.upper()]
 		return cmd
 
 	@staticmethod
@@ -338,7 +347,7 @@ class IMAPAUTHENTICATECmd:
 	def __init__(self):
 		self.tag     = None
 		self.command = IMAPCommand.AUTHENTICATE
-		self.authmecha = None
+		self.auth_type = None
 
 	@staticmethod
 	def from_buffer(buff, encoding = 'utf-7'):
@@ -352,25 +361,25 @@ class IMAPAUTHENTICATECmd:
 			cmd = IMAPAUTHENTICATECmd()
 			cmd.tag, bbuff = read_element(bbuff)
 			t, bbuff = read_element(bbuff)
-			cmd.command = IMAPCommand[t]
-			cmd.authmecha = bbuff
+			cmd.command = IMAPCommand[t.upper()]
+			cmd.auth_type = IMAPAuthMethod[bbuff.upper()]
 			return cmd
 		except Exception as e:
 			print(str(e))
 			raise e
 
 	@staticmethod
-	def construct(tag, authmecha):
+	def construct(tag, auth_type):
 		cmd = IMAPAUTHENTICATECmd()
 		cmd.tag = tag
-		cmd.authmecha = authmecha
+		cmd.auth_type = auth_type
 		return cmd
 
 	def to_bytes(self, encoding = 'utf-7'):
-		return ('%s %s %s \r\n' % self.tag, self.command.value, self.authmecha).encode(encoding)
+		return ('%s %s %s \r\n' % self.tag, self.command.value, self.auth_type).encode(encoding)
 
 	def __str__(self):
-		return '%s %s %s\r\n' % (self.tag, self.command.name, self.authmecha)
+		return '%s %s %s\r\n' % (self.tag, self.command.name, self.auth_type)
 
 
 class IMAPLOGINCmd:
@@ -393,7 +402,7 @@ class IMAPLOGINCmd:
 		cmd = IMAPLOGINCmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.username, bbuff = read_element(bbuff)
 		cmd.password = bbuff
 		return cmd
@@ -435,7 +444,7 @@ class IMAPSELECTCmd:
 			cmd = IMAPSELECTCmd()
 			cmd.tag, bbuff = read_element(bbuff)
 			t, bbuff = read_element(bbuff)
-			cmd.command = IMAPCommand[t]
+			cmd.command = IMAPCommand[t.upper()]
 			cmd.mailboxname = bbuff
 			return cmd
 		except Exception as e:
@@ -477,7 +486,7 @@ class IMAPEXAMINECmd:
 		cmd = IMAPEXAMINECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -514,7 +523,7 @@ class IMAPCREATECmd:
 		cmd = IMAPCREATECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -551,7 +560,7 @@ class IMAPDELETECmd:
 		cmd = IMAPDELETECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -590,7 +599,7 @@ class IMAPRENAMECmd:
 		cmd = IMAPRENAMECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -628,7 +637,7 @@ class IMAPSUBSCRIBECmd:
 		cmd = IMAPSUBSCRIBECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -665,7 +674,7 @@ class IMAPUNSUBSCRIBECmd:
 		cmd = IMAPUNSUBSCRIBECmd()
 		cmd.tag, bbuff = read_element(bbuff)
 		t, bbuff = read_element(bbuff)
-		cmd.command = IMAPCommand[t]
+		cmd.command = IMAPCommand[t.upper()]
 		cmd.mailboxname = bbuff
 		return cmd
 
@@ -977,6 +986,9 @@ class IMAPBYEResp:
 
 		return resp
 
+	def to_bytes(self):
+		return ('%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')).encode('utf-7')
+
 	def __str__(self):
 		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
 
@@ -1010,6 +1022,9 @@ class IMAPBADResp:
 		else:
 			resp.args = [args]
 		return resp
+
+	def to_bytes(self):
+		return ('%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')).encode('utf-7')
 
 	def __str__(self):
 		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
@@ -1045,6 +1060,9 @@ class IMAPNOResp:
 
 		return resp
 
+	def to_bytes(self):
+		return ('%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')).encode('utf-7')
+
 	def __str__(self):
 		return '%s %s %s\r\n' % (self.tag, self.status.name, ' '.join(self.args) if len(self.args) > 0 else '')
 
@@ -1065,18 +1083,27 @@ class IMAPPlainAuth:
 		self.creds = creds
 
 	def verify_creds(self, cmd):
+		if isinstance(cmd,IMAPXXX):
+			cred_data = base64.b64decode(cmd.data).decode()
+			username, password = cred_data[1:].split('\x00')
+			c = IMAPPlainCred(username, password)
+			return IMAPAuthStatus.NO, c.to_credential()
+
+		if cmd.command == IMAPCommand.AUTHENTICATE:
+			return IMAPAuthStatus.MORE_DATA_NEEDED, b'+\r\n'
+
 		c = IMAPPlainCred(cmd.username, cmd.password)
 		if self.creds is None:
-			return True, c.to_credential()
+			return IMAPAuthStatus.OK, c.to_credential()
 		else:
 			if c.username in self.creds:
 				if self.creds[c.username] == c.password:
-					return True, c.to_credential()
+					return IMAPAuthStatus.OK, c.to_credential()
 
 			else:
-				return False, c.to_credential()
+				return IMAPAuthStatus.NO, c.to_credential()
 
-		return False, c.to_credential()
+		return IMAPAuthStatus.NO, c.to_credential()
 
 
 class IMAPPlainCred:

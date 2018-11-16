@@ -23,6 +23,20 @@ UNIVERSAL = 0
 APPLICATION = 1
 CONTEXT = 2
 
+#https://msdn.microsoft.com/en-us/library/cc223359.aspx
+class MSLDAPCapabilities(core.ObjectIdentifier):
+    _map = {
+		'1.2.840.113556.1.4.800': 'LDAP_CAP_ACTIVE_DIRECTORY_OID',
+		'1.2.840.113556.1.4.1791': 'LDAP_CAP_ACTIVE_DIRECTORY_LDAP_INTEG_OID',
+		'1.2.840.113556.1.4.1670': 'LDAP_CAP_ACTIVE_DIRECTORY_V51_OID',
+		'1.2.840.113556.1.4.1880': 'LDAP_CAP_ACTIVE_DIRECTORY_ADAM_DIGEST_OID',
+		'1.2.840.113556.1.4.1851': 'LDAP_CAP_ACTIVE_DIRECTORY_ADAM_OID',
+		'1.2.840.113556.1.4.1920': 'LDAP_CAP_ACTIVE_DIRECTORY_PARTIAL_SECRETS_OID',
+		'1.2.840.113556.1.4.1935': 'LDAP_CAP_ACTIVE_DIRECTORY_V60_OID',
+		'1.2.840.113556.1.4.2080': 'LDAP_CAP_ACTIVE_DIRECTORY_V61_R2_OID',
+		'1.2.840.113556.1.4.2237': 'LDAP_CAP_ACTIVE_DIRECTORY_W8_OID',
+	}
+
 class scope(core.Enumerated):
 	_map = {
 		0 : 'baseObject',
@@ -221,66 +235,52 @@ class SearchRequest(core.Sequence):
 		('filter', Filter),
 		('attributes', AttributeSelection),
 	]
-"""
-SearchRequest ::= [APPLICATION 3] SEQUENCE {
-             baseObject      LDAPDN,
-             scope           ENUMERATED {
-                  baseObject              (0),
-                  singleLevel             (1),
-                  wholeSubtree            (2),
-                  ...  },
-             derefAliases    ENUMERATED {
-                  neverDerefAliases       (0),
-                  derefInSearching        (1),
-                  derefFindingBaseObj     (2),
-                  derefAlways             (3) },
-             sizeLimit       INTEGER (0 ..  maxInt),
-             timeLimit       INTEGER (0 ..  maxInt),
-             typesOnly       BOOLEAN,
-             filter          Filter,
-             attributes      AttributeSelection }
 
-        AttributeSelection ::= SEQUENCE OF selector LDAPString
-                        -- The LDAPString is constrained to
-                        -- <attributeSelector> in Section 4.5.1.8
+class AttributeValueSet(core.SetOf):
+	_child_spec = AttributeValue
 
-        Filter ::= CHOICE {
-             and             [0] SET SIZE (1..MAX) OF filter Filter,
-             or              [1] SET SIZE (1..MAX) OF filter Filter,
-             not             [2] Filter,
-             equalityMatch   [3] AttributeValueAssertion,
-             substrings      [4] SubstringFilter,
-             greaterOrEqual  [5] AttributeValueAssertion,
-             lessOrEqual     [6] AttributeValueAssertion,
-             present         [7] AttributeDescription,
-             approxMatch     [8] AttributeValueAssertion,
-             extensibleMatch [9] MatchingRuleAssertion,
-             ...  }
 
-        SubstringFilter ::= SEQUENCE {
-             type           AttributeDescription,
-             substrings     SEQUENCE SIZE (1..MAX) OF substring CHOICE {
-                  initial [0] AssertionValue,  -- can occur at most once
-                  any     [1] AssertionValue,
-                  final   [2] AssertionValue } -- can occur at most once
-             }
+class PartialAttribute(core.Sequence):
+	_fields = [
+		('type', AttributeDescription),
+		('attributes', AttributeValueSet),
+	]
 
-        MatchingRuleAssertion ::= SEQUENCE {
-             matchingRule    [1] MatchingRuleId OPTIONAL,
-             type            [2] AttributeDescription OPTIONAL,
-             matchValue      [3] AssertionValue,
-             dnAttributes    [4] BOOLEAN DEFAULT FALSE }
-"""
+class PartialAttributeList(core.SequenceOf):
+	_child_spec = PartialAttribute
+
+class SearchResultEntry(core.Sequence):
+	_fields = [
+		('objectName', LDAPDN),
+		('attributes', PartialAttributeList),
+	]
+
+class SearchResultReference(core.SequenceOf):
+	_child_spec = URI
+
+class UnbindRequest(core.Null):
+	pass
+
+class LDAPResult(core.Sequence):
+	_fields = [
+		('resultCode', resultCode ),
+		('matchedDN', LDAPDN),
+		('diagnosticMessage', LDAPString),
+		('referral', Referral,  {'implicit': (CONTEXT, 3), 'optional': True}),
+	]
+
+class SearchResultDone(LDAPResult):
+	pass
 
 class protocolOp(core.Choice):
 	_alternatives = [
 		('bindRequest', BindRequest, {'implicit': (APPLICATION , 0) }  ),
 		('bindResponse', BindResponse, {'implicit': (APPLICATION , 1) }  ),
-		#('unbindRequest', UnbindRequest, {'implicit': (APPLICATION,2) }  ),
+		('unbindRequest', UnbindRequest, {'implicit': (APPLICATION,2) }  ),
 		('searchRequest', SearchRequest, {'implicit': (APPLICATION,3) }  ),
-		#('searchResEntry', searchResEntry, {'implicit': (APPLICATION,0) }  ),
-		#('searchResDone', SearchResultDone, {'implicit': (APPLICATION,0) }  ),
-		#('searchResRef', SearchResultReference, {'implicit': (APPLICATION,0) }  ),
+		('searchResEntry', SearchResultEntry, {'implicit': (APPLICATION,4) }  ),
+		('searchResDone', SearchResultDone, {'implicit': (APPLICATION,5) }  ),
+		('searchResRef', SearchResultReference, {'implicit': (APPLICATION,6) }  ),
 		#('modifyRequest', ModifyRequest, {'implicit': (APPLICATION,0) }  ),
 		#('modifyResponse', ModifyResponse, {'implicit': (APPLICATION,0) }  ),
 		#('addRequest', AddRequest, {'implicit': (APPLICATION,0) }  ),
@@ -304,13 +304,9 @@ class LDAPMessage(core.Sequence):
 		('controls', Controls, {'implicit': (CONTEXT, 0), 'optional': True}),	
 	]
 	
-class LDAPResult(core.Sequence):
-	_fields = [
-		('resultCode', resultCode ),
-		('matchedDN', LDAPDN),
-		('diagnosticMessage', LDAPString),
-		('referral', Referral,  {'implicit': (CONTEXT, 3), 'optional': True}),
-	]
+
+
+
 
 class LdapParser:
 	def __init__(self):

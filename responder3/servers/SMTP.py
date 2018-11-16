@@ -77,6 +77,12 @@ class SMTP(ResponderServer):
 				await self.logger.debug(cmd)
 				await self.logger.debug(self.session.current_state)
 
+			if cmd.command == SMTPCommand.QUIT:
+				await asyncio.wait_for(
+						self.send_data(SMTPReply.construct(221).to_bytes()),
+						timeout=1)
+				return
+
 			if self.session.current_state == SMTPServerState.START:
 				if cmd.command == SMTPEHLOCmd or cmd.command == SMTPHELOCmd:
 					if self.session.supported_auth_types is None:

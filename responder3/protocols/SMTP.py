@@ -500,7 +500,7 @@ class SMTPAUTHCmd:
 
 class SMTPQUITCmd:
 	def __init__(self):
-		self.command   = SMTPCommand.NOOP
+		self.command   = SMTPCommand.QUIT
 
 	def construct(self):
 		pass
