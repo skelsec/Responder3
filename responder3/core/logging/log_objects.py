@@ -15,6 +15,7 @@ class LogObjectType(enum.Enum):
 	POISONRESULT = 7
 	EMAILENTRY = 8
 	TRAFFICLOG = 9
+	REMOTELOG = 10
 
 	
 class RemoteLog:
@@ -454,6 +455,7 @@ logobj2type = {
 	LogObjectType.POISONRESULT : PoisonResult,
 	LogObjectType.EMAILENTRY : EmailEntry,
 	LogObjectType.TRAFFICLOG : TrafficLog,
+	LogObjectType.REMOTELOG : RemoteLog,
 }
 
 logobj2type_inv = {v: k for k, v in logobj2type.items()}
