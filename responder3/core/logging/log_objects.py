@@ -25,7 +25,18 @@ class RemoteLog:
 		self.log_obj = logobj2type[LogObjectType(rlog.log_obj_type)].from_dict(rlog.log_obj)
 		
 	def __str__(self):
-		return "[%s][%s:%s] %s" % (self.client_id, self.remote_ip, self.remote_port, str(self.log_obj)) 
+		return "[%s][%s:%s] %s" % (self.client_id, self.remote_ip, self.remote_port, str(self.log_obj))
+
+	def to_dict(self):
+		t = {}
+		t['remote_ip'] = self.remote_ip
+		t['remote_port'] = self.remote_port
+		t['client_id'] = self.client_id
+		t['log_obj'] = self.log_obj.to_dict()
+		return t 
+
+	def to_json(self):
+		return json.dumps(self.to_dict(), cls=UniversalEncoder)
 		
 class LogEntry:
 	"""
