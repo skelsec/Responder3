@@ -180,6 +180,7 @@ def r3trafficlogexception(funct):
 		this = args[0] #renaming self to 'this'
 		try:
 			t = await funct(*args, **kwargs)
+			return t
 		except asyncio.CancelledError:
 			await this.logger.debug('Got cancelled! Probably timeout')
 		except:				

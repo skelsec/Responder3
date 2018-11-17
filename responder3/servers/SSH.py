@@ -27,6 +27,14 @@ class SSHSession(ResponderServerSession):
 		self.client_kxinit = None
 		self.server_kxinit = None
 		self.parser = SSHParser
+		self.sequence_number = 0
+
+	def increase_seq_no(self):
+		self.sequence_number += 1
+		self.sequence_number = self.sequence_number % 2**32
+
+	def get_seq_no(self):
+		return self.sequence_number.to_bytes(4, byteorder = 'big', signed = False)
 
 	def __repr__(self):
 		t  = '== SSHSession ==\r\n'
@@ -39,6 +47,32 @@ class SSH(ResponderServer):
 		
 	def parse_settings(self):
 		pass
+
+	@r3trafficlogexception
+	async def send_enc_packet(self, payload):
+		packet = SSHPacket()
+		packet.payload = payload
+
+		data = packet.to_bytes(cipher = self.session.cipher)
+		data_enc = self.session.cipher.server_cipher.encrypt(data)
+		mac_obj = self.session.cipher.get_server_hmac()
+		mac_obj.update(self.session.get_seq_no())
+		mac_obj.update(data)
+		mac = mac_obj.digest()
+
+		self.cwriter.write(data_enc + mac)
+		await self.cwriter.drain()
+		self.session.increase_seq_no()
+
+	@r3trafficlogexception
+	async def send_packet(self, payload):
+		packet = SSHPacket()
+		packet.payload = payload
+		self.cwriter.write(packet.to_bytes())
+		await self.cwriter.drain()
+
+		self.session.increase_seq_no()
+
 
 	async def banner_exchange(self, timeout=1):
 		try:
@@ -56,55 +90,44 @@ class SSH(ResponderServer):
 		except Exception as e:
 			print(e)
 			return 'NO'
-			
+		
+	@r3trafficlogexception	
 	async def key_exchange(self, msg, timeout = 1):
-		try:
 			cipher = SSHCipher()
 			self.session.client_kxinit = msg.payload.raw
+
+			##############################################
 			packet = SSHPacket()
 			packet.payload = cipher.generate_server_key_rply()
 			packet_data = packet.to_bytes()
 			self.session.server_kxinit = packet.payload.to_bytes()
+			############################################
+
+			await self.send_packet(packet.payload)
 			
-			print('resp')
-			self.cwriter.write(packet_data)
-			await self.cwriter.drain()
-			
-			print('getting resp')
 			msg = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = 20)
 			print(str(msg))
 			
 			payload = cipher.calculate_kex(self.session.client_banner.encode(), self.session.server_banner.encode(), self.session.client_kxinit, self.session.server_kxinit, msg.payload)
 			
-			packet = SSHPacket()
-			packet.payload = payload
-			
-			print('resp')
-			self.cwriter.write(packet.to_bytes())
-			await self.cwriter.drain()
-
-			packet = SSHPacket()
-			packet.payload = SSH_MSG_NEWKEYS()
-			self.cwriter.write(packet.to_bytes())
-			await self.cwriter.drain()
+			await self.send_packet(payload)
+			await self.send_packet(SSH_MSG_NEWKEYS())
 			
 			return cipher
-			
-		except Exception as e:
-			traceback.print_exc()
 		
 	@r3trafficlogexception
 	async def run(self):
 		while not self.shutdown_evt.is_set():
 			if self.session.state == 'BANNER':
 				status = await self.banner_exchange()
+				print(status)
 				if status == 'OK':
 					self.session.state = 'KEX'
 					continue
 				raise Exception('Banner exchange failed!')
 
 			try:
-				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader, cipher = self.session.cipher), timeout=None)], return_exceptions=True)
+				result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader, cipher = self.session.cipher, sequence_number = self.session.get_seq_no()), timeout=None)], return_exceptions=True)
 			except asyncio.CancelledError as e:
 				raise e
 			if isinstance(result[0], R3ConnectionClosed):
@@ -115,6 +138,7 @@ class SSH(ResponderServer):
 				msg = result[0]
 					
 			print(str(msg))
+			
 					
 			if self.session.state == 'KEX':
 				print('KEX')
@@ -133,5 +157,45 @@ class SSH(ResponderServer):
 			elif self.session.state == 'AUTHENTICATION':
 				#here should be the atuhentication part
 				print('AUTHENTICATION')
-				break
-				
+				if isinstance(msg.payload, SSH_MSG_USERAUTH_REQUEST):
+					print('SSH_MSG_USERAUTH_REQUEST')
+					print(msg.payload)
+
+					if msg.payload.method_name.lower() == 'password':
+						cred = Credential(
+									credtype = 'PLAIN',
+									username = msg.payload.user_name, 
+									password = msg.payload.method.password,
+									fullhash='%s:%s' % (msg.payload.user_name, msg.payload.method.password)		
+								)
+						await self.logger.credential(cred)
+						payload = SSH_MSG_USERAUTH_FAILURE()
+						payload.authentications = ['password']
+						payload.partial_success = False
+						await self.send_enc_packet(payload)
+						continue
+
+					if msg.payload.method_name.lower() == 'none':
+						payload = SSH_MSG_USERAUTH_FAILURE()
+						payload.authentications = ['password']
+						payload.partial_success = False
+						await self.send_enc_packet(payload)
+						continue
+
+					else:
+						payload = SSH_MSG_USERAUTH_FAILURE()
+						payload.authentications = ['password']
+						payload.partial_success = False
+						await self.send_enc_packet(payload)
+						continue
+				else:
+					if msg.payload.service_name == 'ssh-userauth':
+						p = SSH_MSG_SERVICE_ACCEPT()
+						p.service_name = msg.payload.service_name
+						await self.send_enc_packet(p)
+						
+						continue
+					else:
+						raise Exception('Not supported service! %s' % msg.payload.service_name)
+						break
+					

@@ -204,14 +204,18 @@ class SSHPacket:
 		if not cipher:
 			align = 8
 			payload = self.payload.to_bytes()
-			padlen = 3 + align - ((len(payload) + 8) % align) #len(payload) + 1 + 4
-			#nopad_size = 3 + align - ((len(payload) + 8) % align) #len(payload) + 1 + 4
-			#padlen = align - divmod(nopad_size, align)[1]
+			padlen = 3 + align - ((len(payload) + 8) % align)
+			random_padding = os.urandom(padlen)
+			packet_length = len(payload) + len(random_padding)  + 1
+			return packet_length.to_bytes(4, byteorder="big", signed = False) + len(random_padding).to_bytes(1, byteorder="big", signed = False) + payload + random_padding
+		else:
+			align = cipher.get_server_cipher_blocksize()
+			payload = self.payload.to_bytes()
+			padlen = 3 + align - ((len(payload) + 8) % align)
 			random_padding = os.urandom(padlen)
 			packet_length = len(payload) + len(random_padding)  + 1
 			
 			return packet_length.to_bytes(4, byteorder="big", signed = False) + len(random_padding).to_bytes(1, byteorder="big", signed = False) + payload + random_padding
-		
 		
 	def __repr__(self):
 		return str(self)
@@ -524,6 +528,12 @@ class SSH_MSG_SERVICE_REQUEST:
 		msg.service_name = SSHstring.from_buff(buff)
 		return msg
 
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.service_name)
+		return data
+
 class SSH_MSG_SERVICE_ACCEPT:
 	def __init__(self):
 		self.packet_type = SSHMessageNumber.SSH_MSG_SERVICE_ACCEPT
@@ -540,6 +550,145 @@ class SSH_MSG_SERVICE_ACCEPT:
 		msg.service_name = SSHstring.from_buff(buff)
 		return msg
 
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.service_name)
+		return data
+
+class SSH_MSG_USERAUTH_REQUEST_PW_METHOD:
+	def __init__(self):
+		self.is_pwchange = None
+		self.password = None
+		self.newpassword = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_USERAUTH_REQUEST_PW_METHOD.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_USERAUTH_REQUEST_PW_METHOD()
+		msg.is_pwchange = bool(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
+		msg.password = SSHstring.from_buff(buff)
+		if msg.is_pwchange == True:
+			msg.newpassword = SSHstring.from_buff(buff)
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += int(self.is_pwchange).to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.password)
+		if self.is_pwchange == True:
+			data += SSHstring.to_bytes(self.newpassword)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_USERAUTH_REQUEST_PW_METHOD ====\r\n'
+		t += 'is_pwchange : %s\r\n' % self.is_pwchange
+		t += 'password : %s\r\n' % self.password
+		if self.is_pwchange == True:
+			t += 'newpassword : %s\r\n' % self.newpassword
+		return t
+
+class SSH_MSG_USERAUTH_REQUEST:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_USERAUTH_REQUEST
+		self.user_name = None
+		self.service_name = None
+		self.method_name = None
+		self.method = None #this can be an object or None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_USERAUTH_REQUEST.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_USERAUTH_REQUEST()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.user_name = SSHstring.from_buff(buff)
+		msg.service_name = SSHstring.from_buff(buff)
+		msg.method_name = SSHstring.from_buff(buff)
+		if msg.method_name == 'password':
+			msg.method = SSH_MSG_USERAUTH_REQUEST_PW_METHOD.from_buffer(buff)
+		#TODO: the other types https://tools.ietf.org/html/rfc4252#section-6
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.user_name)
+		data += SSHstring.to_bytes(self.service_name)
+		data += SSHstring.to_bytes(self.service_name)
+		data += SSHstring.to_bytes(self.method_name)
+		if self.method:
+			data += self.method.to_bytes()
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_USERAUTH_REQUEST ====\r\n'
+		t += 'packet_type : %s\r\n' % self.packet_type
+		t += 'user_name : %s\r\n' % self.user_name
+		t += 'service_name : %s\r\n' % self.service_name
+		t += 'method_name : %s\r\n' % self.method_name
+		t += 'method : %s\r\n' % self.method
+		return t
+
+class SSH_MSG_USERAUTH_FAILURE:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_USERAUTH_FAILURE
+		self.authentications = []
+		self.partial_success = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_USERAUTH_FAILURE.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_USERAUTH_FAILURE()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.authentications = NameList.from_buff(buff)
+		msg.partial_success = bool(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += NameList.to_bytes(self.authentications)
+		data += int(self.partial_success).to_bytes(1, byteorder = 'big', signed = False)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_USERAUTH_FAILURE ====\r\n'
+		t += 'authentications : %s\r\n' % ','.join(self.authentications)
+		t += 'partial_success : %s\r\n' % self.partial_success
+		return t
+
+class SSH_MSG_USERAUTH_SUCCESS:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_USERAUTH_SUCCESS
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_USERAUTH_SUCCESS.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_USERAUTH_SUCCESS()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_USERAUTH_SUCCESS ====\r\n'
+		return t
+
 type2msg = {
 	SSHMessageNumber.SSH_MSG_DISCONNECT : None, 
 	SSHMessageNumber.SSH_MSG_IGNORE : None, 
@@ -551,7 +700,11 @@ type2msg = {
 	SSHMessageNumber.SSH_MSG_NEWKEYS : SSH_MSG_NEWKEYS,
 	SSHMessageNumber.SSH2_MSG_KEXDH_INIT : SSH2_MSG_KEXDH_INIT,
 	SSHMessageNumber.SSH2_MSG_KEXDH_REPLY : SSH2_MSG_KEXDH_REPLY,
+	SSHMessageNumber.SSH_MSG_USERAUTH_REQUEST : SSH_MSG_USERAUTH_REQUEST,
+	SSHMessageNumber.SSH_MSG_USERAUTH_FAILURE : SSH_MSG_USERAUTH_FAILURE,
+	SSHMessageNumber.SSH_MSG_USERAUTH_SUCCESS : SSH_MSG_USERAUTH_SUCCESS,
 }
+
 
 dh_groups = {
 	# 2048-bit
@@ -626,6 +779,16 @@ class SSHCipher:
 		self.client_cipher = None
 		self.server_hmac = None
 		self.client_hmac = None
+		self.selected_mac_algorithm_obj = hashlib.sha1
+
+	def get_server_cipher_blocksize(self):
+		return 16
+
+	def get_server_hmac(self):
+		return hmac.new(self.s2c_integrity_key, digestmod=self.selected_mac_algorithm_obj)
+
+	def get_client_hmac(self):
+		return hmac.new(self.c2s_integrity_key, digestmod=self.selected_mac_algorithm_obj)
 		
 	def generate_server_key_rply(self):
 		msg = SSH_MSG_KEXINIT()
@@ -668,7 +831,8 @@ class SSHCipher:
 			self.x = 31337
 			self.f = pow(self.g, self.x, self.p)
 			sc = pow(client_msg.e, self.x, self.p)
-			K = MPInt.int2bytes(sc)
+			#K = MPInt.int2bytes(sc)
+			K = MPInt.int2bytes_padded(sc)
 			
 			
 			print('Shared Secret -int-: %s' % sc)
@@ -760,8 +924,7 @@ class SSHParser:
 		pass
 	
 	@staticmethod
-	async def from_streamreader(reader, cipher = None):
-		try:
+	async def from_streamreader(reader, cipher = None, sequence_number = None):
 			packet = SSHPacket()
 			if not cipher:
 				#packet is not encrypted at this point
@@ -779,7 +942,7 @@ class SSHParser:
 				packet.mac = None
 				return packet
 			else:
-				blocksize = 16
+				blocksize = cipher.get_server_cipher_blocksize() #get this info from teh cipher!!!
 				packet_length_enc = await readexactly_or_exc(reader, blocksize)
 				print(packet_length_enc)
 				packet_length_dec = cipher.client_cipher.decrypt(packet_length_enc)
@@ -788,19 +951,30 @@ class SSHParser:
 				print(packet.packet_length)
 				if packet.packet_length > MAX_PACKET_LENGTH:
 					raise Exception('SSH packet too large!')
-				data_enc = await readexactly_or_exc(reader, packet.packet_length)
+				print('readmore: %s' % (packet.packet_length - blocksize))
+				data_enc = await readexactly_or_exc(reader, packet.packet_length - blocksize + 4)
 				data = packet_length_dec[4:] + cipher.client_cipher.decrypt(data_enc)
-				packet.padding_length = data[0]
-				print(data)
-				message_type = SSHMessageNumber(data[1])
-				#print(message_type)
-				packet.payload = type2msg[message_type].from_bytes(data[1:(packet.packet_length - packet.padding_length)])
-				packet.random_padding = data[-packet.padding_length:]
-				packet.mac = await readexactly_or_exc(reader, self.client_hmac.digest_size) 
-				return packet
+				data = io.BytesIO(data)
+				packet.padding_length = data.read(1)[0]
+				message_type = SSHMessageNumber( data.read(1)[0])
+				data.seek(-1, 1)
+				packet.payload = type2msg[message_type].from_bytes(data.read(packet.packet_length - packet.padding_length - 1))
+				packet.random_padding = data.read()
+				packet.mac = await readexactly_or_exc(reader, cipher.client_hmac.digest_size)
 
-		except Exception as e:
-			print(e)
+				print(packet.random_padding.hex())
+				print(len(packet.random_padding))
+				print('mac_len %s' % len(packet.mac))
+
+				#mac = MAC(key, sequence_number || unencrypted_packet)
+				data.seek(0, 0)
+				unencrypted_packet = packet_length_dec[:4] + data.read()
+				a = cipher.get_client_hmac()
+				a.update(sequence_number +  unencrypted_packet)
+				if not hmac.compare_digest(a.digest(), packet.mac):
+					raise Exception('Client packet HMAC error!')
+
+				return packet
 			
 	@staticmethod
 	def from_bytes(data):
