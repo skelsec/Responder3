@@ -46,7 +46,10 @@ class SSH(ResponderServer):
 		self.parse_settings()
 		
 	def parse_settings(self):
-		pass
+		self.privkey_file = self.settings['privkey_file']
+		self.banner = None
+		if 'banner' in self.settings:
+			self.banner = self.settings['banner']
 
 	@r3trafficlogexception
 	async def send_enc_packet(self, payload):
@@ -79,7 +82,7 @@ class SSH(ResponderServer):
 			#read client banner
 			client_banner = await readline_or_exc(self.creader, timeout=timeout)
 			self.session.client_banner = client_banner.decode().strip()
-			print(self.session.client_banner)
+			#print(self.session.client_banner)
 			
 			#send server banner
 			self.cwriter.write(self.session.server_banner.encode()+b'\r\n')
@@ -93,7 +96,7 @@ class SSH(ResponderServer):
 		
 	@r3trafficlogexception	
 	async def key_exchange(self, msg, timeout = 1):
-			cipher = SSHCipher()
+			cipher = SSHCipher(self.privkey_file)
 			self.session.client_kxinit = msg.payload.raw
 
 			##############################################
@@ -106,7 +109,7 @@ class SSH(ResponderServer):
 			await self.send_packet(packet.payload)
 			
 			msg = await asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout = 20)
-			print(str(msg))
+			#print(str(msg))
 			
 			payload = cipher.calculate_kex(self.session.client_banner.encode(), self.session.server_banner.encode(), self.session.client_kxinit, self.session.server_kxinit, msg.payload)
 			
@@ -120,7 +123,7 @@ class SSH(ResponderServer):
 		while not self.shutdown_evt.is_set():
 			if self.session.state == 'BANNER':
 				status = await self.banner_exchange()
-				print(status)
+				#print(status)
 				if status == 'OK':
 					self.session.state = 'KEX'
 					continue
@@ -137,11 +140,11 @@ class SSH(ResponderServer):
 			else:
 				msg = result[0]
 					
-			print(str(msg))
+			#print(str(msg))
 			
 					
 			if self.session.state == 'KEX':
-				print('KEX')
+				#print('KEX')
 				cipher = await self.key_exchange(msg)
 				self.session.state = 'EXPECT_NEWKEYS'
 				continue
@@ -156,10 +159,10 @@ class SSH(ResponderServer):
 
 			elif self.session.state == 'AUTHENTICATION':
 				#here should be the atuhentication part
-				print('AUTHENTICATION')
+				#print('AUTHENTICATION')
 				if isinstance(msg.payload, SSH_MSG_USERAUTH_REQUEST):
-					print('SSH_MSG_USERAUTH_REQUEST')
-					print(msg.payload)
+					#print('SSH_MSG_USERAUTH_REQUEST')
+					#print(msg.payload)
 
 					if msg.payload.method_name.lower() == 'password':
 						cred = Credential(
