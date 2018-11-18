@@ -246,39 +246,33 @@ class HTTPRequest:
 
 	@staticmethod
 	async def from_streamreader(reader, timeout = None):
+		req = HTTPRequest()
+		firstline = await readline_or_exc(reader, timeout = timeout)
 		try:
-			req = HTTPRequest()
-			firstline = await readline_or_exc(reader, timeout = timeout)
-			try:
-				req.method, req.uri, t = firstline.decode('ascii').strip().split(' ')
-				req.version = HTTPVersion(t.upper())
-			except Exception as e:
-				raise e
+			req.method, req.uri, t = firstline.decode('ascii').strip().split(' ')
+			req.version = HTTPVersion(t.upper())
+		except Exception as e:
+			raise e
 
-			hdrs = await readuntil_or_exc(reader, b'\r\n\r\n', timeout = timeout)
-			hdrs = hdrs[:-4].decode('ascii').split('\r\n')
-			for hdr in hdrs:
-				marker = hdr.find(': ')
-				key   = hdr[:marker]
-				value = hdr[marker+2:]
-				req.header_key_lookup_table[key.lower()] = key
-				req.headers[key] = value
+		hdrs = await readuntil_or_exc(reader, b'\r\n\r\n', timeout = timeout)
+		hdrs = hdrs[:-4].decode('ascii').split('\r\n')
+		for hdr in hdrs:
+			marker = hdr.find(': ')
+			key   = hdr[:marker]
+			value = hdr[marker+2:]
+			req.header_key_lookup_table[key.lower()] = key
+			req.headers[key] = value
 
-			req.props = HTTPRequestProps.from_request(req)
+		req.props = HTTPRequestProps.from_request(req)
 
-			if req.props.content_length is None or req.props.content_length == 0:
-				return req
-
-			else:
-				req.body = await read_or_exc(reader, req.props.content_length, timeout = timeout)
-				if req.props.content_encoding is not None:
-					decompress_body(req, modify_internal=True)
+		if req.props.content_length is None or req.props.content_length == 0:
 			return req
 
-		except Exception as e:
-			if isinstance(e, R3ConnectionClosed):
-				return
-			raise e
+		else:
+			req.body = await read_or_exc(reader, req.props.content_length, timeout = timeout)
+			if req.props.content_encoding is not None:
+				decompress_body(req, modify_internal=True)
+		return req
 
 	@staticmethod
 	def from_bytes(bbuff):
