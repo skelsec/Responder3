@@ -276,7 +276,7 @@ class HTTPRequest:
 			return req
 
 		except Exception as e:
-			if isinstance(e, ConnectionClosed):
+			if isinstance(e, R3ConnectionClosed):
 				return
 			raise e
 
