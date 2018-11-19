@@ -419,9 +419,9 @@ class TrafficLog:
 		t.module = d['module']
 		t.connection = Connection.from_dict(d['connection'])
 		for date in d['data_recv']:
-			t.data_recv[datetime.datetime.fromtimestamp(date/10**3)] = bytes.fromhex(d['data_recv'][date])
+			t.data_recv[datetime.datetime.fromtimestamp(int(date)/10**3)] = bytes.fromhex(d['data_recv'][date])
 		for date in d['data_sent']:
-			t.data_sent[datetime.datetime.fromtimestamp(date/10**3)] = bytes.fromhex(d['data_sent'][date])
+			t.data_sent[datetime.datetime.fromtimestamp(int(date)/10**3)] = bytes.fromhex(d['data_sent'][date])
 		t.unconsumed_buffer = bytes.fromhex(d['unconsumed_buffer'])
 		return t
 

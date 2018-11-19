@@ -243,6 +243,7 @@ defaultports = {
 	"IMAPS": [(993, 'tcp')],
 	"SMB"  : [(445, 'tcp')],
 	"LDAP" : [(389, 'tcp')],
+	"RLOGIN" : [(513, 'tcp')],
 	"LDAPS" : [(636, 'tcp')],
 	"NBTNS": [(137, 'udp')],
 	"SOCKS5":[(1080, 'tcp')],

@@ -685,11 +685,134 @@ class SSH_MSG_USERAUTH_SUCCESS:
 		t  = '==== SSH_MSG_USERAUTH_SUCCESS ====\r\n'
 		return t
 
+class SSH_MSG_IGNORE:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_IGNORE
+		self.data = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_IGNORE.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_IGNORE()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.data = SSHBytes.from_buff(buff)
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHBytes.to_bytes(self.data)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_IGNORE ====\r\n'
+		t  = 'data: %s\r\n' % self.data
+		return t
+
+class SSH_MSG_DEBUG:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_DEBUG
+		self.always_display = None
+		self.message = None
+		self.language = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_DEBUG.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_DEBUG()
+		msg.packet_type = SSHMessageNumber(buff.read(1)[0])
+		msg.always_display = bool(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
+		msg.message = SSHstring.from_buff(buff)
+		msg.language = SSHstring.from_buff(buff)
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += int(self.always_display).to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.message)
+		data += SSHstring.to_bytes(self.language)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_DEBUG ====\r\n'
+		t  = 'always_display: %s\r\n' % self.always_display
+		t  = 'message: %s\r\n' % self.message
+		t  = 'language: %s\r\n' % self.language
+		return t
+
+class SSH_MSG_UNIMPLEMENTED:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_UNIMPLEMENTED
+		self.sequence_number = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_UNIMPLEMENTED.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_UNIMPLEMENTED()
+		msg.sequence_number = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += self.sequence_number.to_bytes(4, byteorder = 'big', signed = False)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_UNIMPLEMENTED ====\r\n'
+		t  = 'sequence_number: %s\r\n' % self.sequence_number
+		return t
+
+class SSH_MSG_DISCONNECT:
+	def __init__(self):
+		self.packet_type = SSHMessageNumber.SSH_MSG_DISCONNECT
+		self.reason_code = None
+		self.description = None
+		self.language = None
+
+	@staticmethod
+	def from_bytes(data):
+		return SSH_MSG_DISCONNECT.from_buffer(io.BytesIO(data))
+
+	@staticmethod
+	def from_buffer(buff):
+		msg = SSH_MSG_DISCONNECT()
+		msg.reason_code = int.from_bytes(buff.read(4), byteorder = 'big', signed = False)
+		msg.always_display = bool(int.from_bytes(buff.read(1), byteorder = 'big', signed = False))
+		msg.description = SSHstring.from_buff(buff)
+		msg.language = SSHstring.from_buff(buff)
+		return msg
+
+	def to_bytes(self):
+		data = b''
+		data += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		data += self.reason_code.to_bytes(1, byteorder = 'big', signed = False)
+		data += SSHstring.to_bytes(self.description)
+		data += SSHstring.to_bytes(self.language)
+		return data
+
+	def __str__(self):
+		t  = '==== SSH_MSG_DISCONNECT ====\r\n'
+		t  = 'reason_code: %s\r\n' % self.reason_code
+		t  = 'description: %s\r\n' % self.description
+		t  = 'language: %s\r\n' % self.language
+		return t
+
 type2msg = {
-	SSHMessageNumber.SSH_MSG_DISCONNECT : None, 
-	SSHMessageNumber.SSH_MSG_IGNORE : None, 
-	SSHMessageNumber.SSH_MSG_UNIMPLEMENTED : None, 
-	SSHMessageNumber.SSH_MSG_DEBUG : None, 
+	SSHMessageNumber.SSH_MSG_DISCONNECT : SSH_MSG_DISCONNECT, 
+	SSHMessageNumber.SSH_MSG_IGNORE : SSH_MSG_IGNORE, 
+	SSHMessageNumber.SSH_MSG_UNIMPLEMENTED : SSH_MSG_UNIMPLEMENTED, 
+	SSHMessageNumber.SSH_MSG_DEBUG : SSH_MSG_DEBUG, 
 	SSHMessageNumber.SSH_MSG_SERVICE_REQUEST : SSH_MSG_SERVICE_REQUEST, 
 	SSHMessageNumber.SSH_MSG_SERVICE_ACCEPT : SSH_MSG_SERVICE_ACCEPT, 
 	SSHMessageNumber.SSH_MSG_KEXINIT : SSH_MSG_KEXINIT, 

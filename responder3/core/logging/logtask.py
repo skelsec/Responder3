@@ -260,7 +260,7 @@ class LogProcessor:
 				self.proxy_file_handler.flush()
 				os.fsync(self.proxy_file_handler.fileno())
 			except Exception as e:
-				self.log_exception('Error writing proxy data to file!')
+				await self.log_exception('Error writing proxy data to file!')
 				return
 		await self.log(repr(proxydata), logging.DEBUG)
 		
@@ -282,7 +282,7 @@ class LogProcessor:
 			else:
 				await self.log_queue.put(RemoteLog(remotelog))
 		except Exception as e:
-			self.log_exception('handle_remote_log')
+			await self.log_exception('handle_remote_log')
 		
 	# this function is a duplicate, clean it up!
 	async def log_exception(self, message=None):

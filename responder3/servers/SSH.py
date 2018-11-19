@@ -140,7 +140,19 @@ class SSH(ResponderServer):
 			else:
 				msg = result[0]
 					
-			#print(str(msg))
+
+			if isinstance(msg.payload, SSH_MSG_IGNORE):
+				##############################################################
+				### MASSIVE TODO! This is a bad solution here, but I'ts late at night :(
+				#### Problem: apparently there are 2 sequence numbers, one for server and one for client
+				#### the current implementation only uses one, therefore we send one ignore back to keep sync
+				#### but this is a bad "solution"
+				#### TODO: impelemtn separate server and client sequence counter for communication!
+				payload = SSH_MSG_IGNORE()
+				payload.data = b'\x00'
+				await self.send_enc_packet(payload)
+				##############################################################
+				continue
 			
 					
 			if self.session.state == 'KEX':

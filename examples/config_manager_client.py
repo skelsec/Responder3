@@ -58,6 +58,13 @@ servers = [
 			'banner' : '=========\r\nYou are being PWNd!\r\n=========',
 		},
 	},
+	{
+		'handler'  : 'SSH',
+		'settings' : {
+			'privkey_file' : '/home/responder/Desktop/Responder3/responder3/tools/ssh_server_test_cert.priv'
+		},
+	},
+
 ]
 remote_manager = {
 	'mode' : 'CLIENT',
