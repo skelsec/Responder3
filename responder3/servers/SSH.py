@@ -140,6 +140,9 @@ class SSH(ResponderServer):
 			else:
 				msg = result[0]
 					
+			if isinstance(msg.payload, SSH_MSG_DISCONNECT):
+				await self.logger.debug('Client gracefully disconnects (SSH_MSG_DISCONNECT)')
+				return
 
 			if isinstance(msg.payload, SSH_MSG_IGNORE):
 				##############################################################
