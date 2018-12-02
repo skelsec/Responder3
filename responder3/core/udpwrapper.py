@@ -64,6 +64,31 @@ class UDPReader:
 		
 		return self.buff.read(n)
 
+	async def readline(self):
+		data = self.buff.readline()
+		self._remaining -= len(data)
+		return data
+
+	async def readuntil(self, separator=b'\n'):
+		try:
+			#ugly ugly ugly
+			pos = self.buff.tell()
+			temp = self.buff.read()
+			print(temp)
+			m =  temp.find(separator)
+			if m != -1:
+				data = temp[:m]
+				self.buff.seek(pos + m+1, 0)
+				self._remaining -= len(data)
+				return data
+			
+			else:
+				self.buff.seek(pos, 0)
+				raise Exception('Pattern not found!')
+		except Exception as e:
+			print(e)
+		
+
 	@asyncio.coroutine
 	def readexactly(self, n):
 		if n == -1:
@@ -97,28 +122,40 @@ class UDPWriter:
 	def close(self):
 		return
 
-	def get_extra_info(self, info):
+	def get_extra_info(self, info, default=None):
 		if info == 'socket':
 			return self._sock
 		elif info == 'peername':
 			return self.get_remote_address()
+		elif info == 'sockname':
+			return self.get_local_address()
+		else:
+			return default
 
 	def get_remote_address(self):
-		return self._sock.getpeername()
+		return self._addr
 
 	def get_local_address(self):
-		return self._sock.getsockname()
+		return self._laddr
 
 	@asyncio.coroutine
 	def drain(self):
 		return
 
+	"""
 	@asyncio.coroutine
 	def write(self, data, addr = None):
 		if addr is None:
 			yield from sendto(self._loop, self._sock, data, self._addr)
 		else:
 			yield from sendto(self._loop, self._sock, data, addr)
+	"""
+
+	def write(self, data, addr = None):
+		if addr is None:
+			sendto(self._loop, self._sock, data, self._addr)
+		else:
+			sendto(self._loop, self._sock, data, addr)
 
 
 class UDPClient:

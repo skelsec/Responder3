@@ -27,24 +27,32 @@ class StreamReaderLogging:
 
 	async def read(self, n=-1):
 		data = await self.reader.read(n=n)
+		if not data:
+			return data
 		self.traffic.data_recv[datetime.datetime.utcnow()] = data
 		self.last_activity = datetime.datetime.utcnow()
 		return data
 
 	async def readexactly(self, n):
 		data = await self.reader.readexactly(n)
+		if not data:
+			return data
 		self.traffic.data_recv[datetime.datetime.utcnow()] = data
 		self.last_activity = datetime.datetime.utcnow()
 		return data
 
 	async def readuntil(self, separator=b'\n'):
 		data = await self.reader.readuntil(separator=separator)
+		if not data:
+			return data
 		self.traffic.data_recv[datetime.datetime.utcnow()] = data
 		self.last_activity = datetime.datetime.utcnow()
 		return data
 
 	async def readline(self):
 		data = await self.reader.readline()
+		if not data:
+			return data
 		self.traffic.data_recv[datetime.datetime.utcnow()] = data
 		self.last_activity = datetime.datetime.utcnow()
 		return data

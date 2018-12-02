@@ -60,6 +60,10 @@ servers = [
 	},
 	{
 		'handler'    : 'RLOGIN',
+	},
+	{
+		'handler'    : 'SIP',
+		'bind_port'  : [(5066, 'udp')],
 	}
 ]
 

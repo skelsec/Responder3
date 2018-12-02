@@ -21,14 +21,11 @@ async def readexactly_or_exc(reader, n, timeout = None):
 	:type timeout: int
 	:return: bytearray
 	"""
-	try:
-		data = await asyncio.wait_for(reader.readexactly(n), timeout = timeout)
-	except:
-		raise R3ConnectionClosed()
-
-	if data == b'':
-		if reader.at_eof():
-			raise R3ConnectionClosed()
+	temp = await asyncio.gather(*[asyncio.wait_for(reader.readexactly(n), timeout = timeout)], return_exceptions=True)
+	if isinstance(temp[0], bytes):
+		return temp[0]
+	else:
+		raise temp[0]
 
 	return data
 
@@ -44,14 +41,12 @@ async def read_or_exc(reader, n, timeout = None):
 	:type timeout: int
 	:return: bytearray
 	"""
-	try:
-		data = await asyncio.wait_for(reader.read(n), timeout = timeout)
-	except:
-		raise R3ConnectionClosed()
 
-	if data == b'':
-		if reader.at_eof():
-			raise R3ConnectionClosed()
+	temp = await asyncio.gather(*[asyncio.wait_for(reader.read(n), timeout = timeout)], return_exceptions=True)
+	if isinstance(temp[0], bytes):
+		return temp[0]
+	else:
+		raise temp[0]
 
 	return data
 
@@ -67,16 +62,13 @@ async def readuntil_or_exc(reader, pattern, timeout = None):
 	:type timeout: int
 	:return: bytearray
 	"""
-	try:
-		data = await asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)
-	except:
-		raise R3ConnectionClosed()
 
-	if data == b'':
-		if reader.at_eof():
-			raise R3ConnectionClosed()
+	temp = await asyncio.gather(*[asyncio.wait_for(reader.readuntil(pattern), timeout = timeout)], return_exceptions=True)
+	if isinstance(temp[0], bytes):
+		return temp[0]
+	else:
+		raise temp[0]
 
-	return data
 
 
 async def readline_or_exc(reader, timeout = None):
@@ -88,16 +80,12 @@ async def readline_or_exc(reader, timeout = None):
 	:type timeout: int
 	:return: bytearray
 	"""
-	try:
-		data = await asyncio.wait_for(reader.readline(), timeout = timeout)
-	except:
-		raise R3ConnectionClosed()
 
-	if data == b'':
-		if reader.at_eof():
-			raise R3ConnectionClosed()
-
-	return data
+	temp = await asyncio.gather(*[asyncio.wait_for(reader.readline(), timeout = timeout)], return_exceptions=True)
+	if isinstance(temp[0], bytes):
+		return temp[0]
+	else:
+		raise temp[0]
 
 
 async def sendall(writer, data):

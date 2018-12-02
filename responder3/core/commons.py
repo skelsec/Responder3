@@ -46,14 +46,8 @@ class ConnectionFactory:
 		con = Connection()
 		con.writer = writer
 		con.connection_id = cid
-		if protocoltype == socket.SOCK_STREAM:
-			soc = writer.get_extra_info('socket')
-			con.local_ip, con.local_port   = soc.getsockname()
-			con.remote_ip, con.remote_port = soc.getpeername()
-		
-		else:
-			con.local_ip, con.local_port   = writer._laddr[:2]
-			con.remote_ip, con.remote_port = writer._addr[:2]
+		con.local_ip, con.local_port   = writer.get_extra_info('sockname')
+		con.remote_ip, con.remote_port = writer.get_extra_info('peername')
 		
 		await self.lookup_rdns(con)
 		return con
@@ -248,6 +242,8 @@ defaultports = {
 	"NBTNS": [(137, 'udp')],
 	"SOCKS5":[(1080, 'tcp')],
 	"VNC":[(5900, 'tcp')],
+	"SIP":[(5060, 'tcp')], #UDP maybe?
+	"SIPS":[(5061, 'tcp')],
 	"LLMNR": [(5355, 'udp')],
 	"MDNS" : [(5353, 'udp')],
 	"HTTPProxy":[(8080, 'tcp')],
