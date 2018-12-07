@@ -62,6 +62,12 @@ servers = [
 		'handler'    : 'RLOGIN',
 	},
 	{
+		'handler'    : 'MYSQL',
+	},
+	{
+		'handler'    : 'TNS',
+	},
+	{
 		'handler'    : 'SIP',
 		'bind_port'  : [(5066, 'udp')],
 	}

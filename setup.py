@@ -35,6 +35,7 @@ setup(
 		"certbuilder",
 		"websockets",
 		"rsa",
+		"bson",
 	],
 
 	python_requires='>=3.6',

@@ -3,3 +3,4 @@ oscrypto
 certbuilder
 websockets
 rsa
+bson
