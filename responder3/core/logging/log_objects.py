@@ -257,6 +257,9 @@ class Credential:
 	def from_json(data):
 		return Credential.from_dict(json.loads(data))
 
+	def to_credential(self):
+		return self
+
 	def __str__(self):
 		return '[%s][%s][%s][%s] %s' % (self.module, self.connection.get_local_print_address(), self.connection.get_remote_print_address(), 'CREDENTIAL', self.fullhash)
 

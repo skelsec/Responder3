@@ -43,6 +43,7 @@ class POP3Command(enum.Enum):
 	CAPA = enum.auto()
 	AUTH = enum.auto()
 	XXXX = enum.auto()
+	STLS = enum.auto()
 
 
 POP3TransactionStateCommands = [
@@ -65,6 +66,7 @@ POP3AuthorizationStateCommands = [
 	POP3Command.CAPA,
 	POP3Command.QUIT,
 	POP3Command.AUTH,
+	POP3Command.STLS,
 ]
 
 POP3UpdateStateCommands = [
@@ -152,6 +154,33 @@ class POP3CAPACmd:
 		t += 'Command : %s\r\n' % self.command.name
 		return t
 
+class POP3STLSCmd:
+	# NO ARGS
+	def __init__(self, encoding='ascii'):
+		self.encoding = encoding
+		self.command = POP3Command.STLS
+
+	def from_buffer(buff, encoding='ascii'):
+		return POP3STLSCmd.from_bytes(buff.readline(), encoding)
+
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = POP3STLSCmd()
+		cmd.command = POP3Command[bbuff]
+		return cmd
+
+	def construct():
+		cmd = POP3STLSCmd()
+		return cmd
+
+	def to_bytes(self):
+		return ('%s %s\r\n' % self.command.value).encode(self.encoding)
+
+	def __repr__(self):
+		t = '== POP3 %s Command ==\r\n' % self.command.name
+		t += 'Command : %s\r\n' % self.command.name
+		t += 'ARGS    : %s\r\n' % None
+		return t
 
 class POP3STATCmd:
 	# NO ARGS
@@ -889,4 +918,5 @@ POP3CMD = {
 	POP3Command.CAPA: POP3CAPACmd,
 	POP3Command.XXXX: POP3XXXXCmd,
 	POP3Command.AUTH: POP3AUTHCmd,
+	POP3Command.STLS: POP3STLSCmd,
 }

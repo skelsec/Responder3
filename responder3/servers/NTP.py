@@ -20,20 +20,23 @@ class NTPGlobalSession(ResponderServerGlobalSession):
 		self.refid = ipaddress.IPv4Address('127.0.0.1')
 		self.faketime = datetime.datetime.now()
 
-		self.parse_settings()
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.refid = ipaddress.IPv4Address('127.0.0.1')
+		self.faketime = datetime.datetime.now()
 
 	def parse_settings(self):
 		fmt = '%b %d %Y %H:%M'
-		###### PARSING SETTINGS IF ANY
-		if self.settings is None:
-			return
-
-		if 'refID' in self.settings:
+		if 'refid' in self.settings:
 			self.refid = ipaddress.ip_address(self.settings['refid'])
 
 		if 'faketime' in self.settings:			
-			if 'fakeTimeFmt' in self.settings:
-				fmt = self.settings['fakeTimeFmt']
+			if 'timefmt' in self.settings:
+				fmt = self.settings['timefmt']
 			
 			self.faketime = datetime.datetime.strptime(self.settings['faketime'], fmt)
 

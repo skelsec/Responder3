@@ -7,7 +7,7 @@ startup = {
 
 logsettings = {
 	'handlers' : {
-		'remote_ws':'remote_ws'
+		'remote_ws':['remote_ws',],
 	},
 	'remote_ws': {
 		'mode': 'SERVER',

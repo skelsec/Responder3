@@ -75,6 +75,7 @@ class SMTPCommand(enum.Enum):
 	NOOP = enum.auto()
 	QUIT = enum.auto()
 	AUTH = enum.auto()
+	STARTTLS = enum.auto()
 	XXXX = enum.auto() #this is a shortcut for unparsable input
 
 
@@ -463,6 +464,20 @@ class SMTPXXXXCmd:
 		t += 'data      : %s\r\n' % repr(self.data)
 		return t
 
+class SMTPSTARTTLSCmd:
+	def __init__(self):
+		self.command   = SMTPCommand.STARTTLS
+
+	@staticmethod
+	def from_bytes(bbuff, encoding='ascii'):
+		bbuff = bbuff.decode(encoding).strip()
+		cmd = SMTPSTARTTLSCmd()
+		return cmd
+
+	def __repr__(self):
+		t = '== SMTP %s Command ==\r\n' % self.command.name
+		return t
+
 
 class SMTPAUTHCmd:
 	def __init__(self):
@@ -824,5 +839,6 @@ SMTPCMD = {
 	SMTPCommand.NOOP: SMTPNOOPCmd,
 	SMTPCommand.QUIT: SMTPQUITCmd,
 	SMTPCommand.AUTH: SMTPAUTHCmd,
+	SMTPCommand.STARTTLS: SMTPSTARTTLSCmd,
 	SMTPCommand.XXXX: SMTPXXXXCmd,
 }

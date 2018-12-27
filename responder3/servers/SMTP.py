@@ -7,13 +7,14 @@ from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.SMTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.ssl import get_default_server_ctx
 
 
 class SMTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.creds = {} # {'alma':'alma2'}
-		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
+		self.salt = None
 		self.encoding = 'utf8'  # THIS CAN CHANGE ACCORING TO CLIENT REQUEST!!!
 		self.parser = SMTPCommandParser(encoding=self.encoding)
 		self.emailparser = email.parser.Parser()
@@ -22,11 +23,12 @@ class SMTPSession(ResponderServerSession):
 		self.authhandler = None
 		self.emailFrom = ''
 		self.emailTo = []
+		self.ssl_ctx = None
 
 		self.capabilities = []
-		self.helo_msg = 'Honypot SMTP at your service'
-		self.ehlo_msg = 'Honypot SMTP at your service'
-		self.log_data = False
+		self.helo_msg = None
+		self.ehlo_msg = None
+		#self.log_data = False
 
 
 	def __repr__(self):
@@ -40,14 +42,37 @@ class SMTPSession(ResponderServerSession):
 
 class SMTP(ResponderServer):
 	def init(self):
-		self.parse_settings()
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
 
-	def parse_settings(self):
-		self.session.helo_msg = 'Honypot SMTP at your service'
-		self.session.ehlo_msg = 'Honypot SMTP at your service'
+	def set_default_settings(self):
+		self.session.salt = '<1896.697170952@dbc.mtview.ca.us>' #this salt is used for CRAM-MD5
+		self.session.helo_msg = 'mx.bocisajt.com Microsoft ESMTP MAIL Service ready'
+		self.session.ehlo_msg = 'mx.bocisajt.com Microsoft ESMTP MAIL Service ready'
 		self.session.capabilities.append('SMTPUTF8')
+		self.session.capabilities.append('STARTTLS')
 		if self.session.supported_auth_types is not None:
 			self.session.capabilities.append('AUTH ' + ' '.join([a.name for a in self.session.supported_auth_types]))
+
+		self.session.ssl_ctx = get_default_server_ctx()
+
+	def parse_settings(self):
+		if 'helo_msg' in self.settings:
+			self.session.helo_msg = self.settings['helo_msg']
+			self.session.ehlo_msg = self.settings['helo_msg']
+		if 'ehlo_msg' in self.settings:
+			self.session.ehlo_msg = self.settings['ehlo_msg']
+			if not self.session.helo_msg:
+				elf.session.helo_msg = self.settings['ehlo_msg']
+		if 'salt' in self.settings:
+			self.session.salt = self.settings['salt']
+		# TODO: set atuth types from config!
+		# then comment out the following lines
+		if self.session.supported_auth_types is not None:
+			self.session.capabilities.append('AUTH ' + ' '.join([a.name for a in self.session.supported_auth_types]))
+		
 
 	async def send_data(self, data):
 		self.cwriter.write(data)
@@ -57,7 +82,7 @@ class SMTP(ResponderServer):
 	async def run(self):
 		# send hello
 		await asyncio.wait_for(
-			self.send_data(SMTPReply.construct(220, 'hello from Honeyport SMTP server %s' % self.session.salt).to_bytes()), timeout=1)
+			self.send_data(SMTPReply.construct(220, '%s %s' % (self.session.helo_msg, self.session.salt)).to_bytes()), timeout=1)
 
 		# main loop
 		while not self.shutdown_evt.is_set():
@@ -72,7 +97,7 @@ class SMTP(ResponderServer):
 			else:
 				cmd = result[0]
 
-
+			print(cmd)
 			if 'R3DEEPDEBUG' in os.environ:
 				await self.logger.debug(cmd)
 				await self.logger.debug(self.session.current_state)
@@ -100,6 +125,15 @@ class SMTP(ResponderServer):
 						self.send_data(
 							SMTPReply.construct(250, [self.session.ehlo_msg] + self.session.capabilities).to_bytes()),
 						timeout=1)
+					continue
+
+				elif cmd.command == SMTPCommand.STARTTLS:
+					self.cwriter.pause_reading()
+					await asyncio.wait_for(
+						self.send_data(
+							SMTPReply.construct(220, 'Go ahead').to_bytes()),
+						timeout=1)
+					await self.switch_ssl(self.session.ssl_ctx)
 					continue
 
 				elif cmd.command == SMTPCommand.EXPN:

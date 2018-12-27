@@ -60,6 +60,13 @@ class StreamReaderLogging:
 	def at_eof(self):
 		return self.reader.at_eof()
 
+	async def switch_ssl(self, new_transport):
+		"""
+		"""
+		self.reader._transport = new_transport
+		self.reader._over_ssl = True
+		self.traffic.data_recv[datetime.datetime.utcnow()] = b'<SSL SWITCH>'
+
 
 class StreamWriterLogging:
 	def __init__(self, writer):
@@ -97,3 +104,25 @@ class StreamWriterLogging:
 
 	async def drain(self):
 		await self.writer.drain()
+
+	def pause_reading(self):
+		self.writer.transport.pause_reading()
+
+	async def switch_ssl(self, ssl_ctx):
+		loop = asyncio.get_event_loop()
+		protocol = self.writer.transport.get_protocol()
+		new_transport = await loop.start_tls(
+			self.writer.transport, 
+			protocol, 
+			ssl_ctx, 
+			server_side=True, 
+			ssl_handshake_timeout=None
+		)
+
+		self.writer._transport = new_transport
+		self.writer._protocol._transport = new_transport
+		self.writer._over_ssl = True
+
+		self.traffic.data_sent[datetime.datetime.utcnow()] = b'<SSL SWITCH>'
+
+		return new_transport

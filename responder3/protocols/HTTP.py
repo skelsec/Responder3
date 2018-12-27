@@ -10,8 +10,8 @@ import collections
 from responder3.core.commons import *
 from responder3.core.logging.log_objects import Credential
 from responder3.core.asyncio_helpers import *
-from responder3.protocols.NTLM import NTLMAUTHHandler
-from responder3.protocols.SMB.ntstatus import *
+#from responder3.protocols.NTLM import NTLMAUTHHandler
+#from responder3.protocols.SMB.ntstatus import *
 
 
 class HTTPConnection(enum.Enum):
@@ -372,7 +372,7 @@ class HTTPResponse:
 		resp.version = httpversion
 		resp.code    = int(code)
 		if reason is None:
-			resp.reason = HTTPResponseReasons[code] if code in HTTPResponseReasons else 'Pink kittens'
+			resp.reason = HTTPResponseReasons[code] if code in HTTPResponseReasons else 'Unauthorized'
 		else:
 			resp.reason = reason
 		
@@ -397,7 +397,7 @@ class HTTPResponse:
 			self.update_header('Content-Length', int(len(t_body)))
 
 		if self.reason is None:
-			self.reason = HTTPResponseReasons[self.code] if self.code in HTTPResponseReasons else 'Pink kittens'
+			self.reason = HTTPResponseReasons[self.code] if self.code in HTTPResponseReasons else 'Unauthorized'
 
 		t = '%s %s %s\r\n' % (self.version.value, self.code, self.reason)
 		for key, value in self.headers.items():

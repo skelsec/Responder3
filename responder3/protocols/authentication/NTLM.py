@@ -10,6 +10,7 @@ from responder3.crypto.hashing import *
 from responder3.core.commons import timestamp2datetime
 from responder3.core.logging.log_objects import Credential
 from responder3.protocols.SMB.ntstatus import *
+from responder3.protocols.authentication.common import *
 
 
 # https://msdn.microsoft.com/en-us/library/cc236650.aspx
@@ -663,8 +664,8 @@ class NTLMAuthMode(enum.Enum):
 
 
 class NTLMAUTHHandler:
-	def __init__(self):
-		self.mode = NTLMAuthMode.SERVER
+	def __init__(self, mode = AUTHModuleMode.SERVER, credentials = {}):
+		self.mode = mode
 		self.use_NTLMv2            = None
 		self.use_Extended_security = None
 		self.serverTemplateName    = None
@@ -674,46 +675,33 @@ class NTLMAUTHHandler:
 		self.ntlmChallenge     = None #ntlm Challenge message to client
 		self.ntlmAuthenticate  = None #ntlm Authenticate message from client
 
-		self.verify_credentials = None #put dictionary with username password in it!
+		self.credentials = credentials
 		self.client_credentials = None 
 		self.SessionBaseKey = None
 		self.KeyExchangeKey = None
 
-	def setup(self, settings = None, verify_credentials = None):
-		if settings is None:
-			settings = {}
-		self.verify_credentials = verify_credentials
+	def setup_defaults(self):
 		self.use_NTLMv2 = True
-		if 'ntlm_downgrade' in settings:
-			self.use_NTLMv2 = not settings['ntlm_downgrade']
-
-		self.use_Extended_security = True 
-		if 'extended_security' in settings:
-			self.use_Extended_security = settings['extended_security']
-
+		self.use_Extended_security = True
 		self.serverTemplateName = 'Windows2003'
-		if 'template' in settings:
-			if settings['template']['name'].upper() == 'CUSTOM':
-				NTLMServerTemplates['CUSTOM'] = {
-					'flags'      : settings['template']['flags'],
-					'version'    : settings['template']['version'],
-					'targetinfo' : settings['template']['targetinfo'],
-					'targetname' : settings['template']['targetname'],
-				}
+		self.challenge = 'A'*16
 
-			else:
-				if settings['template']['name'] in NTLMServerTemplates:
-					self.serverTemplateName = settings['template']['name']
+	def setup(self, settings):
+		self.use_NTLMv2 = not settings['ntlm_downgrade']
+		self.use_Extended_security = settings['extended_security']
+		self.challenge = settings['challenge']
+		if settings['template']['name'].upper() == 'CUSTOM':
+			NTLMServerTemplates['CUSTOM'] = {
+				'flags'      : settings['template']['flags'],
+				'version'    : settings['template']['version'],
+				'targetinfo' : settings['template']['targetinfo'],
+				'targetname' : settings['template']['targetname'],
+			}
 
-				else:
-					raise Exception('Selected NTLM server template name not found! %s' % (settings['template']))
-
-		self.challenge = os.urandom(8).hex()
-		if 'challenge' in settings:
-			self.challenge = settings['challenge']
-
-		return
-
+		else:
+			if settings['template']['name'] in NTLMServerTemplates:
+				self.serverTemplateName = settings['template']['name']
+		
 	#def calc_key_exchange_key(self, auth_cred):
 	#	if isinstance(auth_cred, netntlm_ess):
 	#		hm = hmac_md5(self.SessionBaseKey)
@@ -746,16 +734,17 @@ class NTLMAUTHHandler:
     #
 	#	return
 
-	def do_AUTH(self, authData):
+	def do_auth(self, authData):
 		if self.ntlmNegotiate is None:
 			###parse client NTLMNegotiate message
 			self.ntlmNegotiate = NTLMNegotiate.from_bytes(authData)
 			self.ntlmChallenge = NTLMChallenge.construct_from_template(self.serverTemplateName, challenge = self.challenge, ess = self.use_Extended_security)
-			return (NTStatus.STATUS_MORE_PROCESSING_REQUIRED, self.ntlmChallenge.to_bytes(), None)
+			return AuthResult.CONTINUE, self.ntlmChallenge.to_bytes()
 
 		elif self.ntlmAuthenticate is None:
 			self.ntlmAuthenticate = NTLMAuthenticate.from_bytes(authData, self.use_NTLMv2)
 			creds = NTLMCredentials.construct(self.ntlmNegotiate, self.ntlmChallenge, self.ntlmAuthenticate)
+			print(creds)
 
 			# TODO: check when is sessionkey needed and check when is singing needed, and calculate the keys!
 			# self.calc_SessionBaseKey()
@@ -764,10 +753,10 @@ class NTLMAUTHHandler:
 			#self.SessionBaseKey = auth_credential.calc_session_base_key()
 			#self.calc_key_exchange_key()
 
-			if auth_credential.verify(self.verify_credentials):
-				return NTStatus.STATUS_SUCCESS, None, creds
+			if auth_credential.verify(self.credentials):
+				return AuthResult.FAIL, auth_credential
 			else:
-				return NTStatus.STATUS_ACCOUNT_DISABLED, None, creds
+				return AuthResult.FAIL, auth_credential
 
 		else:
 			raise Exception('Too many calls to do_AUTH function!')
@@ -828,7 +817,7 @@ class NTLMCredentials:
 				creds2.domain   = ntlmAuthenticate.DomainName
 				creds2.ServerChallenge = ntlmChallenge.ServerChallenge
 				creds2.ClientResponse  = ntlmAuthenticate.LMChallenge.Response
-				return [creds, creds2]
+				return [creds2, creds]
 
 class netlm:
 	# not supported by hashcat?

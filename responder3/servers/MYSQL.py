@@ -13,10 +13,10 @@ class MYSQLSession(ResponderServerSession):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.parser = MYSQLMessageParser(self)
 		self.status = MYSQLSessionStatus.INITIAL_HANDSHAKE
-		self.server_version = '5.0.54'
-		self.server_challenge = 'A'*20 #needs to be string of 20 characters!
+		self.server_version = None
+		self.server_challenge = None #needs to be string of 20 characters!
 		self.sequence_id = 0
-		self.auth_type = MYSQLAuthType.SECURE
+		self.auth_type = None
 
 		self.username = None
 
@@ -28,7 +28,23 @@ class MYSQLSession(ResponderServerSession):
 
 class MYSQL(ResponderServer):
 	def init(self):
-		pass
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.session.server_version = '5.0.54'
+		self.session.server_challenge = 'A'*20 #needs to be string of 20 characters!
+		self.session.auth_type = MYSQLAuthType.SECURE #you may change it to PLAIN via settings, but newer versions of clients need explicit setting for plain auth to be enabled!
+
+	def parse_settings(self):
+		if 'server_version' in self.settings:
+			self.session.server_version = self.settings['server_version']
+		if 'server_challenge' in self.settings:
+			self.session.server_challenge = self.settings['server_challenge']
+		if 'auth_type' in self.settings:
+			self.session.auth_type = MYSQLAuthType(self.settings['auth_type'].upper())
 
 	async def send_data(self, data):
 		self.cwriter.write(data)

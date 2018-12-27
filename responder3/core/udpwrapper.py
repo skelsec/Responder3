@@ -74,7 +74,6 @@ class UDPReader:
 			#ugly ugly ugly
 			pos = self.buff.tell()
 			temp = self.buff.read()
-			print(temp)
 			m =  temp.find(separator)
 			if m != -1:
 				data = temp[:m]

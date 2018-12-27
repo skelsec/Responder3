@@ -94,13 +94,13 @@ class LogProcessor:
 				handlerclass = TestExtension
 				handlerclassname = 'TEST'
 			else:
-				handlerclassname = '%sHandler' % self.log_settings['handlers'][handler]
+				handlerclassname = '%sHandler' % handler
 				handlermodulename = 'responder3_log_%s' % handler.replace('-', '_').lower()
 				#handlermodulename = '%s.%s' % (handlermodulename, handlerclassname)
 				await self.log('Importing handler module: %s , %s' % (handlermodulename, handlerclassname), logging.DEBUG)
 				handlerclass = getattr(importlib.import_module(handlermodulename, handlerclassname), handlerclassname)
 
-			yield handlerclass, handler
+			yield handlerclass, handler, handlermodulename
 
 	async def setup(self):
 		"""
@@ -112,8 +112,12 @@ class LogProcessor:
 		self.create_dir_strucutre()
 
 		if 'handlers' in self.log_settings:
-			async for handlerclass, handler in self.get_handlers():
-				await self.start_extension(handlerclass, self.log_settings[self.log_settings['handlers'][handler]])
+			async for handlerclass, handler, handlermodulename in self.get_handlers():
+				for handler_config_name in self.log_settings['handlers'][handler]:
+					await self.log('Starting log plugin %s with config name %s' % (handlermodulename, handler_config_name), logging.DEBUG)
+					if handler_config_name not in self.log_settings:
+						raise Exception('Failed to load log plugin %s! Reason: Conefig name %s is not in the config file!' % (handlermodulename, handler_config_name))
+					await self.start_extension(handlerclass, self.log_settings[handler_config_name])
 
 	async def run(self):
 		try:

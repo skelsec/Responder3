@@ -241,6 +241,7 @@ defaultports = {
 	"LDAPS" : [(636, 'tcp')],
 	"NBTNS": [(137, 'udp')],
 	"SOCKS5":[(1080, 'tcp')],
+	"MSSQL":[(1433, 'tcp')],
 	"TNS":[(1521, 'tcp')],
 	"MYSQL":[(3306, 'tcp')],
 	"VNC":[(5900, 'tcp')],

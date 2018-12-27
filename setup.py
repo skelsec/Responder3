@@ -1,5 +1,8 @@
 from setuptools import setup
 
+with open('requirements.txt') as f:
+	required = f.read().splitlines()
+
 setup(
 	# Application name:
 	name="Responder3",
@@ -29,14 +32,7 @@ setup(
 	# long_description=open("README.txt").read(),
 
 	#Dependent packages (distributions)
-	install_requires=[
-		"asn1crypto",
-		"oscrypto",
-		"certbuilder",
-		"websockets",
-		"rsa",
-		"bson",
-	],
+	install_requires=required,
 
-	python_requires='>=3.6',
+	python_requires='>=3.7',
 )

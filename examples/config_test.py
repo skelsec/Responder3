@@ -33,6 +33,11 @@ servers = [
 	},
 	{
 		'handler'    : 'HTTP',
+		'settings'   : {
+			'authentication':{
+				'auth_mecha' : 'BASIC',
+			},
+		}
 	},
 	{
 		'handler'    : 'SMTP',
@@ -68,8 +73,14 @@ servers = [
 		'handler'    : 'TNS',
 	},
 	{
+		'handler'    : 'MSSQL',
+	},
+	{
+		'handler'    : 'SMB',
+	},
+	{
 		'handler'    : 'SIP',
-		'bind_port'  : [(5066, 'udp')],
+		'bind_port'  : [(5060, 'udp')],
 	}
 ]
 

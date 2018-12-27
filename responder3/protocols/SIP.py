@@ -9,6 +9,11 @@ from responder3.core.logging.log_objects import Credential
 from responder3.core.commons import read_element
 from responder3.core.asyncio_helpers import *
 
+class SIPSessionStatus:
+	UNAUTHENTICATED = enum.auto()
+	AUTHENTICATED = enum.auto()
+	AUTHFAILED  = enum.auto()
+
 class VIAHeader:
 	def __init__(self):
 		self.transport = None
@@ -61,6 +66,7 @@ class AUTHORIZATIONHeader:
 			elif tag_key.lower() == 'response':
 				self.response = tag_value
 			elif tag_key.lower() == 'algorithm':
+
 				self.algorithm = tag_value
 			elif tag_key.lower() == 'opaque':
 				self.opaque = tag_value
@@ -166,5 +172,18 @@ class SIP401Response(Response):
 		for key in ['Call-ID', 'CSeq', 'From', 'To', 'Via']:
 			resp.headers[key] = req.headers[key]
 		resp.headers['WWW-Authenticate'] = auth_data
+		resp.headers['Content-Length'] = 0
+		return resp
+
+class SIP403Response(Response):
+	def __init__(self):
+		Response.__init__(self)
+		self.sip_version = 'SIP/2.0'
+		self.status_code = '403'
+		self.reason = 'Forbidden'
+
+	@staticmethod
+	def from_request(req, auth_data):
+		resp = SIP403Response()
 		resp.headers['Content-Length'] = 0
 		return resp

@@ -30,12 +30,19 @@ class TNSPacketType(enum.Enum):
 class TNSPacket:
 	def __init__(self):
 		self.header = None
-		self.packet = None
+		self.payload = None
 
 	def to_bytes(self):
-		t = self.packet.to_bytes()
-		t = self.header.to_bytes() + t
-		return
+		data = self.payload.to_bytes()
+		if not self.header:
+			self.header = TNSHeader()
+			self.header.packet_length = len(data) + 8
+			self.header.packet_checksum = 0
+			self.header.packet_type = tnstype2class_inv[type(self.payload)]
+			self.header.flags = 0
+			self.header.checksum = 0		
+		
+		return self.header.to_bytes() + data
 
 	@staticmethod
 	def from_bytes(bbuff):
@@ -45,7 +52,7 @@ class TNSPacket:
 	def from_buffer(buff):
 		packet = TNSPacket() 
 		packet.header = TNSHeader.from_buffer(buff)
-		packet.packet = tnstype2class[packet.header.packet_type].from_buffer(buff)
+		packet.payload = tnstype2class[packet.header.packet_type].from_buffer(buff)
 		return packet
 
 	@staticmethod
@@ -77,6 +84,14 @@ class TNSHeader:
 		hdr.flags = int.from_bytes(buff.read(1),byteorder = 'big', signed = False)
 		hdr.checksum = int.from_bytes(buff.read(2),byteorder = 'big', signed = False)
 		return hdr
+
+	def to_bytes(self):
+		t  = self.packet_length.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.packet_checksum.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.packet_type.value.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.flags.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.checksum.to_bytes(2, byteorder = 'big', signed = False)
+		return t
 
 class TNSConnect:
 	def __init__(self):
@@ -161,6 +176,23 @@ class TNSAccept:
 
 		return tns
 
+	def to_bytes(self):
+		t = self.version.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.service_flags.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.sdu_size.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.maximum_tdu_size.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.byte_order.to_bytes(2, byteorder = 'big', signed = False)
+		self.data_length = len(self.data) if self.data else 0
+		t += self.data_length.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.data_offset.to_bytes(2, byteorder = 'big', signed = False)
+		t += self.flags1.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.flags2.to_bytes(1, byteorder = 'big', signed = False)
+		if self.padding:
+			t += self.padding
+		if self.data:
+			t += self.data
+		return t
+
 class TNSRefuse:
 	def __init__(self):
 		self.user_reason = None
@@ -201,6 +233,9 @@ class TNSRedirect:
 class TNSResend:
 	def __init__(self):
 		pass
+
+	def to_bytes(self):
+		return b''
 
 class TNSNull:
 	def __init__(self):
@@ -254,6 +289,11 @@ class TNSData:
 
 		return tns
 
+	def to_bytes(self):
+		t = self.flags.to_bytes(2 ,byteorder = 'big', signed = False)
+		t += self.data
+		return t
+
 class TNSMarker:
 	def __init__(self):
 		self.marker_type = None
@@ -303,3 +343,5 @@ tnstype2class = {
 	TNSPacketType.CONTROL : TNSControl,
 	TNSPacketType.UNK_15 : TNSXXX,
 }
+
+tnstype2class_inv = {v: k for k, v in tnstype2class.items()}

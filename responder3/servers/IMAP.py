@@ -8,6 +8,7 @@ from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.IMAP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.ssl import *
 
 
 class IMAPSession(ResponderServerSession):
@@ -17,13 +18,14 @@ class IMAPSession(ResponderServerSession):
 		self.parser       = IMAPCommandParser(encoding = self.encoding)
 		self.authhandler  = None
 		self.supported_versions = [IMAPVersion.IMAP, IMAPVersion.IMAP4rev1]
-		self.additional_capabilities = []
+		self.additional_capabilities = ['STARTTLS']
 		self.supported_auth_types = [IMAPAuthMethod.PLAIN]
 		self.creds = {} #None will allow everyone in
 		self.current_state = IMAPState.NOTAUTHENTICATED
-		self.welcome_message = 'hello from Honeyport IMAP server'
-		self.log_data = False
+		self.banner = None
+		#self.log_data = False
 		self.multiauth_cmd_tag = None #this is for storing the original cmd_tag in case of multiauth was performed
+		self.ssl_ctx = None
 
 	def __repr__(self):
 		t  = '== IMAPSession ==\r\n'
@@ -36,8 +38,21 @@ class IMAPSession(ResponderServerSession):
 
 class IMAP(ResponderServer):
 	def init(self):
-		pass
-		#self.parse_settings()
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.session.banner = 'The Microsoft Exchange IMAP4 service is ready.'
+		self.session.ssl_ctx = get_default_server_ctx()
+
+
+	def parse_settings(self):
+		if 'banner' in self.settings:
+			self.session.banner = self.settings['banner']
+		if 'ssl_ctx' in self.settings:
+			self.session.ssl_ctx = SSLContextBuilder.from_dict(self.settings['ssl_ctx'])
 
 	async def send_data(self, data):
 		self.cwriter.write(data)
@@ -47,7 +62,7 @@ class IMAP(ResponderServer):
 	async def run(self):
 		# send hello
 		await asyncio.wait_for(
-			self.send_data(IMAPOKResp.construct(self.session.welcome_message).to_bytes()),
+			self.send_data(IMAPOKResp.construct(self.session.banner).to_bytes()),
 			timeout = 1
 		)
 			
@@ -98,7 +113,6 @@ class IMAP(ResponderServer):
 				else:
 					return
 
-
 			if self.session.current_state == IMAPState.NOTAUTHENTICATED:
 				if cmd.command == IMAPCommand.LOGOUT:
 					await asyncio.wait_for(
@@ -107,6 +121,15 @@ class IMAP(ResponderServer):
 							timeout = 1
 					)
 					return
+
+				if cmd.command == IMAPCommand.STARTTLS:
+					self.cwriter.pause_reading()
+					await asyncio.wait_for(
+						self.send_data(IMAPOKResp.construct('Begin TLS negotiation now', cmd.tag).to_bytes()),
+						timeout = 1
+					)
+					await self.switch_ssl(self.session.ssl_ctx)
+					continue
 
 				if cmd.command == IMAPCommand.LOGIN:
 					self.session.authhandler = IMAPAuthHandler(IMAPAuthMethod.PLAIN, creds= self.session.creds)

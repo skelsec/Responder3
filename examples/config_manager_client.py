@@ -69,5 +69,5 @@ servers = [
 remote_manager = {
 	'mode' : 'CLIENT',
 	'config' : {},
-	'server_url' : 'wss://127.0.0.1:9191',	
+	'server_url' : 'ws://127.0.0.1:9191',	
 }

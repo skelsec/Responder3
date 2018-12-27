@@ -2,12 +2,14 @@ import enum
 import logging
 import asyncio
 from urllib.parse import urlparse
+import base64
 
 from responder3.core.logging.logger import *
 from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.HTTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.protocols.authentication.loader import *
 
 class HTTPProxy:
 	def __init__(self):
@@ -24,7 +26,8 @@ class HTTPSession(ResponderServerSession):
 		self.http_version = HTTPVersion.HTTP11
 		self.http_content_encoding = HTTPContentEncoding.IDENTITY
 		self.http_connect_charset = 'utf8'
-		self.http_auth_mecha = None
+		self.auth_mecha = None
+		self.auth_mecha_name = None
 		self.http_cookie = None
 		self.http_server_banner = None
 
@@ -35,12 +38,13 @@ class HTTPSession(ResponderServerSession):
 		self.close_session = asyncio.Event()
 
 
+
 	def __repr__(self):
 		t  = '== HTTPSession ==\r\n'
 		t += 'http_version:      %s\r\n' % repr(self.http_version)
 		t += 'http_content_encoding: %s\r\n' % repr(self.http_content_encoding)
 		t += 'http_connect_charset: %s\r\n' % repr(self.http_connect_charset)
-		t += 'http_auth_mecha: %s\r\n' % repr(self.http_auth_mecha)
+		t += 'auth_mecha: %s\r\n' % repr(self.auth_mecha)
 		t += 'http_cookie:       %s\r\n' % repr(self.http_cookie)
 		t += 'http_server_banner: %s\r\n' % repr(self.http_server_banner)
 		t += 'mode:     %s\r\n' % repr(self.server_mode)
@@ -53,31 +57,17 @@ class HTTP(ResponderServer):
 		self.parse_settings()
 
 	def parse_settings(self):
-		print('Settings: %s' % self.settings)
 		if self.settings is None:
 			# default settings, basically just NTLM auth
 			self.session.server_mode = HTTPServerMode.CREDSTEALER
-			self.session.http_auth_mecha   = HTTPNTLMAuth(verify_creds = None)
+			self.session.auth_mecha_name, self.session.auth_mecha  = AuthMechaLoader.from_dict({'auth_mecha':'NTLM'})
 
 		else:
 			if 'mode' in self.settings:
 				self.session.server_mode = HTTPServerMode(self.settings['mode'].upper())
 
 			if 'authentication' in self.settings:
-				# supported authentication mechanisms
-				if self.settings['authentication']['authmecha'].upper() == 'NTLM':
-					self.session.http_auth_mecha   = HTTPNTLMAuth(
-						verify_creds = self.settings['authentication'].get('cerdentials'),
-						ntlm_settings = self.settings['authentication'].get('settings')
-					)
-				
-				elif self.settings['authentication']['authmecha'].upper() == 'BASIC':
-					self.session.http_auth_mecha = HTTPBasicAuth(
-						verify_creds=self.settings['authentication'].get('cerdentials')
-					)
-
-				else:
-					raise Exception('Unsupported HTTP authentication mechanism: %s' % (self.settings['authentication']['authmecha']))
+				self.session.auth_mecha_name, self.session.auth_mecha = AuthMechaLoader.from_dict(self.settings['authentication'])
 
 	async def parse_message(self, timeout = None):
 		try:
@@ -231,25 +221,55 @@ class HTTP(ResponderServer):
 				raise result[0]
 			else:
 				req = result[0]
-
-			if 'R3DEEPDEBUG' in os.environ:
-				await self.logger.debug(req)
-				await self.logger.debug(repr(self.session))
 				
-			if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.http_auth_mecha is None:
+			if self.session.current_state == HTTPState.UNAUTHENTICATED and self.session.auth_mecha is None:
 				self.session.current_state = HTTPState.AUTHENTICATED
 			
 			if self.session.current_state == HTTPState.UNAUTHENTICATED:
-				await self.session.http_auth_mecha.do_AUTH(req, self)
+				auth_header_key = 'Authorization' if self.session.server_mode != HTTPServerMode.PROXY else 'Proxy-Authorization'
+				authline = req.headers.get(auth_header_key)
+				authdata = None
+				if authline:
+					m = authline.find(' ')
+					authdata = authline[m+1:]
+					if authline and self.session.auth_mecha_name == AuthMecha.NTLM:
+						authdata = base64.b64decode(authdata)
 
-			if self.session.current_state == HTTPState.AUTHFAILED:
-				await asyncio.wait_for(self.send_data(HTTP403Resp('Auth failed!').to_bytes()), timeout = 1)
-				self.cwriter.close()
-				return
-
-			if self.session.current_state == HTTPState.AUTHENTICATED:
-				if self.session.server_mode == HTTPServerMode.PROXY:
-					a = await asyncio.wait_for(self.httpproxy(req), timeout = None)
+				if self.session.auth_mecha_name == AuthMecha.NTLM and authdata is None:
+					if self.session.server_mode == HTTPServerMode.PROXY:
+						await self.send_data(HTTP407Resp('NTLM').to_bytes())
+					else:
+						await self.send_data(HTTP401Resp('NTLM').to_bytes())
+					continue
 				else:
-					await asyncio.wait_for(self.send_data(HTTP200Resp().to_bytes()), timeout = 1)
+					status, data = self.session.auth_mecha.do_auth(authdata)
+
+				if status == AuthResult.OK or status == AuthResult.FAIL:
+					await self.logger.credential(data.to_credential())
+				
+				if status == AuthResult.OK:
+					self.session.current_state = HTTPState.AUTHENTICATED
+					if self.session.server_mode == HTTPServerMode.PROXY:
+						await self.httpproxy(req)
+					else:
+						await self.send_data(HTTP200Resp().to_bytes())
+						return
+				
+				elif status == AuthResult.FAIL:
+					self.session.current_state = HTTPState.AUTHFAILED
+					await self.send_data(HTTP403Resp('Auth failed!').to_bytes())
 					return
+				
+				elif status == AuthResult.CONTINUE:
+					rdata = self.session.auth_mecha_name.name
+					if data is not None:
+						if self.session.auth_mecha_name == AuthMecha.NTLM:
+							rdata += ' %s' % base64.b64encode(data).decode()
+						else:
+							rdata += ' %s' % data
+					
+					if self.session.server_mode == HTTPServerMode.PROXY:
+						await self.send_data(HTTP407Resp(rdata).to_bytes())
+					else:
+						await self.send_data(HTTP401Resp(rdata).to_bytes())
+					continue

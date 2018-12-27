@@ -13,6 +13,7 @@ class TELNETSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.parser = TELNETMessageParser(self)
+		self.banner = None
 
 	def __repr__(self):
 		t = '== TELNET Session ==\r\n'
@@ -21,12 +22,17 @@ class TELNETSession(ResponderServerSession):
 
 class TELNET(ResponderServer):
 	def init(self):
-		self.banner = ''
-		self.username = None
-		self.password = None
-		
-		if self.settings and 'banner' in self.settings:
-			self.banner = self.settings['banner']
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.session.banner = ''
+
+	def parse_settings(self):
+		if 'banner' in self.settings:
+			self.session.banner = self.settings['banner']
 		
 	async def send_data(self, data, timeout = None):
 		self.cwriter.write(data) # data must be bytes
@@ -56,8 +62,8 @@ class TELNET(ResponderServer):
 
 			if isinstance(data, bytes):
 				#extended options list, not handled bc it's a dumb server
-				if self.banner:
-					await self.send_message(self.banner)
+				if self.session.banner:
+					await self.send_message(self.session.banner)
 				await self.send_message('Username: ')
 				continue
 			if not self.username:

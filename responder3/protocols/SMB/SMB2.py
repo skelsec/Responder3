@@ -592,7 +592,10 @@ class NEGOTIATE_REPLY:
 		cmd.ServerStartTime = ServerStartTime
 		cmd.SecurityBufferOffset = ppos + 64
 		cmd.SecurityBufferLength = len(data)
-		cmd.NegotiateContextOffset = cmd.SecurityBufferOffset + cmd.SecurityBufferLength ##WARNING! THIS SHOULD BE PADDED!!!!!
+		if NegotiateContextList == []:
+			cmd.NegotiateContextOffset = 0
+		else:
+			cmd.NegotiateContextOffset = cmd.SecurityBufferOffset + cmd.SecurityBufferLength ##WARNING! THIS SHOULD BE PADDED!!!!!
 		cmd.Buffer = data
 		cmd.NegotiateContextList = NegotiateContextList
 
@@ -615,6 +618,7 @@ class NEGOTIATE_REPLY:
 
 		t += self.SecurityBufferOffset.to_bytes(2, byteorder = 'little', signed=False)
 		t += self.SecurityBufferLength.to_bytes(2, byteorder = 'little', signed=False)
+		print(self.NegotiateContextOffset)
 		t += self.NegotiateContextOffset.to_bytes(4, byteorder = 'little', signed=False)
 		t += self.Buffer
 

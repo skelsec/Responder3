@@ -4,3 +4,4 @@ recursive-include responder3/protocols *
 recursive-include responder3/servers *
 recursive-include responder3/tools *
 recursive-include responder3/core *
+include requirements.txt

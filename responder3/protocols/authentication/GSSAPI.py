@@ -1,6 +1,7 @@
 import pprint
 from asn1crypto.core import ObjectIdentifier,Choice, Any, SequenceOf, BitString, Sequence, GeneralString, OctetString, Enumerated
-from responder3.protocols.NTLM import *
+from responder3.protocols.authentication.NTLM import *
+from responder3.protocols.authentication.common import *
 
 ##Meterial used:
 ##https://msdn.microsoft.com/en-us/library/cc247039.aspx
@@ -121,7 +122,8 @@ class GSSAPI(Sequence):
 	}
 
 class GSSAPIAuthHandler():
-	def __init__(self):
+	def __init__(self, auth_settings = None):
+		self.auth_handler_settings = auth_settings
 		self.supported_authtypes = None
 		self.common_authtypes = None
 		self.chosen_authtype = None
@@ -131,16 +133,22 @@ class GSSAPIAuthHandler():
 		self.negTokenResp = None
 		self.app = None
 
-	def do_AUTH(self, asn1_blob = None, smbv1 = False):
+	def do_auth(self, asn1_blob = None, smbv1 = False):
 
 		if asn1_blob is None:
 			self.negTokenInit = {}
 			self.negTokenInit['mechTypes'] = [MechType('1.3.6.1.4.1.311.2.2.10')]
-			
-			if not smbv1:
+				
+			"""
+			if smbv1 == True:
 				self.negTokenInit['negHints']  = NegHints({'hintName': 'testserver@testdomain.local', 'hintAddress':b'bela'})
 			else:
 				self.negTokenInit['negHints']  = NegHints({'hintName': 'testserver@testdomain.local'})
+			"""
+			#self.negTokenInit['negHints']  = NegHints({'hintName': 'not_defined_in_RFC4178@please_ignore', 'hintAddress':b'bela'})
+			self.negTokenInit['negHints']  = NegHints({'hintName': 'not_defined_in_RFC4178@please_ignore'})
+			#self.negTokenInit['negHints']  = NegHints({'hintName': 'not_defined_in_RFC4178@please_ignore'})
+			
 
 			self.aaa = NegotiationToken({'NegTokenInit2':self.negTokenInit})
 
@@ -160,11 +168,15 @@ class GSSAPIAuthHandler():
 
 				if self.app.native['value']['NegotiationToken']['mechTypes'][0] == 'NTLMSSP - Microsoft NTLM Security Support Provider':
 					self.authHandler = NTLMAUTHHandler()
-					self.authHandler.setup()
+					if self.auth_handler_settings and 'NTLM' in self.auth_handler_settings:
+						self.authHandler.setup(self.auth_handler_settings['NTLM'])
+					else:
+						self.authHandler.setup_defaults()
 				else:
 					raise Exception('Unknown GSSAPI authentication type')
 
-				status, responseData, creds = self.authHandler.do_AUTH(self.app.native['value']['NegotiationToken']['mechToken'])
+				status, responseData = self.authHandler.do_auth(self.app.native['value']['NegotiationToken']['mechToken'])
+				print(responseData)
 
 				self.negTokenResp_server = {}
 				self.negTokenResp_server['negState'] = negState(1)
@@ -174,13 +186,14 @@ class GSSAPIAuthHandler():
 
 				#spnego = SPNEGO({'NegotiationToken': t})
 
-				return (status, t.dump(), creds)
+				return (status, t.dump(), None)
 
 			else:
 				self.negTokenResp = NegotiationToken.load(asn1_blob)
 
-				status, responseData, creds = self.authHandler.do_AUTH(self.negTokenResp.native['responseToken'])
+				status, data = self.authHandler.do_auth(self.negTokenResp.native['responseToken'])
 
+				# TODO: currently it sends back static, but it's not good!
 				t = NegotiationToken({'negTokenResp': negTokenResp({'negState':  negState(0)})})
 
-				return (status, t.dump(), creds)
+				return (status, t.dump(), data)

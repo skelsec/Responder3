@@ -6,6 +6,7 @@ from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.POP3 import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
+from responder3.core.ssl import *
 
 
 class POP3Session(ResponderServerSession):
@@ -15,11 +16,11 @@ class POP3Session(ResponderServerSession):
 		self.parser = POP3CommandParser(encoding=self.encoding)
 		self.authhandler = None
 		self.supported_auth_types = [POP3AuthMethod.PLAIN, POP3AuthMethod.APOP, POP3AuthMethod.AUTH]
-		self.creds = {'alma':'alma2'}
-		self.salt = '<1896.697170952@dbc.mtview.ca.us>'
+		self.creds = {}
+		self.salt = None
 		self.current_state = POP3State.AUTHORIZATION
-		self.log_data = False
-		self.welcome_message = 'hello from Honeypot POP3 server'
+		#self.log_data = False
+		self.banner = None
 
 	def __repr__(self):
 		t = '== POP3 Session ==\r\n'
@@ -32,9 +33,24 @@ class POP3Session(ResponderServerSession):
 
 class POP3(ResponderServer):
 	def init(self):
-		pass
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
 
-	# self.parse_settings()
+	def set_default_settings(self):
+		self.session.banner = 'Microsoft Exchange 2003 POP3 server version 6.0.4417.0 (bocisajt.com) ready.'
+		self.session.ssl_ctx = get_default_server_ctx()
+		self.session.salt = '<1896.697170952@dbc.mtview.ca.us>'
+
+	def parse_settings(self):
+		if 'banner' in self.settings:
+			self.session.banner = self.settings['banner']
+		if 'ssl_ctx' in self.settings:
+			self.session.ssl_ctx = SSLContextBuilder.from_dict(self.settings['ssl_ctx'])
+		if 'salt' in self.settings:
+			self.session.salt = self.settings['salt']
+
 
 	async def send_data(self, data):
 		self.cwriter.write(data)
@@ -46,7 +62,7 @@ class POP3(ResponderServer):
 		await asyncio.wait_for(
 			self.send_data(
 				POP3OKResp.construct(
-					'%s %s' % (self.session.welcome_message, self.session.salt)).to_bytes()
+					'%s %s' % (self.session.banner, self.session.salt)).to_bytes()
 				),
 				timeout=1
 		)
@@ -70,7 +86,7 @@ class POP3(ResponderServer):
 
 			if self.session.current_state == POP3State.AUTHORIZATION:
 				if cmd.command in POP3AuthorizationStateCommands:
-					capas = ['Capability list follows','USER','.']
+					capas = ['Capability list follows','STLS', 'USER','.']
 					if cmd.command == POP3Command.CAPA:
 						await asyncio.wait_for(
 							self.send_data(POP3OKResp.construct('\r\n'.join(capas)).to_bytes()),
@@ -82,6 +98,14 @@ class POP3(ResponderServer):
 							self.send_data(POP3OKResp.construct('').to_bytes()),
 							timeout=1)
 						return
+
+					elif cmd.command == POP3Command.STLS:
+						self.cwriter.pause_reading()
+						await asyncio.wait_for(
+							self.send_data(POP3OKResp.construct('Begin TLS negotiation').to_bytes()),
+							timeout=1)
+						await self.switch_ssl(self.session.ssl_ctx)
+						continue
 					
 					else:
 						if self.session.authhandler is None:

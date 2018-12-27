@@ -229,7 +229,7 @@ class IMAPCAPABILITYResp:
 		for cap in supported_versions:
 			resp.capabilities.append(cap.name)
 		for cap in additional_capabilities:
-			resp.capabilities.append(cap.name)
+			resp.capabilities.append(cap)
 		for auth in supported_auth_types:
 			resp.capabilities.append('AUTH=%s' % auth.name)
 

@@ -14,8 +14,8 @@ class VNCSession(ResponderServerSession):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
 		self.parser = VNCMessageParser(self)
 		self.status = VNCSessionStatus.PROTOCOL_EXCH
-		self.protocolversion = 'RFB 003.008\n'
-		self.server_challenge = b'\x00' * 16
+		self.protocolversion = None
+		self.server_challenge = None
 
 	def __repr__(self):
 		t = '== VNC Session ==\r\n'
@@ -25,7 +25,22 @@ class VNCSession(ResponderServerSession):
 
 class VNC(ResponderServer):
 	def init(self):
-		pass
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.session.protocolversion = 'RFB 003.008\n'
+		self.session.server_challenge = b'\x00' * 16
+
+	def parse_settings(self):
+		if 'protocolversion' in self.settings:
+			self.session.protocolversion = self.settings['protocolversion']
+			if self.session.protocolversion[-1] != '\n':
+				self.session.protocolversion += '\n'
+		if 'server_challenge' in self.settings:
+			self.session.server_challenge = bytes.fromhex(self.settings['server_challenge'])
 
 	async def send_data(self, data):
 		self.cwriter.write(data)

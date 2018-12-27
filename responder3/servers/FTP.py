@@ -9,8 +9,6 @@ from responder3.protocols.FTP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
 
 
-
-
 class FTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
@@ -19,7 +17,7 @@ class FTPSession(ResponderServerSession):
 		self.authhandler = None
 		self.creds = {}
 		self.current_state = FTPState.AUTHORIZATION
-		self.welcome_message = 'hello from Honeypot FTP server'
+		self.banner = None
 
 	def __repr__(self):
 		t = '== FTP Session ==\r\n'
@@ -32,7 +30,17 @@ class FTPSession(ResponderServerSession):
 
 class FTP(ResponderServer):
 	def init(self):
-		pass
+		if self.settings:
+			self.parse_settings()
+			return
+		self.set_default_settings()
+
+	def set_default_settings(self):
+		self.session.banner = 'ProFTPD 1.3.5a Server (ProFTPD)'
+
+	def parse_settings(self):
+		if 'banner' in self.settings:
+			self.session.banner = self.settings['banner']
 
 	async def send_data(self, data):
 		self.cwriter.write(data)
@@ -42,7 +50,7 @@ class FTP(ResponderServer):
 	async def run(self):
 		# send hello
 		await asyncio.wait_for(
-			self.send_data(FTPReply(220, self.session.welcome_message).to_bytes()), timeout=1)
+			self.send_data(FTPReply(220, self.session.banner).to_bytes()), timeout=1)
 		
 		# main loop
 		while not self.shutdown_evt.is_set():

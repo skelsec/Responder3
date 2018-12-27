@@ -14,7 +14,7 @@ from responder3.core.asyncio_helpers import R3ConnectionClosed
 from responder3.core.commons import *
 from responder3.protocols.LDAP import *
 from responder3.core.servertemplate import ResponderServer, ResponderServerSession
-from responder3.protocols.NTLM import *
+from responder3.protocols.authentication.NTLM import *
 
 class LDAPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
@@ -217,7 +217,7 @@ class LDAP(ResponderServer):
 						continue
 							
 					elif isinstance(auth_type, SicilyNegotiate) and isinstance(self.auth_handler, NTLMAUTHHandler):
-						status, challenge, creds = self.auth_handler.do_AUTH(auth_data)
+						status, challenge, creds = self.auth_handler.do_auth(auth_data)
 						t = {
 							'resultCode' : 0,
 							'matchedDN' : challenge,
@@ -236,7 +236,7 @@ class LDAP(ResponderServer):
 						await self.cwriter.drain()
 						
 					elif isinstance(auth_type, SicilyResponse) and isinstance(self.auth_handler, NTLMAUTHHandler):
-						status, challenge, creds = self.auth_handler.do_AUTH(auth_data)
+						status, challenge, creds = self.auth_handler.do_auth(auth_data)
 						if creds:
 							for cred in creds:
 								await self.logger.credential(cred.to_credential())
