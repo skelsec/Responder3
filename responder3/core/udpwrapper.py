@@ -193,7 +193,7 @@ class UDPClient:
 		if self._socket is None:
 			self.start_socket()
 		writer = UDPWriter(self._loop, self._socket, self._raddr, self._laddr)
-		await writer.write(data)
+		writer.write(data)
 		data, addr = await recvfrom(self._loop, self._socket, 65536)
 		reader = UDPReader(data, addr)
 		return reader, writer

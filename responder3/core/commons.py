@@ -82,6 +82,7 @@ class ConnectionFactory:
 			
 		else:
 			con.remote_dns = await self.resolver.resolve(con.remote_ip)
+			print(con.remote_dns)
 			self.rdnsd[con.remote_ip] = con.remote_dns
 		
 
@@ -167,7 +168,7 @@ class Connection:
 		return str(self)
 
 	def __str__(self):
-		if self.remote_dns is not None:
+		if self.remote_dns is not None and self.remote_dns != 'NA':
 			return '[%s] %s:%d -> %s' % (self.timestamp.isoformat(), self.remote_dns, self.remote_port, self.get_local_print_address())
 		else:
 			return '[%s] %s-> %s' % (self.timestamp.isoformat(), self.get_remote_print_address(), self.get_local_print_address())

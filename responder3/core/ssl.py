@@ -165,7 +165,6 @@ class SSLContextBuilder:
 			SSLContextBuilder.load_certificates(context, sslsettings)
 			if verify_mode != VerifyMode.CERT_NONE:
 				SSLContextBuilder.load_ca_certs(context, sslsettings)
-
 		else:
 			if verify_mode != VerifyMode.CERT_NONE:
 				SSLContextBuilder.load_certificates(context, sslsettings)
