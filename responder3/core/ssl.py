@@ -163,7 +163,9 @@ class SSLContextBuilder:
 		# server_side>you need certs, if you are a client, you might need certs
 		if server_side == True:
 			SSLContextBuilder.load_certificates(context, sslsettings)
-		
+			if verify_mode != VerifyMode.CERT_NONE:
+				SSLContextBuilder.load_ca_certs(context, sslsettings)
+
 		else:
 			if verify_mode != VerifyMode.CERT_NONE:
 				SSLContextBuilder.load_certificates(context, sslsettings)

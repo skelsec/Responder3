@@ -35,7 +35,6 @@ class Responder3ClientSession:
 		while True:
 			cmd = await self.cmd_queue_in.get()
 			try:
-				print('sending command!')
 				await self.ws.send(cmd.to_json())
 			except Exception as e:
 				await self.logger.exception()
@@ -51,7 +50,6 @@ class Responder3ClientSession:
 				await self.logger.exception()
 				self.shutdown_evt.set()
 				return
-			print(rply_data)
 			try:
 				msg = self.classloader.from_json(rply_data)
 			except Exception as e:
@@ -95,7 +93,6 @@ class Responder3ManagerServer:
 		self.ssl_ctx = ssl_ctx
 		if self.ssl_ctx:
 			self.ssl_ctx = SSLContextBuilder.from_dict(ssl_ctx)
-		
 		self.clients = {} #client_id -> Responder3ClientSession
 
 	@r3exception
@@ -175,11 +172,5 @@ if __name__ == '__main__':
 	asyncio.ensure_future(print_cmd_queue(cmd_q_out))
 	loop = asyncio.get_event_loop()	
 	loop.run_until_complete(r3m.run())
-	
-	
-	
-	
-	
-	
 	
 	
