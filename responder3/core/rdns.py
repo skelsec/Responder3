@@ -34,12 +34,17 @@ class RDNS:
 				reader, writer = await asyncio.open_connection(self.server[0]['ip'], self.server[0]['port'])
 				writer.write(packet.to_bytes())
 				await writer.drain()
-				
+
 				data = await DNSPacket.from_streamreader(reader, proto = socket.SOCK_STREAM)
+				if data.Rcode == DNSResponseCode.NOERR and len(data.Answers) > 0:
+					return str(data.Answers[0].domainname)
+				else:
+					return 'NA'
+
 				return str(data.Answers[0].domainname)
 			else:
 				cli = UDPClient((self.server[0]['ip'], self.server[0]['port']))
-				
+
 				packet = DNSPacket.construct(
 							TID = tid, 
 							flags = DNSFlags.RD,
@@ -49,10 +54,13 @@ class RDNS:
 							questions= [question], 
 							proto = socket.SOCK_DGRAM
 						)
-						
-				reader, writer = await cli.run(packet.to_bytes())	
+				reader, writer = await cli.run(packet.to_bytes())
 				data = await DNSPacket.from_streamreader(reader)
-				return str(data.Answers[0].domainname)
-		
+				if data.Rcode == DNSResponseCode.NOERR and len(data.Answers) > 0:
+					return str(data.Answers[0].domainname)
+				else:
+					return 'NA'
 		except Exception as e:
+			import traceback
+			traceback.print_exc()
 			return None
