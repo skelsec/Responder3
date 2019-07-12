@@ -72,6 +72,13 @@ class StreamWriterLogging:
 	def __init__(self, writer):
 		self.writer = writer
 		self.traffic = TrafficLog()
+	
+	@property
+	def peer_address(self):
+		addr = self.writer.get_extra_info('peer_address')
+		if addr is None:
+			addr = ('0.0.0.0',0)
+		return addr
 
 	async def log_comms(self):
 		return self.traffic
@@ -79,6 +86,11 @@ class StreamWriterLogging:
 	def write(self, data):
 		self.traffic.data_sent[datetime.datetime.utcnow()] = data
 		self.writer.write(data)
+		
+	def write_broadcast(self, data, addr):
+		self.traffic.data_sent[datetime.datetime.utcnow()] = b'<BROADCAST>'
+		self.writer.write(data, addr)
+		self.traffic.data_sent[datetime.datetime.utcnow()] = data
 
 	def writelines(self, data):
 		self.traffic.data_sent[datetime.datetime.utcnow()] = data

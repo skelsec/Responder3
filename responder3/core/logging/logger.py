@@ -114,19 +114,20 @@ class Logger:
 		credential.client_rdns = self._connection.remote_dns
 		await self.logQ.put(credential)
 
-	"""
-	async def log_poisonresult(self, requestName = None, poisonName = None, poisonIP = None):
-		pr = PoisonResult()
-		pr.module = self.server_name
-		pr.target = self.session.connection.remote_ip
+	
+	async def poisonresult(self, mode, requestName = None, poisonName = None, poisonIP = None):
+		pr = PoisonResult(self._connection)
+		pr.module = self.name
+		pr.target = self._connection.remote_ip
 		pr.request_name = requestName
 		pr.request_type = None
 		pr.poison_name = poisonName
 		pr.poison_addr = poisonIP
-		pr.mode = self.settings['mode']
+		pr.mode = mode
 
-		await self.logger.poisonresult(credential)
-
+		await self.logQ.put(pr)
+	
+	"""
 	async def log_email(self, emailEntry):
 		await self.logger.email(emailEntry)
 	"""
@@ -136,12 +137,20 @@ class Logger:
 		traffic.connection = self._connection
 		await self.logQ.put(traffic)
 
-	async def proxylog(pl):
-		pl.module = self.name
-		pl.connection = self._connection
-		await self.logQ.put(pl)
+	async def proxy(self, data, laddr, raddr, is_modified = False):
+		msg = '[O]' if is_modified == False else '[M]'
+		msg += '[%s:%s -> %s:%s] %s' % (str(laddr[0]), str(laddr[1]) , str(raddr[0]), str(raddr[1]), data.hex())
+		await self.logQ.put(LogEntry(logging.INFO, self.name, msg, self._connection))
 
-	async def proxydata(proxydata):
+	async def proxydata(self, data, laddr, raddr, is_ssl, data_type, proto = 'TCP'):
+		proxydata = ProxyData()
+		proxydata.src_addr  = laddr
+		proxydata.dst_addr  = raddr
+		proxydata.proto     = proto
+		proxydata.isSSL     = is_ssl
+		proxydata.timestamp = datetime.datetime.utcnow()
+		proxydata.data_type = data_type
+		proxydata.data      = data
 		proxydata.module = self.name
 		proxydata.connection = self._connection
 		await self.logQ.put(proxydata)

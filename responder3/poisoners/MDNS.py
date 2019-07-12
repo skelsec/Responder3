@@ -32,7 +32,7 @@ class MDNSGlobalSession(ResponderServerGlobalSession):
 
 	def parse_settings(self):
 		if self.settings is None:
-			self.log(logging.INFO, 'No settings defined, adjusting to Analysis functionality!')
+			self.logger.info('No settings defined, adjusting to Analysis functionality!')
 		else:
 			#parse the poisoner mode
 			if isinstance(self.settings['mode'], str):
@@ -57,7 +57,7 @@ class MDNS(ResponderServer):
 			mcast_addr = ipaddress.ip_address('224.0.0.251')
 			sock = setup_base_socket(
 				socket_config,
-				bind_ip_override = ipaddress.ip_address('0.0.0.0') #if socket_config.platform == ResponderPlatform.WINDOWS else None
+				#bind_ip_override = ipaddress.ip_address('0.0.0.0') #if socket_config.platform == ResponderPlatform.WINDOWS else None
 			)
 			sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 255)
 			mreq = struct.pack("=4sl", mcast_addr.packed, socket.INADDR_ANY)
@@ -96,14 +96,14 @@ class MDNS(ResponderServer):
 			if msg.QR == DNSResponse.REQUEST:
 				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
-						await self.log_poisonresult(requestName = q.QNAME.name)
+						await self.logger.poisonresult(requestName = q.QNAME.name)
 				else:
 					answers = []
 					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
 							if q.QTYPE == DNSType.A or q.QTYPE == DNSType.AAAA:
 								if targetRE.match(q.QNAME.name):
-									await self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+									await self.logger.poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
 									#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
 									if ip.version == 4:
 										res = DNSAResource.construct(q.QNAME.name, ip)

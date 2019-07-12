@@ -69,7 +69,8 @@ class DHCPMessage():
 
 	async def from_streamreader(reader):
 		#running on UDP with no fragmentation possible, we just read everything from buffer and parse it
-		return DHCPMessage.from_buffer(reader.buff)
+		data = await reader.read()
+		return DHCPMessage.from_bytes(data)
 
 	def from_bytes(bbuff):
 		return DHCPMessage.from_buffer(io.BytesIO(bbuff))

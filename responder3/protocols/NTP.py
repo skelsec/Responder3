@@ -161,6 +161,10 @@ class NTPPacket():
 		self.ExtensionFields = None
 		self.KeyIdentifier = None
 		self.digest = None
+		
+	async def from_streamreader(reader):
+		data = await reader.read()
+		return NTPPacket.from_bytes(data)
 
 	def from_bytes(bbuff, protocolType = NTPProtocolType.UDP):
 		return NTPPacket.from_buffer(io.BytesIO(bbuff), protocolType)

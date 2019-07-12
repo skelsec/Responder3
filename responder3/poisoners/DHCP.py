@@ -115,8 +115,9 @@ class DHCP(ResponderServer):
 	def custom_socket(socket_config):
 		if socket_config.bind_family == 6:
 			raise Exception('DHCP server should not be run on IPv6 (requires a different protocol)')
-		sock = setup_base_socket(socket_config, bind_ip_override = ipaddress.ip_address('0.0.0.0'))
+		sock = setup_base_socket(socket_config)
 		sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+		sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0) #important to turn off reuse address (at least on windows!!!)
 		return sock
 
 	def init(self):
@@ -127,14 +128,17 @@ class DHCP(ResponderServer):
 		return msg
 
 	async def send_data(self, data, addr = None):
-		await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		return
+		
+	async def send_broadcast(self, data, addr):
+		self.cwriter.write_broadcast(data, addr)
 		return
 
 	async def run(self):
 		try:
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
-				#print(msg.dhcpmessagetype)
 				for opt in msg.options:
 						if isinstance(opt, DHCPOptHOSTNAME) == True:
 							await self.log('DHCP device hostname: %s' % opt.hostname)
@@ -145,7 +149,6 @@ class DHCP(ResponderServer):
 					return
 
 			else:
-				print(msg)
 				if msg.xid not in self.globalsession.sessions:
 					self.globalsession.sessions[msg.xid] = []
 				
@@ -170,7 +173,11 @@ class DHCP(ResponderServer):
 					if self.globalsession.offer_options is not None:
 						options += self.globalsession.offer_options
 					options.append(DHCPOptEND.construct())
-					offered_ip = next(self.globalsession.ip_pool)
+					offered_ip = None
+					if msg.xid in self.globalsession.assigned_ips:
+						offered_ip = self.globalsession.assigned_ips[msg.xid]
+					else:
+						offered_ip = next(self.globalsession.ip_pool)
 					dhcpoffer  = DHCPMessage.construct(self.globalsession.sessions[msg.xid][-1].xid, 
 						DHCPOpcode.BOOTREPLY, 
 						options, 
@@ -183,8 +190,7 @@ class DHCP(ResponderServer):
 					self.globalsession.assigned_ips[msg.xid] = offered_ip
 					self.globalsession.offer_mac[self.globalsession.sessions[msg.xid][-1].chaddr] = 0
 
-					print('Sending offer!')
-					await self.send_data(dhcpoffer.to_bytes()[:300], ('255.255.255.255', 68))
+					await self.send_broadcast(dhcpoffer.to_bytes()[:300], ('255.255.255.255', 68))
 
 				elif self.globalsession.sessions[msg.xid][-1].dhcpmessagetype == DHCPOptMessageType.DHCPREQUEST:
 
@@ -206,14 +212,12 @@ class DHCP(ResponderServer):
 							siaddr = self.globalsession.serveraddress, 
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 
-						print('Sending ACK to %s' % str(self.globalsession.assigned_ips[msg.xid]))
-						#await self.send_data(dhcpack.to_bytes(), ('255.255.255.255', 68))
-						
+						await self.logger.info('Sending ACK to %s' % str(self.globalsession.assigned_ips[msg.xid]))
 
-						if self.globalsession.sessions[msg.xid][-1].flags & DHCPFlags.B == 0 and self.cwriter._addr[0] != '0.0.0.0':
+						if self.globalsession.sessions[msg.xid][-1].flags & DHCPFlags.B == 0 and self.cwriter.peer_address[0] != '0.0.0.0':
 							await self.send_data(dhcpack.to_bytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
 						else:
-							await self.send_data(dhcpack.to_bytes(), ('255.255.255.255', 68))
+							await self.send_broadcast(dhcpack.to_bytes(), ('255.255.255.255', 68))
 						
 
 					else:
@@ -238,7 +242,7 @@ class DHCP(ResponderServer):
 							siaddr = self.globalsession.serveraddress, 
 							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 						
-						await self.send_data(dhcpnak.to_bytes(), ('255.255.255.255', 68))
+						await self.send_broadcast(dhcpnak.to_bytes(), ('255.255.255.255', 68))
 
 
 

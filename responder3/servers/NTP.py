@@ -44,7 +44,7 @@ class NTPGlobalSession(ResponderServerGlobalSession):
 class NTPSession(ResponderServerSession):
 	def __init__(self, connection, log_queue):
 		ResponderServerSession.__init__(self, connection, log_queue, self.__class__.__name__)
-		self.parser = NTPmsg
+		self.parser = NTPPacket
 
 
 class NTP(ResponderServer):
@@ -52,12 +52,14 @@ class NTP(ResponderServer):
 		pass
 		
 	async def send_data(self, data):
-		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		self.cwriter.write(data)
+		#await asyncio.wait_for(, timeout=1)
 		return
 
 	@r3trafficlogexception
 	async def run(self):
-		result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
+		try:
+			result = await asyncio.gather(*[asyncio.wait_for(self.session.parser.from_streamreader(self.creader), timeout=None)], return_exceptions=True)
 		except asyncio.CancelledError as e:
 			raise e
 		if isinstance(result[0], R3ConnectionClosed):
@@ -68,6 +70,6 @@ class NTP(ResponderServer):
 			msg = result[0]
 
 		await self.logger.info('Time request in! Spoofing time to %s' % (self.globalsession.faketime.isoformat()))
-		response = NTPmsg.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
+		response = NTPPacket.construct_fake_reply(msg.TransmitTimestamp, self.globalsession.faketime, self.globalsession.refid)
 			
 		await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)

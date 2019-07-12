@@ -21,6 +21,11 @@ class DNSGlobalSession():
 		self.settings = settings
 		self.spooftable = collections.OrderedDict()
 		self.poisonermode = PoisonerMode.ANALYSE
+		self.passthru = True
+		self.passthru_iface = None
+		self.passthru_iface_idx = None
+		self.passthru_proto = None
+		self.passthru_ip = None
 
 		self.parse_settings()
 
@@ -59,6 +64,7 @@ class DNSGlobalSession():
 			if self.poisonermode == PoisonerMode.SPOOF:
 				for entry in self.settings['spooftable']:
 					for regx in entry:
+						print(regx)
 						self.spooftable[re.compile(regx)] = ipaddress.ip_address(entry[regx])
 
 class DNSSession(ResponderServerSession):
@@ -76,7 +82,8 @@ class DNS(ResponderServer):
 
 	async def send_data(self, data, addr = None):
 		if self.listener_socket_config.bind_protocol == socket.SOCK_DGRAM:
-			await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
+			self.cwriter.write(data)
+			#await asyncio.wait_for(self.cwriter.write(data, addr), timeout=1)
 		else:
 			self.cwriter.write(data)
 			await self.cwriter.drain()
@@ -128,7 +135,7 @@ class DNS(ResponderServer):
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					await self.log_poisonresult(requestName = q.QNAME.name)
+					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name)
 
 			else:
 				answers = []
@@ -136,7 +143,7 @@ class DNS(ResponderServer):
 					for spoof_regx in self.globalsession.spooftable:
 						spoof_ip = self.globalsession.spooftable[spoof_regx]
 						if spoof_regx.match(q.QNAME.name):
-							await self.log_poisonresult(requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip)
+							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip)
 							if spoof_ip.version == 4:
 								res = DNSAResource.construct(q.QNAME.name, spoof_ip)
 							elif spoof_ip.version == 6:
@@ -165,7 +172,7 @@ class DNS(ResponderServer):
 												 response = DNSResponse.RESPONSE, 
 												 answers = answers,
 												 questions = msg.Questions,
-												 proto = self.globalsession.passthru_proto)
+												 proto = self.listener_socket_config.bind_protocol)
 			
 				await asyncio.wait_for(self.send_data(response.to_bytes()), timeout=1)
 
