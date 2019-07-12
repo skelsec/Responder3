@@ -26,7 +26,7 @@ class NBTNSGlobalSession(ResponderServerGlobalSession):
 
 	def parse_settings(self):
 		if self.settings is None:
-			self.log('No settings defined, adjusting to Analysis functionality!')
+			return
 		else:
 			# parse the poisoner mode
 			if isinstance(self.settings['mode'], str):
@@ -67,7 +67,7 @@ class NBTNS(ResponderServer):
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					await self.log_poisonresult(requestName = q.QNAME.name)
+					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 
 			else: #poisoning
 				answers = []
@@ -75,14 +75,16 @@ class NBTNS(ResponderServer):
 					for spoof_regx in self.globalsession.spooftable:
 						spoof_ip = self.globalsession.spooftable[spoof_regx]
 						if spoof_regx.match(q.QNAME.name.lower().strip()):
-							await self.log_poisonresult(requestName = q.QNAME, poisonName = str(spoof_regx), poisonIP = spoof_ip)
+							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip, request_type = q.QTYPE.name)
 							res = NBResource()
 							res.construct(q.QNAME, NBRType.NB, spoof_ip)
 							answers.append(res)
 							break
 						else:
-							print('RE %s did not match %s' % (spoof_regx, q.QNAME.name))
+							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 				
+				if anwers == []:
+					return
 				response = NBTNSPacket()
 				response.construct(
 					 TID = msg.NAME_TRN_ID, 

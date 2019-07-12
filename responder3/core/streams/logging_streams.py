@@ -75,7 +75,7 @@ class StreamWriterLogging:
 	
 	@property
 	def peer_address(self):
-		addr = self.writer.get_extra_info('peer_address')
+		addr = self.writer.get_extra_info('peername')
 		if addr is None:
 			addr = ('0.0.0.0',0)
 		return addr

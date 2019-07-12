@@ -125,9 +125,9 @@ class UDPWriter:
 		if info == 'socket':
 			return self._sock
 		elif info == 'peername':
-			return self.get_remote_address()
+			return self._addr
 		elif info == 'sockname':
-			return self.get_local_address()
+			return self._laddr
 		else:
 			return default
 

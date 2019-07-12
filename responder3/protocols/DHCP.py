@@ -2168,6 +2168,12 @@ class DHCPOptXXX():
 		opt.len = int.from_bytes(buff.read(1), byteorder = 'big', signed=False)
 		opt.data = buff.read(opt.len)
 		return opt
+		
+	def to_bytes(self):
+		t  = self.code.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.len.to_bytes(1, byteorder = 'big', signed = False)
+		t += self.data
+		return t
 
 	def __repr__(self):
 		t  = '= XXX =\r\n'

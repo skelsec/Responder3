@@ -28,36 +28,36 @@ logsettings = {
 }
 
 servers = [
-	{
-		'handler'    : 'GenericProxy',
-		'bind_family': 4,
-		'bind_port': [(443, 'tcp')],
-		'bind_ip': '5.135.2.1',
-		'bind_sslctx': {
-			'protocols'  : 'PROTOCOL_SSLv23',
-			'options'    : 'OP_CIPHER_SERVER_PREFERENCE',
-			'verify_mode': 'CERT_REQUIRED',
-			'server_side': True,
-			'ciphers'    : 'ALL',
-			'certfile'   : 'C:\\Users\\bisecur\\Desktop\\garagedoor_gh\\fake_cert.pem',
-			'keyfile'    : 'C:\\Users\\bisecur\\Desktop\\garagedoor_gh\\fake_cert.key',
-			'cafile'     : 'C:\\Users\\bisecur\\Desktop\\garagedoor_gh\\fake_ca.pem',
-				
-		},
-		'settings'   : {
-			'remote_host'      : '5.135.3.56',
-			'remote_port'      : 443,
-			'remote_sslctx'    : {
-				'protocols'  : 'PROTOCOL_SSLv23',
-				'options'    : 'OP_CIPHER_SERVER_PREFERENCE',
-				'verify_mode': 'CERT_REQUIRED',
-				'server_side': False,
-				'ciphers'    : 'ALL',
-				'certfile'   : 'C:\\Users\\bisecur\\Desktop\\garagedoor_gh\\pySecur\\pysecur3\\client.pem',
-				'keyfile'    : 'C:\\Users\\bisecur\\Desktop\\garagedoor_gh\\pySecur\\pysecur3\\client.key',
-			},
-		},
-	},
+	#{
+	#	'handler'    : 'GenericProxy',
+	#	'bind_family': 4,
+	#	'bind_port': [(443, 'tcp')],
+	#	'bind_ip': '5.135.2.1',
+	#	'bind_sslctx': {
+	#		'protocols'  : 'PROTOCOL_SSLv23',
+	#		'options'    : 'OP_CIPHER_SERVER_PREFERENCE',
+	#		'verify_mode': 'CERT_REQUIRED',
+	#		'server_side': True,
+	#		'ciphers'    : 'ALL',
+	#		'certfile'   : 'fake_cert.pem',
+	#		'keyfile'    : 'fake_cert.key',
+	#		'cafile'     : 'fake_ca.pem',
+	#			
+	#	},
+	#	'settings'   : {
+	#		'remote_host'      : '127.0.0.1',
+	#		'remote_port'      : 443,
+	#		'remote_sslctx'    : {
+	#			'protocols'  : 'PROTOCOL_SSLv23',
+	#			'options'    : 'OP_CIPHER_SERVER_PREFERENCE',
+	#			'verify_mode': 'CERT_REQUIRED',
+	#			'server_side': False,
+	#			'ciphers'    : 'ALL',
+	#			'certfile'   : 'client.pem',
+	#			'keyfile'    : 'client.key',
+	#		},
+	#	},
+	#},
     {
 		'handler'    : 'DNS',
 		'bind_family': 4,
@@ -65,10 +65,10 @@ servers = [
 			'mode'      : 'spoof',  # mode can be either analyse or spoof
 			'spooftable' : [
 				{
-					'sslbiseclan.itbcloud.de' : '5.135.2.1',
+					'pool.ntp.org' : '192.168.111.2',
 				},
-				{
-					'pool.ntp.org' : '5.135.2.1',
+                {
+					'korte.com' : '192.168.111.2',
 				},
 			],
 		},
@@ -87,7 +87,7 @@ servers = [
 		'settings'   : {
 			'mode'       : 'spoof',  # mode can be either analyse or spoof
             'subnetmask' : 'FF:FF:FF:00',
-            'ip_pool'    : '5.135.2.100-200',
+            'ip_pool'    : '192.168.111.100-200',
 		},
 	},
 	{
@@ -100,9 +100,17 @@ servers = [
 		'settings': {
 			'mode'       : 'spoof',
 			'spooftable' : {
-						'alma' : '5.135.2.1',
+						'alma' : '192.168.111.2',
 			},
 		},
+	},
+	{
+		'handler'    : 'NBTNS',
+		'bind_family': 4,
+	},
+		{
+		'handler'    : 'LDAP',
+		'bind_family': 4,
 	},
 
 ]

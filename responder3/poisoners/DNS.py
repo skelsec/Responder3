@@ -64,7 +64,6 @@ class DNSGlobalSession():
 			if self.poisonermode == PoisonerMode.SPOOF:
 				for entry in self.settings['spooftable']:
 					for regx in entry:
-						print(regx)
 						self.spooftable[re.compile(regx)] = ipaddress.ip_address(entry[regx])
 
 class DNSSession(ResponderServerSession):
@@ -135,7 +134,7 @@ class DNS(ResponderServer):
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name)
+					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 
 			else:
 				answers = []
@@ -143,17 +142,19 @@ class DNS(ResponderServer):
 					for spoof_regx in self.globalsession.spooftable:
 						spoof_ip = self.globalsession.spooftable[spoof_regx]
 						if spoof_regx.match(q.QNAME.name):
-							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip)
-							if spoof_ip.version == 4:
+							res = None
+							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(spoof_regx), poisonIP = spoof_ip, request_type = q.QTYPE.name)
+							if spoof_ip.version == 4 and q.QTYPE == DNSType.A:
 								res = DNSAResource.construct(q.QNAME.name, spoof_ip)
-							elif spoof_ip.version == 6:
+							elif spoof_ip.version == 6 and q.QTYPE == DNSType.AAAA:
 								res = DNSAAAAResource.construct(q.QNAME.name, spoof_ip)
-							else:
-								raise Exception('This IP version scares me...')
-							answers.append(res)
+							
+							if res:
+								answers.append(res)
 							break
 
 						elif self.globalsession.passthru:
+							await self.logger.poisonresult(PoisonerMode.ANALYSE, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 							#if ANY of the query names requested doesnt match our spoof table, then we ask an actual DNS server
 							#this completely overrides any match from the spooftable!
 							passthru_ans = await asyncio.wait_for(self.poll_dnsserver(msg), timeout=1)
@@ -162,6 +163,9 @@ class DNS(ResponderServer):
 							#print(passthru_ans_modified)
 							await asyncio.wait_for(self.send_data(passthru_ans_modified.to_bytes()), timeout=1)
 							return
+						
+						else:
+							await self.logger.poisonresult(PoisonerMode.ANALYSE, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 
 				if len(answers) == 0 :
 					#DNS error response should be here!

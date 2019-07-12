@@ -83,21 +83,24 @@ class LLMNR(ResponderServer):
 			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for q in msg.Questions:
-					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name)
+					await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 
 			else:
 				answers = []
 				for targetRE, ip in self.globalsession.spooftable:
 					for q in msg.Questions:
 						if targetRE.match(q.QNAME.name):
-							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
-							if ip.version == 4:
+							await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip, request_type = q.QTYPE.name)
+							res = None
+							if ip.version == 4 and q.QTYPE == DNSType.A:
 								res = DNSAResource.construct(q.QNAME.name, ip)
-							elif ip.version == 6:
+							elif ip.version == 6 and q.QTYPE == DNSType.AAAA:
 								res = DNSAAAAResource.construct(q.QNAME.name, ip)
-							else:
-								raise Exception('This IP version scares me...')
-							answers.append(res)
+
+							if res:
+								answers.append(res)
+						else:
+							await self.logger.poisonresult(PoisonerMode.ANALYSE, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 				
 				response = LLMNRPacket.construct(TID = msg.TransactionID,
 									 response = LLMNRResponse.RESPONSE, 

@@ -96,23 +96,27 @@ class MDNS(ResponderServer):
 			if msg.QR == DNSResponse.REQUEST:
 				if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 					for q in msg.Questions:
-						await self.logger.poisonresult(requestName = q.QNAME.name)
+						await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 				else:
 					answers = []
 					for targetRE, ip in self.globalsession.spooftable:
 						for q in msg.Questions:
 							if q.QTYPE == DNSType.A or q.QTYPE == DNSType.AAAA:
 								if targetRE.match(q.QNAME.name):
-									await self.logger.poisonresult(requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip)
+									await self.logger.poisonresult(self.globalsession.poisonermode, requestName = q.QNAME.name, poisonName = str(targetRE), poisonIP = ip, request_type = q.QTYPE.name)
 									#BE AWARE THIS IS NOT CHECKING IF THE QUESTION AS FOR IPV4 OR IPV6!!!
-									if ip.version == 4:
+									res = None
+									if ip.version == 4 and q.QTYPE == DNSType.A:
 										res = DNSAResource.construct(q.QNAME.name, ip)
-									elif ip.version == 6:
+									elif ip.version == 6 and q.QTYPE == DNSType.AAAA:
 										res = DNSAAAAResource.construct(q.QNAME.name, ip)
 									else:
-										raise Exception('This IP version scares me...')
+										await self.logger.poisonresult(PoisonerMode.ANALYSE, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 									#res.construct(q.QNAME, NBRType.NB, ip)
-									answers.append(res)
+									if res:
+										answers.append(res)
+								else:
+									await self.logger.poisonresult(PoisonerMode.ANALYSE, requestName = q.QNAME.name, request_type = q.QTYPE.name)
 					
 					response = DNSPacket.construct(TID = b'\x00\x00', 
 													 response  = DNSResponse.RESPONSE, 

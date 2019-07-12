@@ -128,7 +128,7 @@ class DHCP(ResponderServer):
 		return msg
 
 	async def send_data(self, data, addr = None):
-		await asyncio.wait_for(self.cwriter.write(data), timeout=1)
+		self.cwriter.write(data)
 		return
 		
 	async def send_broadcast(self, data, addr):
@@ -137,7 +137,8 @@ class DHCP(ResponderServer):
 
 	async def run(self):
 		try:
-			msg = await asyncio.wait_for(self.parse_message(), timeout=1)
+			msg = await asyncio.wait_for(self.parse_message(), timeout=1)		
+			
 			if self.globalsession.poisonermode == PoisonerMode.ANALYSE:
 				for opt in msg.options:
 						if isinstance(opt, DHCPOptHOSTNAME) == True:
@@ -201,6 +202,11 @@ class DHCP(ResponderServer):
 						options.append(DHCPOptSERVERIDENTIFIER.construct(self.globalsession.serveraddress))
 						options.append(DHCPOptIPADDRESSLEASETIME.construct(self.globalsession.leasetime))
 						options.append(DHCPOptSUBNETMASK.construct(self.globalsession.subnetmask))
+
+						options.append(DHCPOptRENEVALTIME.construct(60))
+						options.append(DHCPOptREBINDINGTIME.construct(60))
+						options.append(DHCPOptROUTERS.construct(self.globalsession.serveraddress))
+						options.append(DHCPOptDNSSERVERS.construct(self.globalsession.serveraddress))
 						if self.globalsession.ack_options is not None:
 							options += self.globalsession.ack_options
 						options.append(DHCPOptEND.construct())
@@ -222,33 +228,57 @@ class DHCP(ResponderServer):
 
 					else:
 						#a client tries to renew his already existing IP
+						#print('a client tries to renew his already existing IP')
 						requested_ip = None
 						for option in msg.options:
 							if option.code == 50:
 								requested_ip = option.address
+								print('NAK-ing client-requested IP %s' % requested_ip)
+								options = [DHCPOptDHCPMESSAGETYPE.construct(DHCPOptMessageType.DHCPNAK)]
+								options.append(DHCPOptEND.construct())
+								dhcpnak = DHCPMessage.construct(
+									self.globalsession.sessions[msg.xid][-1].xid, 
+									DHCPOpcode.BOOTREPLY, 
+									options, 
+									siaddr = self.globalsession.serveraddress, 
+									macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
+								
+								await self.send_broadcast(dhcpnak.to_bytes(), ('255.255.255.255', 68))
 						
 						if requested_ip is None:
-							#giving up here
-							return
+							#
+							# Disclaimer: I half-assed this part.
+							# 
+							#
+							self.globalsession.assigned_ips[msg.xid] = ipaddress.ip_address(self.cwriter.peer_address[0])
+							options = []
+							options.append(DHCPOptDHCPMESSAGETYPE.construct(DHCPOptMessageType.DHCPACK))
+							options.append(DHCPOptSERVERIDENTIFIER.construct(self.globalsession.serveraddress))
+							options.append(DHCPOptIPADDRESSLEASETIME.construct(self.globalsession.leasetime))
+							options.append(DHCPOptRENEVALTIME.construct(60))
+							options.append(DHCPOptREBINDINGTIME.construct(60))
+							options.append(DHCPOptSUBNETMASK.construct(self.globalsession.subnetmask))
+							options.append(DHCPOptROUTERS.construct(self.globalsession.serveraddress))
+							options.append(DHCPOptDNSSERVERS.construct(self.globalsession.serveraddress))
+							for o in msg.options:
+								if o.code in [53, 55]:
+									continue
+								options.append(o)
+							if self.globalsession.ack_options is not None:
+								options += self.globalsession.ack_options
+							options.append(DHCPOptEND.construct())
+							dhcpack = DHCPMessage.construct(
+								self.globalsession.sessions[msg.xid][-1].xid, 
+								DHCPOpcode.BOOTREPLY, 
+								options,
+								yiaddr = self.globalsession.assigned_ips[msg.xid],
+								siaddr = self.globalsession.serveraddress, 
+								macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
 
-						print('NAK-ing client-requested IP %s' % requested_ip)
+							await self.logger.info('Sending ACK to %s' % str(self.globalsession.assigned_ips[msg.xid]))
 
-						options = [DHCPOptDHCPMESSAGETYPE.construct(DHCPOptMessageType.DHCPNAK)]
-						options.append(DHCPOptEND.construct())
-						dhcpnak = DHCPMessage.construct(
-							self.globalsession.sessions[msg.xid][-1].xid, 
-							DHCPOpcode.BOOTREPLY, 
-							options, 
-							siaddr = self.globalsession.serveraddress, 
-							macaddress = self.globalsession.sessions[msg.xid][-1].chaddr)
-						
-						await self.send_broadcast(dhcpnak.to_bytes(), ('255.255.255.255', 68))
-
-
-
-				else:
-					pass
-					#print('Unknown message! %s' % repr(msg))
+							await self.send_data(dhcpack.to_bytes(), (str(self.globalsession.assigned_ips[msg.xid]), 68))
+		
 
 		except Exception as e:
 			raise e

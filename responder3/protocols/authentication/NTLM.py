@@ -686,7 +686,10 @@ class NTLMAUTHHandler:
 		self.serverTemplateName = 'Windows2003'
 		self.challenge = 'A'*16
 
-	def setup(self, settings):
+	def setup(self, settings = None):
+		if not settings:
+			self.setup_defaults()
+			return
 		self.use_NTLMv2 = not settings['ntlm_downgrade']
 		self.use_Extended_security = settings['extended_security']
 		self.challenge = settings['challenge']

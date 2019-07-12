@@ -115,12 +115,12 @@ class Logger:
 		await self.logQ.put(credential)
 
 	
-	async def poisonresult(self, mode, requestName = None, poisonName = None, poisonIP = None):
+	async def poisonresult(self, mode, requestName = None, poisonName = None, poisonIP = None, request_type = None):
 		pr = PoisonResult(self._connection)
 		pr.module = self.name
 		pr.target = self._connection.remote_ip
 		pr.request_name = requestName
-		pr.request_type = None
+		pr.request_type = request_type
 		pr.poison_name = poisonName
 		pr.poison_addr = poisonIP
 		pr.mode = mode

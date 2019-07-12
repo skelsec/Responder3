@@ -319,9 +319,9 @@ class PoisonResult:
 
 	def __str__(self):
 		if self.mode == PoisonerMode.ANALYSE:
-			return '[%s] Recieved request from IP: %s to resolve: %s' % (self.module, self.target, self.request_name)
+			return '[%s] Recieved request from IP: %s to resolve: %s type: %s' % (self.module, self.target, self.request_name, self.request_type)
 		else:
-			return '[%s] Spoofing target: %s for the request: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.poison_name, self.poison_addr)
+			return '[%s] Spoofing target: %s for the request: %s of type: %s which matched the expression %s. Spoof address %s' % (self.module, self.target, self.request_name, self.request_type, self.poison_name, self.poison_addr)
 
 
 class EmailEntry:
