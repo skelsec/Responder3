@@ -35,4 +35,9 @@ setup(
 	install_requires=required,
 
 	python_requires='>=3.7',
+	entry_points={
+		'console_scripts': [
+			'responder3 = responder3.__main__:main',
+		],
+	}
 )

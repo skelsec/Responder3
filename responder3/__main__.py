@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 import sys
 import asyncio
 from responder3.core.responder3 import Responder3
